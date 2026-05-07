@@ -17,6 +17,9 @@ RUN pnpm install --frozen-lockfile
 
 COPY . .
 
+ARG DATABASE_URL="postgresql://postgres:postgres@localhost:5432/postgres"
+ENV DATABASE_URL=$DATABASE_URL
+
 RUN pnpm --dir apps/backend exec node ./node_modules/prisma/build/index.js generate
 RUN pnpm --dir apps/backend build
 
