@@ -1,0 +1,124 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  INCOMPLETE
+  ABSENT
+}
+
+enum AccessRole {
+  ADMIN
+  EMPLOYEE
+}
+
+enum AttendanceVerificationMethod {
+  NONE
+  GPS
+  PHOTO
+}
+
+enum AttendanceVerificationLevel {
+  OK
+  WARNING
+  STRICT
+}
+
+model Employee {
+  id           String       @id @default(uuid())
+  employeeCode String?      @unique
+  employeeIdentifier String @unique
+  pinCode      String?      @unique
+  pinCodeHash  String?
+  firstName    String
+  lastName     String
+  email        String       @unique
+  role         String
+  accessRole   AccessRole   @default(EMPLOYEE)
+  passwordHash String
+  department   String?
+  isActive     Boolean      @default(true)
+  scheduleId   String?
+  schedule     Schedule?    @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  attendances  Attendance[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+model Schedule {
+  id                    String     @id @default(uuid())
+  name                  String     @unique
+  startTime             String
+  endTime               String
+  latenessMarginMinutes Int        @default(0)
+  isActive              Boolean    @default(true)
+  workDays              Json
+  employees             Employee[]
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+}
+
+model Attendance {
+  id                                String                       @id @default(uuid())
+  employeeId                        String
+  employee                          Employee                     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date                              DateTime
+  clockInAt                         DateTime?
+  clockOutAt                        DateTime?
+  outsideScheduleWork               Boolean                      @default(false)
+  scheduledExitTime                 DateTime?
+  earlyExit                         Boolean                      @default(false)
+  earlyExitMinutes                  Int                          @default(0)
+  overtimeHours                     Float                        @default(0)
+  overtimeMinutes                   Int                          @default(0)
+  lateExit                          Boolean                      @default(false)
+  absenceCount                      Int                          @default(0)
+  status                            AttendanceStatus             @default(INCOMPLETE)
+  minutesLate                       Int                          @default(0)
+  notes                             String?
+  scheduleIdSnapshot                String?
+  scheduleNameSnapshot              String?
+  scheduleStartTimeSnapshot         String?
+  scheduleEndTimeSnapshot           String?
+  scheduleWorkDaysSnapshot          Json?
+  scheduleLatenessMarginSnapshot    Int?
+  scheduleCapturedAt                DateTime?
+  checkInLatitude                   Float?
+  checkInLongitude                  Float?
+  checkInAccuracyMeters             Float?
+  checkInDistanceMeters             Int?
+  checkInVerificationMethod         AttendanceVerificationMethod @default(NONE)
+  checkInVerificationLevel          AttendanceVerificationLevel  @default(OK)
+  checkInVerificationReason         String?
+  checkInVerificationPhoto          String?
+  checkInVerificationPhotoPublicId  String?
+  checkOutLatitude                  Float?
+  checkOutLongitude                 Float?
+  checkOutAccuracyMeters            Float?
+  checkOutDistanceMeters            Int?
+  checkOutVerificationMethod        AttendanceVerificationMethod @default(NONE)
+  checkOutVerificationLevel         AttendanceVerificationLevel  @default(OK)
+  checkOutVerificationReason        String?
+  checkOutVerificationPhoto         String?
+  checkOutVerificationPhotoPublicId String?
+  createdAt                         DateTime                     @default(now())
+  updatedAt                         DateTime                     @updatedAt
+
+  @@unique([employeeId, date])
+  @@index([date])
+  @@index([checkInDistanceMeters])
+  @@index([checkInVerificationLevel])
+  @@index([checkOutDistanceMeters])
+  @@index([checkOutVerificationLevel])
+  @@index([earlyExit])
+  @@index([lateExit])
+  @@index([overtimeHours])
+  @@index([absenceCount])
+}

@@ -13,6 +13,14 @@ coverage
 .env.development.local
 .env.test.local
 .env.production.local
+**/.env
+**/.env.local
+**/.env.development
+**/.env.development.local
+**/.env.test
+**/.env.test.local
+**/.env.production
+**/.env.production.local
 
 apps/backend/prisma/dev.db
 apps/backend/prisma/dev.db-journal

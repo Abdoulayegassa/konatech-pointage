@@ -1,0 +1,53 @@
+{
+  "name": "konatech-attendance",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.26.0",
+  "engines": {
+    "node": ">=20.9.0 <23",
+    "pnpm": ">=10.0.0"
+  },
+  "scripts": {
+    "dev": "node ./scripts/dev.mjs",
+    "build": "pnpm build:backend && pnpm build:frontend",
+    "build:backend": "pnpm --dir apps/backend exec node ./node_modules/@nestjs/cli/bin/nest.js build",
+    "build:frontend": "pnpm --dir apps/frontend exec node ./node_modules/next/dist/bin/next build",
+    "typecheck": "pnpm typecheck:backend && pnpm typecheck:frontend",
+    "typecheck:backend": "pnpm --dir apps/backend exec node ./node_modules/typescript/bin/tsc --noEmit --incremental false -p tsconfig.json",
+    "typecheck:frontend": "pnpm --dir apps/frontend exec node ./node_modules/typescript/bin/tsc --noEmit --incremental false",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
+    "check": "pnpm lint && pnpm typecheck && pnpm build",
+    "validate": "pnpm format:check && pnpm prisma:generate && pnpm typecheck && pnpm lint && pnpm test:backend && pnpm build:frontend && pnpm build:backend && pnpm test:proxy",
+    "validate:backend": "pnpm prisma:generate && pnpm typecheck:backend && pnpm test:backend && pnpm build:backend",
+    "validate:frontend": "pnpm typecheck:frontend && pnpm build:frontend && pnpm test:proxy",
+    "test": "pnpm test:backend",
+    "test:backend": "pnpm --dir apps/backend exec node ./node_modules/jest/bin/jest.js --runInBand --config ./test/jest-e2e.json",
+    "test:proxy": "node ./scripts/validate-proxy.mjs",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:status": "docker compose ps",
+    "prisma:generate": "pnpm --dir apps/backend exec node ./node_modules/prisma/build/index.js generate",
+    "prisma:status": "pnpm --dir apps/backend exec node ./node_modules/prisma/build/index.js migrate status",
+    "prisma:migrate": "pnpm --dir apps/backend exec node ./node_modules/prisma/build/index.js migrate dev",
+    "prisma:migrate:deploy": "pnpm --dir apps/backend exec node ./node_modules/prisma/build/index.js migrate deploy",
+    "prisma:seed": "pnpm --dir apps/backend exec node ./node_modules/prisma/build/index.js db seed",
+    "dev:backend": "pnpm --dir apps/backend exec node ./node_modules/@nestjs/cli/bin/nest.js start --watch",
+    "dev:frontend": "pnpm --dir apps/frontend exec node ./node_modules/next/dist/bin/next dev",
+    "clean:windows": "powershell -ExecutionPolicy Bypass -File ./scripts/clean-windows.ps1",
+    "clean:windows:dev": "powershell -ExecutionPolicy Bypass -File ./scripts/clean-windows.ps1 -KillDevServers",
+    "clean:windows:prisma": "powershell -ExecutionPolicy Bypass -File ./scripts/clean-windows.ps1 -RegeneratePrisma"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@next/eslint-plugin-next": "^16.2.4",
+    "dotenv": "^17.4.2",
+    "eslint": "^10.2.1",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.5.0",
+    "prettier": "^3.8.3",
+    "typescript-eslint": "^8.59.0"
+  }
+}

@@ -1,0 +1,106 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: konatech-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-konatech_attendance}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+    ports:
+      - '${POSTGRES_PORT:-5433}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  backend:
+    profiles: ['app']
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      FRONTEND_URL: ${FRONTEND_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-konatech_attendance}?schema=public
+      JSON_BODY_LIMIT: ${JSON_BODY_LIMIT:-10mb}
+      RATE_LIMIT_TTL_MS: ${RATE_LIMIT_TTL_MS:-60000}
+      RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-300}
+      LOGIN_RATE_LIMIT_TTL_MS: ${LOGIN_RATE_LIMIT_TTL_MS:-60000}
+      LOGIN_RATE_LIMIT_MAX: ${LOGIN_RATE_LIMIT_MAX:-20}
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+      ATTENDANCE_SECURITY_ENABLED: ${ATTENDANCE_SECURITY_ENABLED:-false}
+      COMPANY_LATITUDE: ${COMPANY_LATITUDE:-}
+      COMPANY_LONGITUDE: ${COMPANY_LONGITUDE:-}
+      ATTENDANCE_TRUSTED_RADIUS_METERS: ${ATTENDANCE_TRUSTED_RADIUS_METERS:-100}
+      ATTENDANCE_WARNING_RADIUS_METERS: ${ATTENDANCE_WARNING_RADIUS_METERS:-300}
+      ATTENDANCE_ALLOWED_RADIUS_METERS: ${ATTENDANCE_ALLOWED_RADIUS_METERS:-}
+      ATTENDANCE_PDF_RENDERER: ${ATTENDANCE_PDF_RENDERER:-puppeteer}
+      ATTENDANCE_PDF_EXECUTABLE_PATH: /usr/bin/chromium
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
+      CLOUDINARY_ATTENDANCE_FOLDER: ${CLOUDINARY_ATTENDANCE_FOLDER:-konatech/attendance-verifications}
+      CLOUDINARY_UPLOAD_TIMEOUT_MS: ${CLOUDINARY_UPLOAD_TIMEOUT_MS:-10000}
+      CLOUDINARY_UPLOAD_MAX_RETRIES: ${CLOUDINARY_UPLOAD_MAX_RETRIES:-2}
+      CLOUDINARY_UPLOAD_RETRY_DELAY_MS: ${CLOUDINARY_UPLOAD_RETRY_DELAY_MS:-300}
+    ports:
+      - '${BACKEND_PORT:-4000}:4000'
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "fetch(''http://127.0.0.1:4000/api/v1/health'').then((response)=>process.exit(response.ok?0:1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  frontend:
+    profiles: ['app']
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+      args:
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
+    ports:
+      - '${FRONTEND_PORT:-3000}:3000'
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "fetch(''http://127.0.0.1:3000/api/health'').then((response)=>process.exit(response.ok?0:1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  postgres-data:
