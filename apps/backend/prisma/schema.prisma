@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
@@ -32,24 +33,24 @@ enum AttendanceVerificationLevel {
 }
 
 model Employee {
-  id           String       @id @default(uuid())
-  employeeCode String?      @unique
-  employeeIdentifier String @unique
-  pinCode      String?      @unique
-  pinCodeHash  String?
-  firstName    String
-  lastName     String
-  email        String       @unique
-  role         String
-  accessRole   AccessRole   @default(EMPLOYEE)
-  passwordHash String
-  department   String?
-  isActive     Boolean      @default(true)
-  scheduleId   String?
-  schedule     Schedule?    @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
-  attendances  Attendance[]
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  id                 String       @id @default(uuid())
+  employeeCode       String?      @unique
+  employeeIdentifier String       @unique
+  pinCode            String?      @unique
+  pinCodeHash        String?
+  firstName          String
+  lastName           String
+  email              String       @unique
+  role               String
+  accessRole         AccessRole   @default(EMPLOYEE)
+  passwordHash       String
+  department         String?
+  isActive           Boolean      @default(true)
+  scheduleId         String?
+  schedule           Schedule?    @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  attendances        Attendance[]
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
 }
 
 model Schedule {
