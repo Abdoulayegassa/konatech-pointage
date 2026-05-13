@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import { getApiBaseUrl, LoginResponse } from '@/lib/api';
+import { fetchServerApi, LoginResponse } from '@/lib/api';
+import { createBackendFailureResponse } from '@/lib/api-route';
 import {
   ATTENDANCE_ENTRY_SESSION_COOKIE_NAME,
   buildSessionCookieOptions,
@@ -51,14 +52,22 @@ export async function POST(request: Request) {
     pinCode?: string;
   };
 
-  const response = await fetch(`${getApiBaseUrl()}/auth/attendance-entry/login`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-    cache: 'no-store',
-  });
+  let response: Response;
+
+  try {
+    response = await fetchServerApi('/auth/attendance-entry/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    return createBackendFailureResponse(
+      error,
+      'Impossible de verifier ce code.',
+    );
+  }
 
   const data = (await response.json().catch(() => ({}))) as
     | LoginResponse

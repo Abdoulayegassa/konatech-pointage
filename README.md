@@ -132,6 +132,7 @@ Frontend local env: `apps/frontend/.env.local`
 
 - `NEXT_PUBLIC_APP_URL=http://localhost:3000` public frontend origin used for QR/public attendance links
 - `NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api/v1`
+- `API_BASE_URL=http://localhost:4000/api/v1` optional server-only override for Next.js route handlers and SSR; in production keep it identical to `NEXT_PUBLIC_API_BASE_URL`
 
 Production Docker env: `.env.production`
 
@@ -140,6 +141,7 @@ Production Docker env: `.env.production`
 - replace all placeholder secrets before deploy
 - `FRONTEND_URL` and `NEXT_PUBLIC_APP_URL` must match exactly
 - `NEXT_PUBLIC_API_BASE_URL` must point to the real public backend API URL
+- `API_BASE_URL`, when set, must point to the same `/api/v1` backend URL
 
 Required production variables:
 
@@ -149,6 +151,7 @@ Required production variables:
 - `FRONTEND_URL`
 - `NEXT_PUBLIC_APP_URL`
 - `NEXT_PUBLIC_API_BASE_URL`
+- `API_BASE_URL` recommended for server-side frontend calls on hosted platforms
 - `JWT_SECRET`
 - `TRUST_PROXY_HOPS`
 
@@ -164,6 +167,7 @@ Public URL rule:
 - use `localhost` only for local development
 - in production, do not leave either variable empty and do not point them to `localhost`, `127.0.0.1`, or `0.0.0.0`
 - `NEXT_PUBLIC_API_BASE_URL` must point to the real backend API origin in production and must not fall back to `localhost`
+- if `API_BASE_URL` is set, it must also point to the real backend API origin and end with `/api/v1`
 
 Backend test env: `apps/backend/.env.test`
 
@@ -267,6 +271,7 @@ cp .env.production.example .env.production
 - `FRONTEND_URL`
 - `NEXT_PUBLIC_APP_URL`
 - `NEXT_PUBLIC_API_BASE_URL`
+- `API_BASE_URL` if you want an explicit server-only frontend API origin
 
 3. Build and start the full stack:
 
@@ -292,6 +297,7 @@ Production notes:
 - if you deploy behind Nginx, Traefik, or a cloud load balancer, set `TRUST_PROXY_HOPS` to the correct trusted hop count
 - the public frontend origin must stay identical between `FRONTEND_URL` and `NEXT_PUBLIC_APP_URL`
 - the public API origin in `NEXT_PUBLIC_API_BASE_URL` must be reachable from user browsers, not just from the Docker network
+- if `API_BASE_URL` is set for the frontend container, keep it identical to `NEXT_PUBLIC_API_BASE_URL`
 - the Compose flow is intended for stable single-host deployment; HA, managed backups, and external monitoring still need infra-level handling
 
 ## PostgreSQL Backup and Restore
@@ -565,6 +571,7 @@ If `pnpm test:proxy` fails:
 - verify `apps/backend/.env` exists and contains a valid `JWT_SECRET` and `DATABASE_URL`
 - verify `apps/frontend/.env.local` exists if your frontend depends on additional local variables
 - verify `NEXT_PUBLIC_APP_URL` and `FRONTEND_URL` target the same frontend origin when you test a non-local setup
+- verify `API_BASE_URL`, when set, matches `NEXT_PUBLIC_API_BASE_URL` and still ends with `/api/v1`
 - ensure no local firewall rule is blocking temporary localhost ports
 - run `pnpm.cmd clean:windows:dev` and retry
 - if the backend boots but the frontend proxy still fails, inspect the printed logs from the validation script

@@ -1,6 +1,6 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import { getApiBaseUrl } from './api';
+import { fetchServerApi } from './api';
 import {
   ATTENDANCE_ENTRY_SESSION_COOKIE_NAME,
   SESSION_COOKIE_NAME,
@@ -55,6 +55,42 @@ async function parseErrorResponse(response: Response, fallbackMessage: string) {
   }
 }
 
+function isApiBaseUrlConfigurationError(error: unknown): error is Error {
+  return (
+    error instanceof Error &&
+    /API_BASE_URL|NEXT_PUBLIC_API_BASE_URL|NEXT_PUBLIC_APP_URL/.test(
+      error.message,
+    )
+  );
+}
+
+export function createBackendFailureResponse(
+  error: unknown,
+  fallbackMessage: string,
+) {
+  if (isApiBaseUrlConfigurationError(error)) {
+    const configurationError = error;
+
+    return NextResponse.json(
+      {
+        error: configurationError.message,
+      },
+      {
+        status: 500,
+      },
+    );
+  }
+
+  return NextResponse.json(
+    {
+      error: fallbackMessage,
+    },
+    {
+      status: 502,
+    },
+  );
+}
+
 type AuthorizedRequestOptions = {
   sessionMode?: SessionCookieMode;
 };
@@ -107,11 +143,16 @@ export async function proxyApiRequest(
     );
   }
 
-  const response = await fetch(`${getApiBaseUrl()}${path}`, {
-    ...init,
-    cache: 'no-store',
-    headers,
-  });
+  let response: Response;
+
+  try {
+    response = await fetchServerApi(path, {
+      ...init,
+      headers,
+    });
+  } catch (error) {
+    return createBackendFailureResponse(error, fallbackMessage);
+  }
 
   const data = await response.json().catch(() => ({}));
 
@@ -222,11 +263,16 @@ export async function proxyApiFileRequest(
     );
   }
 
-  const response = await fetch(`${getApiBaseUrl()}${path}`, {
-    ...init,
-    cache: 'no-store',
-    headers,
-  });
+  let response: Response;
+
+  try {
+    response = await fetchServerApi(path, {
+      ...init,
+      headers,
+    });
+  } catch (error) {
+    return createBackendFailureResponse(error, fallbackMessage);
+  }
 
   if (!response.ok) {
     if (

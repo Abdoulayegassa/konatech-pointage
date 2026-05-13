@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getApiBaseUrl } from '@/lib/api';
+import { fetchServerApi } from '@/lib/api';
+import { createBackendFailureResponse } from '@/lib/api-route';
 
 const fallbackMessage = 'Impossible de joindre le backend.';
 
@@ -18,10 +19,16 @@ function readErrorMessage(payload: unknown) {
 }
 
 export async function GET() {
-  const response = await fetch(`${getApiBaseUrl()}/health`, {
-    method: 'GET',
-    cache: 'no-store',
-  });
+  let response: Response;
+
+  try {
+    response = await fetchServerApi('/health', {
+      method: 'GET',
+    });
+  } catch (error) {
+    return createBackendFailureResponse(error, fallbackMessage);
+  }
+
   const payload = await response.json().catch(() => null);
 
   if (!response.ok) {

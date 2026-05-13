@@ -351,7 +351,7 @@ function isPrivateNetworkUrl(value: string) {
 }
 
 function resolveConfiguredUrl(
-  envName: 'NEXT_PUBLIC_API_BASE_URL' | 'NEXT_PUBLIC_APP_URL',
+  envName: 'API_BASE_URL' | 'NEXT_PUBLIC_API_BASE_URL' | 'NEXT_PUBLIC_APP_URL',
   options: {
     developmentFallback?: string;
     requiredInProduction: boolean;
@@ -397,7 +397,7 @@ function resolveConfiguredUrl(
   }
 
   if (
-    envName === 'NEXT_PUBLIC_API_BASE_URL' &&
+    (envName === 'API_BASE_URL' || envName === 'NEXT_PUBLIC_API_BASE_URL') &&
     !new URL(normalizedUrl).pathname.endsWith('/api/v1')
   ) {
     throw new Error(`${envName} must end with /api/v1.`);
@@ -413,9 +413,48 @@ export function getApiBaseUrl() {
   }) as string;
 }
 
+export function getServerApiBaseUrl() {
+  if (process.env.API_BASE_URL?.trim()) {
+    return resolveConfiguredUrl('API_BASE_URL', {
+      developmentFallback: 'http://localhost:4000/api/v1',
+      requiredInProduction: true,
+    }) as string;
+  }
+
+  return getApiBaseUrl();
+}
+
 export function getPublicAppUrl() {
   return resolveConfiguredUrl('NEXT_PUBLIC_APP_URL', {
     requiredInProduction: true,
+  });
+}
+
+export function normalizeApiPath(path: string) {
+  const normalizedPath = path.trim();
+
+  if (!normalizedPath) {
+    return '';
+  }
+
+  return `/${normalizedPath.replace(/^\/+/, '')}`;
+}
+
+export function buildApiUrl(
+  path: string,
+  options: {
+    server?: boolean;
+  } = {},
+) {
+  const baseUrl = options.server ? getServerApiBaseUrl() : getApiBaseUrl();
+
+  return `${baseUrl}${normalizeApiPath(path)}`;
+}
+
+export async function fetchServerApi(path: string, init: RequestInit = {}) {
+  return fetch(buildApiUrl(path, { server: true }), {
+    ...init,
+    cache: init.cache ?? 'no-store',
   });
 }
 
@@ -453,9 +492,8 @@ export async function requestApi<T>(
     headers.set('Content-Type', 'application/json');
   }
 
-  const response = await fetch(`${getApiBaseUrl()}${path}`, {
+  const response = await fetchServerApi(path, {
     ...options,
-    cache: 'no-store',
     headers,
   });
 

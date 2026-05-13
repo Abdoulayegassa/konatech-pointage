@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import { getApiBaseUrl, LoginResponse } from '@/lib/api';
+import { fetchServerApi, LoginResponse } from '@/lib/api';
+import { createBackendFailureResponse } from '@/lib/api-route';
 import { resolvePostLoginRedirect } from '@/lib/redirect';
 import {
   ATTENDANCE_ENTRY_SESSION_COOKIE_NAME,
@@ -54,14 +55,19 @@ export async function POST(request: Request) {
     redirectTo?: string;
   };
 
-  const response = await fetch(`${getApiBaseUrl()}/auth/login`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-    cache: 'no-store',
-  });
+  let response: Response;
+
+  try {
+    response = await fetchServerApi('/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    return createBackendFailureResponse(error, 'Connexion impossible.');
+  }
 
   const data = (await response.json().catch(() => ({}))) as
     | LoginResponse

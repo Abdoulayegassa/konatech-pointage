@@ -80,6 +80,7 @@ services:
       args:
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
+        API_BASE_URL: ${API_BASE_URL}
     restart: unless-stopped
     depends_on:
       backend:
@@ -89,6 +90,7 @@ services:
       PORT: 3000
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
+      API_BASE_URL: ${API_BASE_URL}
     ports:
       - '${FRONTEND_PORT:-3000}:3000'
     healthcheck:

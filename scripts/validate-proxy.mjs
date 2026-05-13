@@ -225,6 +225,7 @@ async function main() {
       env: {
         NODE_ENV: 'development',
         NEXT_TELEMETRY_DISABLED: '1',
+        API_BASE_URL: backendApiBaseUrl,
         NEXT_PUBLIC_APP_URL: frontendUrl,
         NEXT_PUBLIC_API_BASE_URL: backendApiBaseUrl,
       },

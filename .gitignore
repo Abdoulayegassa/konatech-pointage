@@ -1,3 +1,41 @@
+# Temp
+.tmp/
+temp/
+tmp/
+
+# Next
+.next/
+out/
+
+# Node
+node_modules/
+
+# Logs
+*.log
+logs/
+
+# Jest cache
+coverage/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/
+
+# Turbo
+.turbo/
+
+# Prisma local
+prisma/dev.db
+
+# Debug HTML
+*.html
+
+# Cache
+.cache/
 node_modules
 .pnpm-store
 .turbo
