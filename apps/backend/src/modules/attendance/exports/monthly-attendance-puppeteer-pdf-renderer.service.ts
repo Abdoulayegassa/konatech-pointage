@@ -1423,6 +1423,253 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         line-height: 1.5;
         color: var(--text);
       }
+
+      @media screen and (max-width: 900px) {
+        html,
+        body {
+          width: 100%;
+          min-width: 0;
+          background:
+            radial-gradient(circle at top right, rgba(249, 115, 22, 0.12), transparent 28%),
+            linear-gradient(180deg, #f8fafc 0%, #ffffff 36%, #f8fafc 100%);
+        }
+
+        body {
+          padding: 12px;
+          font-size: 13px;
+        }
+
+        .page {
+          width: 100%;
+          height: auto;
+          min-height: 0;
+          padding: 16px;
+          margin: 0 auto 14px;
+          break-after: auto;
+          page-break-after: auto;
+          overflow: hidden;
+          border-radius: 24px;
+          box-shadow: var(--shadow-soft);
+        }
+
+        .page:last-child {
+          margin-bottom: 0;
+        }
+
+        .page > section,
+        .page > .page-topline,
+        .page > .page-topline + section {
+          margin-top: 10px;
+        }
+
+        .hero,
+        .score-layout,
+        .chart-card,
+        .compact-header,
+        .info-grid,
+        .kpi-grid,
+        .advanced-grid,
+        .callout-grid,
+        .analytics-grid,
+        .team-summary-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .hero {
+          gap: 12px;
+        }
+
+        .meta-card,
+        .card {
+          padding: 14px;
+        }
+
+        .meta-card {
+          gap: 10px;
+        }
+
+        .hero-title {
+          font-size: 24px;
+        }
+
+        .hero-subtitle {
+          font-size: 13px;
+        }
+
+        .hero-copy {
+          font-size: 12px;
+        }
+
+        .compact-header {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .compact-meta {
+          max-width: 100%;
+          justify-content: flex-start;
+        }
+
+        .compact-title {
+          font-size: 18px;
+        }
+
+        .score-card {
+          padding: 14px;
+        }
+
+        .score-layout {
+          gap: 16px;
+        }
+
+        .score-ring,
+        .page-analysis .mini-donut {
+          width: 132px;
+          height: 132px;
+          margin: 0 auto;
+        }
+
+        .score-pill,
+        .page-analysis .mini-donut-core {
+          width: 96px;
+          height: 96px;
+        }
+
+        .score-value {
+          font-size: 34px;
+        }
+
+        .score-caption {
+          font-size: 10px;
+        }
+
+        .score-narrative {
+          max-width: 100%;
+        }
+
+        .score-analytics {
+          grid-template-columns: 1fr;
+        }
+
+        .chart-card {
+          gap: 14px;
+          justify-items: stretch;
+        }
+
+        .chart-legend {
+          gap: 6px;
+        }
+
+        .legend-row {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 4px;
+          padding: 8px 0;
+        }
+
+        .micro-bars {
+          gap: 8px;
+        }
+
+        .micro-bar-row {
+          grid-template-columns: 1fr;
+          gap: 4px;
+          align-items: start;
+        }
+
+        .kpi-card,
+        .analytics-card {
+          min-height: 0;
+          padding: 12px 13px;
+        }
+
+        .kpi-value {
+          font-size: 20px;
+        }
+
+        .table-card {
+          padding: 10px;
+        }
+
+        .page-details .table-card {
+          padding: 10px;
+        }
+
+        .page-details .section-header {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 8px;
+        }
+
+        .page-details .section-title,
+        .page-details .section-kicker,
+        .page-details .eyebrow,
+        .page-details .badge,
+        .badge,
+        .eyebrow {
+          white-space: normal;
+          overflow-wrap: anywhere;
+        }
+
+        .badge {
+          min-height: 24px;
+          padding-inline: 10px;
+          text-align: left;
+        }
+
+        .table-shell {
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+        }
+
+        .page-details table {
+          min-width: 920px;
+        }
+
+        .page-details th,
+        .page-details td {
+          padding: 6px 7px;
+        }
+
+        .page-details th {
+          font-size: 7.6px;
+        }
+
+        .page-details td {
+          font-size: 8.6px;
+        }
+
+        .page-details .table-identity strong {
+          font-size: 9px;
+        }
+
+        .page-details .table-identity span {
+          font-size: 7.9px;
+        }
+
+        .footer,
+        .page-details .footer {
+          position: static;
+          left: auto;
+          right: auto;
+          bottom: auto;
+          width: 100%;
+          margin-top: 14px;
+          padding-top: 8px;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 6px;
+          letter-spacing: 0.02em;
+        }
+
+        .footer strong {
+          white-space: normal;
+        }
+
+        .analysis-conclusion {
+          padding: 12px 14px;
+        }
+      }
     `;
   }
 
