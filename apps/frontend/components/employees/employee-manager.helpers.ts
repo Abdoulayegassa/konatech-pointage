@@ -26,7 +26,7 @@ export type EmployeeFormValues = {
 };
 
 export const inputClassName =
-  'mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm text-slate-900 outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] transition duration-200 placeholder:text-slate-400 focus:border-accent/40 focus:ring-4 focus:ring-accent/10';
+  'mt-1.5 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] transition duration-200 placeholder:text-slate-400 focus:border-accent/40 focus:ring-4 focus:ring-accent/10';
 
 export const labelClassName =
   'text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500';

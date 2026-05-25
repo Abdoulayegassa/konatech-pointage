@@ -68,7 +68,7 @@ export class AttendanceSecurityPolicyService {
       warningRadiusMeters: enabled ? warningRadiusMeters : null,
       allowedRadiusMeters: enabled ? allowedRadiusMeters : null,
       maxAccuracyMeters: enabled
-        ? configuredMaxAccuracyMeters ?? this.defaultMaxAccuracyMeters
+        ? (configuredMaxAccuracyMeters ?? this.defaultMaxAccuracyMeters)
         : null,
       companyLatitude: enabled ? companyLatitude : null,
       companyLongitude: enabled ? companyLongitude : null,

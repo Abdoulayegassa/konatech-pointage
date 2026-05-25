@@ -39,14 +39,6 @@ type StatusFilter = 'all' | 'active' | 'inactive';
 type AccessFilter = 'all' | AccessRole;
 type AssignmentFilter = 'all' | 'assigned' | 'unassigned';
 
-function formatScheduleRange(schedule: EmployeeRecord['schedule']) {
-  if (!schedule) {
-    return 'Sans planning';
-  }
-
-  return `${schedule.name} (${schedule.startTime} - ${schedule.endTime})`;
-}
-
 function normalizePinCodeInput(value: string) {
   return value.replace(/\D/g, '').slice(0, 4);
 }
@@ -397,39 +389,43 @@ export function AdminEmployeesManager({
   ];
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1.42fr)_minmax(330px,0.58fr)]">
-      <Card className="admin-reveal admin-reveal-delay-1 overflow-hidden rounded-[30px] border-slate-200/80 bg-white/95 shadow-[0_22px_52px_rgba(15,45,58,0.08)]">
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1.38fr)_minmax(330px,0.62fr)]">
+      <Card className="admin-reveal admin-reveal-delay-1 overflow-hidden rounded-[28px] border-slate-200/80 bg-white/95 shadow-[0_18px_44px_rgba(15,45,58,0.07)]">
         <div className="h-1.5 bg-[linear-gradient(90deg,rgba(244,110,40,0.98),rgba(244,110,40,0.42),rgba(16,50,60,0.92))]" />
 
-        <CardHeader className="space-y-5 border-b border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] pb-5">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-3">
+        <CardHeader className="space-y-4 border-b border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] pb-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Badge className="bg-accent/15 text-accent" variant="warning">
                   Employee registry
                 </Badge>
-                <Badge variant="outline">
-                  {visibleEmployees} resultat(s)
-                </Badge>
+                <Badge variant="outline">{visibleEmployees} resultat(s)</Badge>
               </div>
-              <div className="space-y-1.5">
-                <CardTitle className="text-2xl text-slate-950 sm:text-[2rem]">
+              <div className="space-y-1">
+                <CardTitle className="text-xl text-slate-950 sm:text-2xl">
                   Registre des collaborateurs
                 </CardTitle>
                 <p className="max-w-2xl text-sm leading-5 text-slate-600">
-                  Recherche, activation et affectation dans une vue plus directe.
+                  Recherche, activation et affectation dans une vue plus
+                  directe.
                 </p>
               </div>
             </div>
 
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               {formMode === 'edit' ? (
-                <Button onClick={resetForm} type="button" variant="secondary">
+                <Button
+                  className="min-h-11"
+                  onClick={resetForm}
+                  type="button"
+                  variant="secondary"
+                >
                   Annuler
                 </Button>
               ) : null}
               <Button
-                className="rounded-2xl bg-accent text-accent-foreground shadow-[0_14px_32px_rgba(244,110,40,0.26)] hover:bg-accent/95"
+                className="min-h-11 rounded-2xl bg-accent text-accent-foreground shadow-[0_14px_32px_rgba(244,110,40,0.22)] hover:bg-accent/95"
                 onClick={resetForm}
                 type="button"
               >
@@ -439,29 +435,32 @@ export function AdminEmployeesManager({
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-[24px] border border-slate-200/80 bg-white/85 p-4 shadow-sm">
-              <p className={labelClassName}>Total</p>
-              <p className="mt-2 text-3xl font-semibold text-slate-950">
+            <div className="min-h-[116px] rounded-[22px] border border-slate-200/80 bg-white/85 p-3.5 shadow-sm">
+              <p className={labelClassName}>Comptes</p>
+              <p className="mt-2 text-2xl font-black text-slate-950">
                 {employees.length}
               </p>
-              <p className="mt-1.5 text-sm text-slate-600">Tous comptes.</p>
+              <p className="mt-1 text-sm text-slate-600">Tous comptes.</p>
             </div>
 
             {statCards.map((card) => (
               <div
                 key={card.label}
-                className={cn('rounded-[24px] border p-4 shadow-sm', card.className)}
+                className={cn(
+                  'min-h-[116px] rounded-[22px] border p-3.5 shadow-sm',
+                  card.className,
+                )}
               >
                 <p className={labelClassName}>{card.label}</p>
-                <p className="mt-2 text-3xl font-semibold text-slate-950">
+                <p className="mt-2 text-2xl font-black text-slate-950">
                   {card.value}
                 </p>
-                <p className="mt-1.5 text-sm text-slate-600">{card.meta}</p>
+                <p className="mt-1 text-sm text-slate-600">{card.meta}</p>
               </div>
             ))}
           </div>
 
-          <div className="rounded-[26px] border border-slate-200/80 bg-white/88 p-4 shadow-sm backdrop-blur sm:p-5">
+          <div className="rounded-[24px] border border-slate-200/80 bg-white/88 p-3.5 shadow-sm backdrop-blur sm:p-4">
             <div className="grid gap-3 xl:grid-cols-[minmax(0,1.35fr)_repeat(3,minmax(0,0.72fr))]">
               <label className="block">
                 <span className={labelClassName}>Recherche</span>
@@ -520,12 +519,13 @@ export function AdminEmployeesManager({
               </label>
             </div>
 
-            <div className="mt-4 flex flex-col gap-3 border-t border-slate-200/80 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mt-3 flex flex-col gap-3 border-t border-slate-200/80 pt-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-wrap gap-2">
                 <Badge variant="outline">{visibleEmployees} visibles</Badge>
                 <Badge variant="outline">{scheduleCoverage}% couverts</Badge>
               </div>
               <Button
+                className="min-h-11"
                 disabled={!isFilterActive}
                 onClick={clearFilters}
                 type="button"
@@ -549,8 +549,8 @@ export function AdminEmployeesManager({
           ) : null}
         </CardHeader>
 
-        <CardContent className="space-y-5 pt-5">
-          <div className="flex flex-col gap-3 rounded-[24px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(248,250,252,0.92),rgba(255,255,255,0.98))] px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <CardContent className="space-y-4 pt-4">
+          <div className="flex flex-col gap-3 rounded-[22px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(248,250,252,0.92),rgba(255,255,255,0.98))] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className={labelClassName}>Lecture</p>
               <p className="mt-1.5 text-base font-semibold text-slate-950">
@@ -559,7 +559,9 @@ export function AdminEmployeesManager({
             </div>
             <div className="flex flex-wrap gap-2">
               <Badge variant="outline">{assignedEmployees} affectes</Badge>
-              <Badge variant="outline">{unassignedEmployees} sans planning</Badge>
+              <Badge variant="outline">
+                {unassignedEmployees} sans planning
+              </Badge>
             </div>
           </div>
 
@@ -600,149 +602,7 @@ export function AdminEmployeesManager({
             />
           ) : (
             <>
-              <div className="hidden overflow-x-auto lg:block">
-                <table className="min-w-full border-separate border-spacing-y-3">
-                  <thead>
-                    <tr>
-                      <th className="px-4 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        Collaborateur
-                      </th>
-                      <th className="px-4 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        Acces
-                      </th>
-                      <th className="px-4 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        Organisation
-                      </th>
-                      <th className="px-4 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        Planning
-                      </th>
-                      <th className="px-4 text-right text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredEmployees.map((employee) => {
-                      const accountStatus = getAccountStatusMeta(employee.isActive);
-                      const accessRole = getAccessRoleMeta(employee.accessRole);
-                      const assignmentStatus = getScheduleAssignmentMeta(employee);
-                      const pinStatus = getPinStatusMeta(employee);
-                      const isEditing =
-                        rowAction?.employeeId === employee.id &&
-                        rowAction.type === 'edit';
-                      const isUpdatingStatus =
-                        rowAction?.employeeId === employee.id &&
-                        rowAction.type === 'status';
-                      const isSelected = editingEmployeeId === employee.id;
-
-                      return (
-                        <tr key={employee.id} className="group">
-                          <td
-                            className={cn(
-                              'rounded-l-[22px] border border-r-0 border-slate-200/80 bg-white px-4 py-4 align-top shadow-sm',
-                              isSelected && 'border-accent/35 bg-orange-50/45',
-                            )}
-                          >
-                            <div className="space-y-3">
-                              <div>
-                                <p className="text-base font-semibold text-slate-950">
-                                  {employee.firstName} {employee.lastName}
-                                </p>
-                                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm text-slate-600">
-                                  <span>{employee.employeeIdentifier}</span>
-                                  <span>{employee.email}</span>
-                                </div>
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                {isSelected ? (
-                                  <Badge
-                                    className="bg-accent/15 text-accent"
-                                    variant="warning"
-                                  >
-                                    En edition
-                                  </Badge>
-                                ) : null}
-                                <Badge variant={accountStatus.variant}>
-                                  {accountStatus.label}
-                                </Badge>
-                                <Badge variant={pinStatus.variant}>
-                                  {pinStatus.label}
-                                </Badge>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="border border-l-0 border-r-0 border-slate-200/80 bg-white px-4 py-4 align-top shadow-sm">
-                            <div className="space-y-2">
-                              <Badge variant={accessRole.variant}>
-                                {accessRole.label}
-                              </Badge>
-                              <p className="text-sm font-semibold text-slate-950">
-                                {employee.role}
-                              </p>
-                            </div>
-                          </td>
-                          <td className="border border-l-0 border-r-0 border-slate-200/80 bg-white px-4 py-4 align-top shadow-sm">
-                            <div className="space-y-2">
-                              <p className="text-sm font-semibold text-slate-950">
-                                {employee.department ?? 'Sans departement'}
-                              </p>
-                              <Badge variant={assignmentStatus.variant}>
-                                {assignmentStatus.label}
-                              </Badge>
-                            </div>
-                          </td>
-                          <td className="border border-l-0 border-r-0 border-slate-200/80 bg-white px-4 py-4 align-top shadow-sm">
-                            <div className="space-y-2">
-                              <p className="text-sm font-semibold text-slate-950">
-                                {employee.schedule?.name ?? 'Sans planning'}
-                              </p>
-                              <p className="text-sm text-slate-600">
-                                {employee.schedule
-                                  ? `${employee.schedule.startTime} - ${employee.schedule.endTime}`
-                                  : 'Affectation requise'}
-                              </p>
-                            </div>
-                          </td>
-                          <td
-                            className={cn(
-                              'rounded-r-[22px] border border-l-0 border-slate-200/80 bg-white px-4 py-4 align-top shadow-sm',
-                              isSelected && 'border-accent/35 bg-orange-50/45',
-                            )}
-                          >
-                            <div className="flex justify-end gap-2">
-                              <Button
-                                className="rounded-xl"
-                                disabled={Boolean(rowAction)}
-                                onClick={() => startEdit(employee.id)}
-                                size="sm"
-                                type="button"
-                              >
-                                {isEditing ? 'Chargement...' : 'Modifier'}
-                              </Button>
-                              <Button
-                                className="rounded-xl"
-                                disabled={Boolean(rowAction)}
-                                onClick={() => toggleStatus(employee)}
-                                size="sm"
-                                type="button"
-                                variant="secondary"
-                              >
-                                {isUpdatingStatus
-                                  ? 'Mise a jour...'
-                                  : employee.isActive
-                                    ? 'Desactiver'
-                                    : 'Activer'}
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="grid gap-4 lg:hidden">
+              <div className="grid gap-3">
                 {filteredEmployees.map((employee) => {
                   const accountStatus = getAccountStatusMeta(employee.isActive);
                   const accessRole = getAccessRoleMeta(employee.accessRole);
@@ -760,84 +620,92 @@ export function AdminEmployeesManager({
                     <article
                       key={employee.id}
                       className={cn(
-                        'rounded-[24px] border border-slate-200/80 bg-white p-5 shadow-sm',
+                        'grid gap-3 rounded-[22px] border border-slate-200/80 bg-white p-4 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_36px_rgba(15,45,58,0.08)] lg:grid-cols-[minmax(0,1.25fr)_minmax(160px,0.55fr)_minmax(190px,0.65fr)_auto] lg:items-center',
                         isSelected && 'border-accent/35 bg-orange-50/40',
                       )}
                     >
-                      <div className="flex flex-col gap-4">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <p className="text-lg font-semibold text-slate-950">
-                              {employee.firstName} {employee.lastName}
-                            </p>
-                            <p className="mt-1 text-sm text-slate-600">
-                              {employee.email}
-                            </p>
-                          </div>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-base font-bold text-slate-950">
+                            {employee.firstName} {employee.lastName}
+                          </p>
                           <Badge variant="outline">
                             {employee.employeeIdentifier}
                           </Badge>
+                          {isSelected ? (
+                            <Badge
+                              className="bg-accent/15 text-accent"
+                              variant="warning"
+                            >
+                              En edition
+                            </Badge>
+                          ) : null}
                         </div>
-
-                        <div className="flex flex-wrap gap-2">
-                          <Badge variant={accessRole.variant}>
-                            {accessRole.label}
-                          </Badge>
+                        <p className="mt-1 truncate text-sm text-slate-600">
+                          {employee.email}
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
                           <Badge variant={accountStatus.variant}>
                             {accountStatus.label}
                           </Badge>
                           <Badge variant={pinStatus.variant}>
                             {pinStatus.label}
                           </Badge>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 lg:block lg:space-y-1.5">
+                        <Badge variant={accessRole.variant}>
+                          {accessRole.label}
+                        </Badge>
+                        <p className="text-sm font-semibold text-slate-950">
+                          {employee.role}
+                        </p>
+                        <p className="text-sm text-slate-600">
+                          {employee.department ?? 'Sans departement'}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-bold text-slate-950">
+                            {employee.schedule?.name ?? 'Sans planning'}
+                          </p>
                           <Badge variant={assignmentStatus.variant}>
                             {assignmentStatus.label}
                           </Badge>
                         </div>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {employee.schedule
+                            ? `${employee.schedule.startTime} - ${employee.schedule.endTime}`
+                            : 'Affectation requise'}
+                        </p>
+                      </div>
 
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
-                            <p className={labelClassName}>Role</p>
-                            <p className="mt-1.5 text-sm font-semibold text-slate-950">
-                              {employee.role}
-                            </p>
-                          </div>
-                          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
-                            <p className={labelClassName}>Departement</p>
-                            <p className="mt-1.5 text-sm font-semibold text-slate-950">
-                              {employee.department ?? 'Non assigne'}
-                            </p>
-                          </div>
-                          <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 sm:col-span-2">
-                            <p className={labelClassName}>Planning</p>
-                            <p className="mt-1.5 text-sm font-semibold text-slate-950">
-                              {formatScheduleRange(employee.schedule)}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex flex-col gap-3 sm:flex-row">
-                          <Button
-                            className="rounded-2xl sm:flex-1"
-                            disabled={Boolean(rowAction)}
-                            onClick={() => startEdit(employee.id)}
-                            type="button"
-                          >
-                            {isEditing ? 'Chargement...' : 'Modifier'}
-                          </Button>
-                          <Button
-                            className="rounded-2xl sm:flex-1"
-                            disabled={Boolean(rowAction)}
-                            onClick={() => toggleStatus(employee)}
-                            type="button"
-                            variant="secondary"
-                          >
-                            {isUpdatingStatus
-                              ? 'Mise a jour...'
-                              : employee.isActive
-                                ? 'Desactiver'
-                                : 'Activer'}
-                          </Button>
-                        </div>
+                      <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[178px] lg:grid-cols-1">
+                        <Button
+                          className="min-h-11 rounded-2xl"
+                          disabled={Boolean(rowAction)}
+                          onClick={() => startEdit(employee.id)}
+                          size="sm"
+                          type="button"
+                        >
+                          {isEditing ? 'Chargement...' : 'Modifier'}
+                        </Button>
+                        <Button
+                          className="min-h-11 rounded-2xl"
+                          disabled={Boolean(rowAction)}
+                          onClick={() => toggleStatus(employee)}
+                          size="sm"
+                          type="button"
+                          variant="secondary"
+                        >
+                          {isUpdatingStatus
+                            ? 'Mise a jour...'
+                            : employee.isActive
+                              ? 'Desactiver'
+                              : 'Activer'}
+                        </Button>
                       </div>
                     </article>
                   );
@@ -848,10 +716,10 @@ export function AdminEmployeesManager({
         </CardContent>
       </Card>
 
-      <Card className="admin-reveal admin-reveal-delay-2 self-start overflow-hidden rounded-[30px] border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] shadow-[0_22px_52px_rgba(15,45,58,0.08)] xl:sticky xl:top-6">
+      <Card className="admin-reveal admin-reveal-delay-2 self-start overflow-hidden rounded-[28px] border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] shadow-[0_18px_44px_rgba(15,45,58,0.07)] xl:sticky xl:top-6">
         <div className="h-1.5 bg-[linear-gradient(90deg,rgba(16,50,60,0.92),rgba(244,110,40,0.72),rgba(244,110,40,0.95))]" />
 
-        <CardHeader className="space-y-4 border-b border-slate-200/80 pb-5">
+        <CardHeader className="space-y-3 border-b border-slate-200/80 pb-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Badge variant={formMode === 'create' ? 'success' : 'warning'}>
               {formMode === 'create' ? 'Creation' : 'Edition'}
@@ -861,18 +729,18 @@ export function AdminEmployeesManager({
             </Badge>
           </div>
 
-          <div className="space-y-1.5">
-            <CardTitle className="text-2xl text-slate-950">
+          <div className="space-y-1">
+            <CardTitle className="text-xl text-slate-950">
               {formMode === 'create' ? 'Compte employe' : 'Modifier le compte'}
             </CardTitle>
             <p className="text-sm leading-5 text-slate-600">
-              Meme logique API, lecture plus simple.
+              Champs regroupes, logique inchangee.
             </p>
           </div>
 
-          <div className="rounded-[24px] border border-slate-200/80 bg-white/88 p-4 shadow-sm">
+          <div className="rounded-[22px] border border-slate-200/80 bg-white/88 p-3.5 shadow-sm">
             <p className={labelClassName}>Selection</p>
-            <p className="mt-1.5 text-base font-semibold text-slate-950">
+            <p className="mt-1 text-base font-semibold text-slate-950">
               {editingEmployee
                 ? `${editingEmployee.firstName} ${editingEmployee.lastName}`
                 : 'Nouveau collaborateur'}
@@ -885,9 +753,9 @@ export function AdminEmployeesManager({
           </div>
         </CardHeader>
 
-        <CardContent className="pt-5">
-          <form className="space-y-4" onSubmit={handleSubmit}>
-            <section className="space-y-4 rounded-[24px] border border-slate-200/80 bg-white/88 p-5 shadow-sm">
+        <CardContent className="pt-4">
+          <form className="space-y-3.5" onSubmit={handleSubmit}>
+            <section className="space-y-3 rounded-[22px] border border-slate-200/80 bg-white/88 p-4 shadow-sm">
               <div className="space-y-1">
                 <p className={labelClassName}>Identite</p>
                 <p className="text-base font-semibold text-slate-950">
@@ -914,7 +782,7 @@ export function AdminEmployeesManager({
                 />
               </label>
 
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block">
                   <span className={labelClassName}>Prenom</span>
                   <input
@@ -953,7 +821,7 @@ export function AdminEmployeesManager({
               </label>
             </section>
 
-            <section className="space-y-4 rounded-[24px] border border-slate-200/80 bg-white/88 p-5 shadow-sm">
+            <section className="space-y-3 rounded-[22px] border border-slate-200/80 bg-white/88 p-4 shadow-sm">
               <div className="space-y-1">
                 <p className={labelClassName}>Organisation</p>
                 <p className="text-base font-semibold text-slate-950">
@@ -961,7 +829,7 @@ export function AdminEmployeesManager({
                 </p>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block">
                   <span className={labelClassName}>Role metier</span>
                   <input
@@ -1004,7 +872,7 @@ export function AdminEmployeesManager({
               </label>
             </section>
 
-            <section className="space-y-4 rounded-[24px] border border-slate-200/80 bg-white/88 p-5 shadow-sm">
+            <section className="space-y-3 rounded-[22px] border border-slate-200/80 bg-white/88 p-4 shadow-sm">
               <div className="space-y-1">
                 <p className={labelClassName}>Planning</p>
                 <p className="text-base font-semibold text-slate-950">
@@ -1024,22 +892,23 @@ export function AdminEmployeesManager({
                   <option value="">Aucun planning</option>
                   {schedules.map((schedule) => (
                     <option key={schedule.id} value={schedule.id}>
-                      {schedule.name} ({schedule.startTime} - {schedule.endTime})
+                      {schedule.name} ({schedule.startTime} - {schedule.endTime}
+                      )
                     </option>
                   ))}
                 </select>
               </label>
 
-              <div className="rounded-[22px] border border-slate-200 bg-slate-50/90 p-4">
+              <div className="rounded-[20px] border border-slate-200 bg-slate-50/90 p-3">
                 <p className={labelClassName}>Resume</p>
-                <p className="mt-1.5 text-sm font-semibold text-slate-950">
+                <p className="mt-1 text-sm font-semibold text-slate-950">
                   {selectedSchedule
                     ? `${selectedSchedule.name} ${selectedSchedule.startTime} - ${selectedSchedule.endTime}`
                     : 'Sans planning'}
                 </p>
               </div>
 
-              <label className="flex items-start gap-3 rounded-[22px] border border-slate-200 bg-slate-50/90 px-4 py-4 text-sm text-slate-600">
+              <label className="flex min-h-11 items-start gap-3 rounded-[20px] border border-slate-200 bg-slate-50/90 px-4 py-3 text-sm text-slate-600">
                 <input
                   checked={formValues.isActive}
                   className="mt-1 h-4 w-4 rounded border-border"
@@ -1059,7 +928,7 @@ export function AdminEmployeesManager({
               </label>
             </section>
 
-            <section className="space-y-4 rounded-[24px] border border-slate-200/80 bg-white/88 p-5 shadow-sm">
+            <section className="space-y-3 rounded-[22px] border border-slate-200/80 bg-white/88 p-4 shadow-sm">
               <div className="space-y-1">
                 <p className={labelClassName}>Securite</p>
                 <p className="text-base font-semibold text-slate-950">
@@ -1092,7 +961,7 @@ export function AdminEmployeesManager({
 
             <div className="flex flex-col gap-3 sm:flex-row">
               <Button
-                className="rounded-2xl sm:flex-1"
+                className="min-h-11 rounded-2xl sm:flex-1"
                 disabled={isSubmitting}
                 type="submit"
               >
@@ -1105,7 +974,7 @@ export function AdminEmployeesManager({
                     : 'Enregistrer'}
               </Button>
               <Button
-                className="rounded-2xl sm:flex-1"
+                className="min-h-11 rounded-2xl sm:flex-1"
                 disabled={isSubmitting}
                 onClick={resetForm}
                 type="button"

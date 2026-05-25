@@ -2,7 +2,6 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { AttendanceStatus, PrismaClient } from '@prisma/client';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { inflateRawSync, inflateSync } from 'zlib';
 
 import { AppModule, validateSecurityConfig } from '../src/app.module';
 import { verifyPinCode } from '../src/common/security/password.util';
@@ -22,7 +21,6 @@ describe('AppController (e2e)', () => {
   let managedScheduleId: string;
   let officeScheduleId: string;
   let operationsScheduleId: string;
-  let awaEmployeeId: string;
   const attendanceSecurityEnvKeys = [
     'ATTENDANCE_SECURITY_ENABLED',
     'COMPANY_LATITUDE',
@@ -143,32 +141,6 @@ describe('AppController (e2e)', () => {
     for (const pinCode of ['4103', '4104', '4105', '4900']) {
       expect(payload).not.toContain(pinCode);
     }
-  }
-
-  function extractPdfStreams(buffer: Buffer) {
-    const content = buffer.toString('latin1');
-    const streams = content.match(/stream\r?\n[\s\S]*?\r?\nendstream/g) ?? [];
-
-    return streams
-      .map((stream) =>
-        stream
-          .replace(/^stream\r?\n/, '')
-          .replace(/\r?\nendstream$/, ''),
-      )
-      .flatMap((rawStream) => {
-        const streamBuffer = Buffer.from(rawStream, 'latin1');
-
-        for (const inflate of [inflateSync, inflateRawSync]) {
-          try {
-            return [inflate(streamBuffer).toString('utf8')];
-          } catch {
-            continue;
-          }
-        }
-
-        return [];
-      })
-      .join('\n');
   }
 
   beforeAll(async () => {
@@ -547,7 +519,8 @@ describe('AppController (e2e)', () => {
     expectNoPinSecretExposure(response.body);
 
     const adminEmployee = response.body.find(
-      (employee: { email: string }) => employee.email === 'awa.traore@konatech.local',
+      (employee: { email: string }) =>
+        employee.email === 'awa.traore@konatech.local',
     );
     const supportEmployee = response.body.find(
       (employee: { email: string }) =>
@@ -556,7 +529,6 @@ describe('AppController (e2e)', () => {
 
     officeScheduleId = adminEmployee.schedule.id;
     operationsScheduleId = supportEmployee.schedule.id;
-    awaEmployeeId = adminEmployee.id;
   });
 
   it('/api/v1/schedules (GET) blocks employee role', async () => {
@@ -2077,9 +2049,9 @@ describe('AppController (e2e)', () => {
       'KonatechEmployee123!',
     );
     const response = await request(app.getHttpServer())
-        .post('/api/v1/attendance/me/check-out')
-        .set('Authorization', `Bearer ${employeeSession.accessToken}`)
-        .send({
+      .post('/api/v1/attendance/me/check-out')
+      .set('Authorization', `Bearer ${employeeSession.accessToken}`)
+      .send({
         occurredAt: '2026-05-01T18:00:00.000Z',
       })
       .expect(201);
@@ -2265,8 +2237,12 @@ describe('AppController (e2e)', () => {
     expect(overview.summary.presentToday).toBe(2);
     expect(overview.analytics.attendanceRate).toBe(50);
     expect(overview.analytics.absenceRate).toBe(50);
-    expect(overview.analytics.outsideScheduleWorkDays).toBeGreaterThanOrEqual(1);
-    expect(overview.analytics.outsideScheduleOvertimeHoursThisMonth).toBeGreaterThanOrEqual(5);
+    expect(overview.analytics.outsideScheduleWorkDays).toBeGreaterThanOrEqual(
+      1,
+    );
+    expect(
+      overview.analytics.outsideScheduleOvertimeHoursThisMonth,
+    ).toBeGreaterThanOrEqual(5);
   });
 
   it('/api/v1/attendance/exports/monthly (GET) returns a CSV export for admin', async () => {

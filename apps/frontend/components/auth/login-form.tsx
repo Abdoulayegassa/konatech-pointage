@@ -51,15 +51,12 @@ export function LoginForm({ redirectTo }: LoginFormProps) {
   return (
     <form className="space-y-5" onSubmit={handleSubmit}>
       <div className="space-y-2.5">
-        <label
-          className="text-sm font-semibold text-slate-800"
-          htmlFor="email"
-        >
+        <label className="text-sm font-bold text-slate-800" htmlFor="email">
           Email
         </label>
         <input
           autoComplete="username"
-          className="h-12 w-full rounded-[18px] border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none transition duration-200 placeholder:text-slate-400 focus:border-primary focus:ring-4 focus:ring-primary/10"
+          className="h-14 w-full rounded-[20px] border border-slate-200/90 bg-white px-4 text-[15px] font-medium text-slate-950 outline-none transition duration-200 placeholder:text-slate-400 hover:border-slate-300 focus:border-accent/70 focus:ring-4 focus:ring-accent/12"
           id="email"
           inputMode="email"
           name="email"
@@ -70,15 +67,12 @@ export function LoginForm({ redirectTo }: LoginFormProps) {
       </div>
 
       <div className="space-y-2.5">
-        <label
-          className="text-sm font-semibold text-slate-800"
-          htmlFor="password"
-        >
+        <label className="text-sm font-bold text-slate-800" htmlFor="password">
           Mot de passe
         </label>
         <input
           autoComplete="current-password"
-          className="h-12 w-full rounded-[18px] border border-slate-200 bg-white px-4 text-sm text-slate-950 outline-none transition duration-200 placeholder:text-slate-400 focus:border-primary focus:ring-4 focus:ring-primary/10"
+          className="h-14 w-full rounded-[20px] border border-slate-200/90 bg-white px-4 text-[15px] font-medium text-slate-950 outline-none transition duration-200 placeholder:text-slate-400 hover:border-slate-300 focus:border-accent/70 focus:ring-4 focus:ring-accent/12"
           id="password"
           name="password"
           placeholder="Votre mot de passe"
@@ -100,7 +94,7 @@ export function LoginForm({ redirectTo }: LoginFormProps) {
       ) : null}
 
       <Button
-        className="h-12 w-full rounded-[18px] bg-accent text-accent-foreground shadow-[0_18px_36px_rgba(249,115,22,0.24)] hover:bg-accent/95 hover:shadow-[0_22px_42px_rgba(249,115,22,0.3)]"
+        className="h-14 w-full rounded-[20px] bg-accent text-base font-bold text-accent-foreground shadow-[0_18px_38px_rgba(249,115,22,0.26)] transition duration-200 hover:-translate-y-0.5 hover:bg-accent/95 hover:shadow-[0_22px_46px_rgba(249,115,22,0.32)] active:translate-y-0"
         disabled={isPending}
         type="submit"
       >

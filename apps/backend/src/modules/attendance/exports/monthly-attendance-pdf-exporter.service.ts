@@ -64,7 +64,9 @@ type RenderKpiGridOptions = {
 
 @Injectable()
 export class MonthlyAttendancePdfExporterService {
-  private readonly logger = new Logger(MonthlyAttendancePdfExporterService.name);
+  private readonly logger = new Logger(
+    MonthlyAttendancePdfExporterService.name,
+  );
 
   constructor(
     private readonly puppeteerPdfRenderer: MonthlyAttendancePuppeteerPdfRendererService,
@@ -2974,8 +2976,8 @@ export class MonthlyAttendancePdfExporterService {
     width: number,
     height: number,
     score: number,
-    monthLabel: string,
-    generationDateLabel: string,
+    _monthLabel: string,
+    _generationDateLabel: string,
   ) {
     return this.renderKpiCard({
       x,

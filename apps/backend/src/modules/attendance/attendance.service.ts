@@ -436,19 +436,13 @@ export class AttendanceService {
     );
     const isOutsideScheduleWork =
       Boolean(attendance.clockInAt) &&
-      !isScheduledOnResolvedAttendanceDate(
-        resolvedSchedule,
-        date,
-      );
+      !isScheduledOnResolvedAttendanceDate(resolvedSchedule, date);
     const scheduledExitTime =
       attendance.scheduledExitTime ??
       getResolvedAttendanceScheduledExitTime(resolvedSchedule, occurredAt);
     const exitOutcome = isOutsideScheduleWork
       ? getOutsideScheduleAttendanceOutcome(attendance.clockInAt, occurredAt)
-      : getAttendanceCheckOutOutcome(
-          scheduledExitTime,
-          occurredAt,
-        );
+      : getAttendanceCheckOutOutcome(scheduledExitTime, occurredAt);
     const absenceCount = await this.getMonthlyAbsenceCount(
       employeeId,
       attendance.employee.schedule,

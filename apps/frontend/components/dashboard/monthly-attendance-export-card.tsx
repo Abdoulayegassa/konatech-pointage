@@ -200,7 +200,7 @@ export function MonthlyAttendanceExportCard() {
 
   return (
     <Card className="overflow-hidden rounded-[30px] border-slate-200/80 bg-white/95">
-      <CardHeader className="space-y-4 border-b border-slate-200/70 pb-5">
+      <CardHeader className="space-y-3 border-b border-slate-200/70 pb-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-3">
@@ -208,7 +208,9 @@ export function MonthlyAttendanceExportCard() {
               <Badge variant="success">PDF</Badge>
             </div>
             <div className="space-y-1">
-              <CardTitle>Exporter le rapport mensuel</CardTitle>
+              <CardTitle className="text-xl sm:text-2xl">
+                Exporter le rapport mensuel
+              </CardTitle>
               <p className="max-w-xl text-sm leading-5 text-slate-600">
                 PDF par equipe ou par employe.
               </p>
@@ -224,30 +226,7 @@ export function MonthlyAttendanceExportCard() {
         </div>
       </CardHeader>
 
-      <CardContent className="space-y-5 pt-5">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-[20px] border border-slate-200 bg-slate-50/85 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-              Periode
-            </p>
-            <p className="mt-2 text-sm leading-5 text-slate-600">Mois et annee.</p>
-          </div>
-          <div className="rounded-[20px] border border-slate-200 bg-slate-50/85 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-              Perimetre
-            </p>
-            <p className="mt-2 text-sm leading-5 text-slate-600">
-              Equipe ou employe.
-            </p>
-          </div>
-          <div className="rounded-[20px] border border-slate-200 bg-slate-50/85 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
-              Format
-            </p>
-            <p className="mt-2 text-sm leading-5 text-slate-600">PDF pret a partager.</p>
-          </div>
-        </div>
-
+      <CardContent className="space-y-4 pt-4">
         {error ? (
           <div className="rounded-[20px] border border-accent/15 bg-accent/10 px-4 py-3 text-sm font-medium text-accent">
             {error}
@@ -260,9 +239,9 @@ export function MonthlyAttendanceExportCard() {
           </div>
         ) : null}
 
-        <form className="space-y-5" onSubmit={handleSubmit}>
-          <div className="grid gap-4 xl:grid-cols-[0.96fr_1.04fr]">
-            <div className="rounded-[24px] border border-slate-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] p-4">
+        <form className="space-y-4" onSubmit={handleSubmit}>
+          <div className="grid gap-4">
+            <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block">
                   <span className={labelClassName}>Mois</span>
@@ -311,44 +290,26 @@ export function MonthlyAttendanceExportCard() {
               </label>
             </div>
 
-            <div className="rounded-[24px] border border-accent/15 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(255,248,244,0.92))] p-4">
-              <div className="space-y-4">
+            <div className="rounded-[22px] border border-accent/15 bg-accent/5 p-4">
+              <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className={labelClassName}>Format actif</p>
-                  <div className="mt-2 rounded-[22px] border border-white/70 bg-white/90 p-4 shadow-sm">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-950">
-                          Rapport PDF premium
-                        </p>
-                        <p className="mt-1 text-sm leading-5 text-slate-600">
-                          PDF direct dans cette vue.
-                        </p>
-                      </div>
-                      <Badge variant="success">PDF</Badge>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-[20px] border border-white/70 bg-white/85 p-4 text-sm leading-5 text-slate-600">
-                  Presences, retards, absences, heures et plannings inchanges.
-                </div>
-
-                <div className="rounded-[20px] border border-accent/15 bg-accent/10 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-accent">
-                    Resultat
+                  <p className="text-sm font-bold text-slate-950">
+                    Rapport PDF premium
                   </p>
-                  <p className="mt-2 text-sm leading-5 text-slate-700">
-                    Telechargement immediat avec nom de fichier lisible.
+                  <p className="mt-1 text-sm leading-5 text-slate-600">
+                    Presences, retards, absences, heures et plannings.
                   </p>
                 </div>
+                <Badge variant="success">PDF</Badge>
               </div>
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 rounded-[24px] border border-slate-200 bg-slate-50/85 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 rounded-[22px] border border-slate-200 bg-slate-50/85 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-sm font-semibold text-slate-950">Action d export</p>
+              <p className="text-sm font-semibold text-slate-950">
+                Action d export
+              </p>
               <p className="mt-1 text-sm leading-5 text-slate-600">
                 Generation avec les filtres choisis.
               </p>

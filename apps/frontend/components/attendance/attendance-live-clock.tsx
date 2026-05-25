@@ -35,21 +35,19 @@ export function AttendanceLiveClock() {
   }, []);
 
   return (
-    <div className="rounded-[24px] border border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] p-5 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:shadow-soft">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-        Heure locale
+    <div className="rounded-[30px] border border-slate-200/75 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.88))] px-5 py-6 text-center shadow-[0_20px_46px_rgba(15,45,58,0.09)] sm:p-7">
+      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">
+        Heure actuelle
       </p>
-      <p className="mt-3 font-mono text-[2.7rem] font-semibold leading-none tracking-tight text-slate-950 sm:text-[3.4rem]">
+      <p className="mt-4 font-mono text-[3.35rem] font-black leading-none text-slate-950 sm:text-[4.6rem]">
         {now ? formatTime(now) : '--:--:--'}
       </p>
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <span className="h-2.5 w-2.5 rounded-full bg-accent" />
-        <p className="text-sm font-medium capitalize text-slate-600">
-          {now ? formatDate(now) : 'date locale'}
-        </p>
+      <div className="mt-5 flex items-center justify-center gap-2">
+        <span className="h-2.5 w-2.5 rounded-full bg-success" />
+        <p className="text-sm font-semibold text-slate-600">Synchronisé</p>
       </div>
-      <p className="mt-3 text-sm leading-6 text-slate-500">
-        Horloge synchronisee pour confirmer rapidement votre pointage.
+      <p className="mt-2 text-sm capitalize leading-6 text-slate-500">
+        {now ? formatDate(now) : 'date locale'}
       </p>
     </div>
   );

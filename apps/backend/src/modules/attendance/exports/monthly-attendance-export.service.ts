@@ -386,7 +386,8 @@ export class MonthlyAttendanceExportService {
       startOfMonth,
       absenceCountingEnd,
     );
-    const presenceDays = workingDays > 0 ? scheduledPresenceDays : totalWorkedDays;
+    const presenceDays =
+      workingDays > 0 ? scheduledPresenceDays : totalWorkedDays;
     const presenceRate =
       workingDays > 0 ? (scheduledPresenceDays / workingDays) * 100 : 0;
     const fullName = `${employee.firstName} ${employee.lastName}`;
@@ -731,9 +732,7 @@ export class MonthlyAttendanceExportService {
     }
   }
 
-  private formatAssignedSchedule(
-    schedule: ExportEmployeeRecord['schedule'],
-  ) {
+  private formatAssignedSchedule(schedule: ExportEmployeeRecord['schedule']) {
     const summary = this.formatResolvedScheduleSummary(
       resolveAttendanceSchedule({}, schedule),
     );
@@ -755,9 +754,7 @@ export class MonthlyAttendanceExportService {
     return summary?.assignedScheduleLabel ?? 'Aucun planning assignÃ©';
   }
 
-  private formatResolvedScheduleSummary(
-    schedule: ResolvedAttendanceSchedule,
-  ) {
+  private formatResolvedScheduleSummary(schedule: ResolvedAttendanceSchedule) {
     if (!schedule.name || !schedule.startTime || !schedule.endTime) {
       return null;
     }
@@ -791,10 +788,7 @@ export class MonthlyAttendanceExportService {
     return labels.length > 0 ? labels.join(', ') : null;
   }
 
-  private isScheduledDay(
-    schedule: ResolvedAttendanceSchedule,
-    date: Date,
-  ) {
+  private isScheduledDay(schedule: ResolvedAttendanceSchedule, date: Date) {
     if (!schedule.workDays) {
       return false;
     }
@@ -900,7 +894,9 @@ export class MonthlyAttendanceExportService {
     employeeIdentifier: string | null,
     employeeCode: string | null,
   ) {
-    return employeeIdentifier?.trim() || employeeCode?.trim() || 'ID non defini';
+    return (
+      employeeIdentifier?.trim() || employeeCode?.trim() || 'ID non defini'
+    );
   }
 
   private capitalize(value: string) {

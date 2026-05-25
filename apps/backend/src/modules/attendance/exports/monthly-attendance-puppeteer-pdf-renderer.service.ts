@@ -58,14 +58,20 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         'utf8',
       );
       await page.setContent(document, {
-        waitUntil: 'networkidle0',
+        waitUntil: 'load',
         timeout: this.renderTimeoutMs,
       });
       await page.waitForFunction('document.readyState === "complete"');
-      await page.evaluate('document.fonts ? document.fonts.ready : Promise.resolve()');
+      await page.evaluate(
+        'document.fonts ? document.fonts.ready : Promise.resolve()',
+      );
       await page.evaluate(async () => {
-        await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
-        await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+        await new Promise((resolve) =>
+          requestAnimationFrame(() => resolve(null)),
+        );
+        await new Promise((resolve) =>
+          requestAnimationFrame(() => resolve(null)),
+        );
       });
 
       const pdf = await page.pdf({
@@ -104,11 +110,14 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
     const totalPages = report.employeeReport
       ? 2 +
         Math.max(
-          this.chunkRows(report.employeeReport.dailyRows, this.employeeRowsPerPage)
-            .length,
+          this.chunkRows(
+            report.employeeReport.dailyRows,
+            this.employeeRowsPerPage,
+          ).length,
           1,
         )
-      : 1 + Math.max(this.chunkRows(report.rows, this.teamRowsPerPage).length, 1);
+      : 1 +
+        Math.max(this.chunkRows(report.rows, this.teamRowsPerPage).length, 1);
     const pages = report.employeeReport
       ? this.buildEmployeePages(report, report.employeeReport, totalPages)
       : this.buildTeamPages(report, totalPages);
@@ -134,14 +143,25 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
     return `
       @font-face {
         font-family: "KonatechPdfSans";
-        src: local("Arial"), local("Roboto"), local("Inter");
+        src:
+          local("Inter"),
+          local("Segoe UI"),
+          local("Arial"),
+          local("Noto Sans"),
+          local("Roboto");
         font-weight: 400;
         font-style: normal;
       }
 
       @font-face {
         font-family: "KonatechPdfSans";
-        src: local("Arial Bold"), local("Roboto Bold"), local("Inter Bold"), local("Arial");
+        src:
+          local("Inter Bold"),
+          local("Segoe UI Bold"),
+          local("Arial Bold"),
+          local("Noto Sans Bold"),
+          local("Roboto Bold"),
+          local("Arial");
         font-weight: 700 800;
         font-style: normal;
       }
@@ -159,6 +179,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         --warning: #F59E0B;
         --blue: #2563EB;
         --indigo: #4F46E5;
+        --teal: #0F766E;
         --danger-soft: #FEF2F2;
         --warning-soft: #FFF7E8;
         --success-soft: #F0FDF4;
@@ -306,7 +327,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         display: flex;
         flex-direction: column;
         justify-content: space-between;
-        background: linear-gradient(180deg, rgba(255, 247, 237, 0.96) 0%, rgba(255, 255, 255, 0.98) 100%);
+        background: linear-gradient(180deg, rgba(255, 247, 237, 0.84) 0%, rgba(255, 255, 255, 0.98) 100%);
       }
 
       .meta-label,
@@ -338,6 +359,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
 
       .card {
         padding: 16px 18px;
+        box-shadow: 0 16px 34px rgba(15, 23, 42, 0.065);
       }
 
       .section-header {
@@ -395,73 +417,129 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       }
 
       .score-card {
-        text-align: center;
-        padding: 22px 24px;
+        padding: 25px 28px;
+        border-color: rgba(15, 23, 42, 0.085);
+        background:
+          radial-gradient(circle at 88% 16%, rgba(249, 115, 22, 0.105), transparent 30%),
+          radial-gradient(circle at 14% 88%, rgba(37, 99, 235, 0.055), transparent 28%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.995) 0%, rgba(248, 250, 252, 0.985) 100%);
+        box-shadow:
+          0 22px 46px rgba(15, 23, 42, 0.088),
+          0 4px 14px rgba(15, 23, 42, 0.035);
       }
 
-      .score-pill {
-        margin: 12px auto 0;
-        width: 124px;
-        height: 124px;
+      .score-card--danger {
+        border-color: rgba(220, 38, 38, 0.145);
+        background:
+          radial-gradient(circle at 86% 15%, rgba(220, 38, 38, 0.105), transparent 30%),
+          radial-gradient(circle at 12% 86%, rgba(249, 115, 22, 0.06), transparent 28%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.995) 0%, rgba(255, 248, 248, 0.99) 100%);
+        box-shadow:
+          0 22px 46px rgba(127, 29, 29, 0.105),
+          0 4px 14px rgba(15, 23, 42, 0.032);
+      }
+
+      .score-layout {
+        display: grid;
+        grid-template-columns: 174px minmax(0, 1fr);
+        gap: 28px;
+        align-items: center;
+      }
+
+      .score-ring {
+        width: 168px;
+        height: 168px;
         border-radius: 999px;
         display: grid;
         place-items: center;
-        border: 10px solid rgba(79, 70, 229, 0.14);
         background:
-          radial-gradient(circle at center, #ffffff 50%, rgba(79, 70, 229, 0.06) 100%);
+          conic-gradient(var(--score-color) var(--score-deg), rgba(226, 232, 240, 0.86) 0deg),
+          linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        box-shadow:
+          inset 0 0 0 1px rgba(15, 23, 42, 0.06),
+          inset 0 0 0 10px rgba(255, 255, 255, 0.72),
+          0 18px 38px rgba(15, 23, 42, 0.105);
+      }
+
+      .score-pill {
+        width: 118px;
+        height: 118px;
+        border-radius: 999px;
+        display: grid;
+        place-items: center;
+        background: rgba(255, 255, 255, 0.98);
+        box-shadow:
+          inset 0 0 0 1px rgba(226, 232, 240, 0.92),
+          0 10px 22px rgba(15, 23, 42, 0.065);
         color: var(--indigo);
       }
 
-      .score-pill--success {
-        border-color: rgba(22, 163, 74, 0.18);
-        background:
-          radial-gradient(circle at center, #ffffff 50%, rgba(22, 163, 74, 0.10) 100%);
+      .score-ring--success {
+        --score-color: var(--success);
+      }
+
+      .score-ring--success .score-pill {
         color: var(--success);
       }
 
-      .score-pill--warning {
-        border-color: rgba(245, 158, 11, 0.22);
-        background:
-          radial-gradient(circle at center, #ffffff 50%, rgba(245, 158, 11, 0.11) 100%);
+      .score-ring--warning {
+        --score-color: var(--warning);
+      }
+
+      .score-ring--warning .score-pill {
         color: #B45309;
       }
 
-      .score-pill--danger {
-        border-color: rgba(220, 38, 38, 0.18);
+      .score-ring--danger {
+        --score-color: var(--danger);
         background:
-          radial-gradient(circle at center, #ffffff 50%, rgba(220, 38, 38, 0.10) 100%);
+          conic-gradient(var(--score-color) var(--score-deg), rgba(254, 226, 226, 0.96) 0deg),
+          radial-gradient(circle at center, rgba(220, 38, 38, 0.08), transparent 60%),
+          linear-gradient(180deg, #ffffff 0%, #fff7f7 100%);
+        box-shadow:
+          inset 0 0 0 1px rgba(220, 38, 38, 0.12),
+          inset 0 0 0 10px rgba(255, 255, 255, 0.76),
+          0 20px 42px rgba(220, 38, 38, 0.135);
+      }
+
+      .score-ring--danger .score-pill {
         color: var(--danger);
       }
 
-      .score-pill--info {
-        border-color: rgba(37, 99, 235, 0.18);
-        background:
-          radial-gradient(circle at center, #ffffff 50%, rgba(37, 99, 235, 0.09) 100%);
+      .score-ring--info {
+        --score-color: var(--blue);
+      }
+
+      .score-ring--info .score-pill {
         color: var(--blue);
       }
 
       .score-value {
-        font-size: 34px;
+        font-size: 44px;
         line-height: 1;
         font-weight: 800;
       }
 
       .score-caption {
         margin: 4px 0 0;
-        font-size: 11px;
-        font-weight: 700;
+        font-size: 10.5px;
+        font-weight: 800;
         text-transform: uppercase;
         letter-spacing: 0.08em;
       }
 
       .score-highlight {
-        margin: 12px auto 0;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 9px;
+        align-items: center;
+        margin: 12px 0 0;
       }
 
       .score-meter {
-        margin: 14px auto 0;
-        width: min(360px, 100%);
-        height: 12px;
+        margin: 17px 0 0;
+        width: 100%;
+        height: 8px;
         border-radius: 999px;
         background: rgba(226, 232, 240, 0.95);
         overflow: hidden;
@@ -490,68 +568,141 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       }
 
       .score-narrative {
-        margin: 14px auto 0;
-        max-width: 540px;
+        margin: 13px 0 0;
+        max-width: 420px;
         color: var(--text-soft);
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .score-analytics {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 11px;
+        margin-top: 17px;
+      }
+
+      .score-analytics-item {
+        border: 1px solid rgba(226, 232, 240, 0.78);
+        border-radius: 14px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(248, 250, 252, 0.72));
+        padding: 10px 11px;
+        box-shadow: 0 7px 16px rgba(15, 23, 42, 0.035);
+      }
+
+      .score-analytics-top {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        align-items: center;
+        color: var(--text-soft);
+        font-size: 8.8px;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .score-analytics-value {
+        color: var(--text);
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0;
+      }
+
+      .score-analytics-track {
+        height: 5px;
+        margin-top: 8px;
+        border-radius: 999px;
+        background: rgba(226, 232, 240, 0.92);
+        overflow: hidden;
+      }
+
+      .score-analytics-fill {
+        height: 100%;
+        min-width: 4px;
+        border-radius: inherit;
+        background: var(--blue);
+      }
+
+      .score-analytics-fill--success {
+        background: linear-gradient(90deg, var(--success), #86EFAC);
+      }
+
+      .score-analytics-fill--warning {
+        background: linear-gradient(90deg, var(--warning), #FCD34D);
+      }
+
+      .score-analytics-fill--danger {
+        background: linear-gradient(90deg, var(--danger), #FCA5A5);
       }
 
       .kpi-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 10px;
+        gap: 11px;
       }
 
       .kpi-card {
-        border: 1px solid var(--border);
+        border: 1px solid rgba(226, 232, 240, 0.78);
         border-radius: var(--radius-md);
-        background: rgba(248, 250, 252, 0.95);
-        padding: 12px 14px;
-        min-height: 112px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.88));
+        padding: 13px 15px;
+        min-height: 108px;
+        box-shadow:
+          0 12px 24px rgba(15, 23, 42, 0.045),
+          0 1px 0 rgba(255, 255, 255, 0.86) inset;
         break-inside: avoid;
         page-break-inside: avoid;
       }
 
       .kpi-card--success {
-        border-color: rgba(22, 163, 74, 0.18);
-        background: rgba(240, 253, 244, 0.98);
+        border-color: rgba(22, 163, 74, 0.16);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(240, 253, 244, 0.86));
       }
 
       .kpi-card--warning {
-        border-color: rgba(245, 158, 11, 0.22);
-        background: rgba(255, 251, 235, 0.98);
+        border-color: rgba(245, 158, 11, 0.18);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 251, 235, 0.88));
       }
 
       .kpi-card--danger {
-        border-color: rgba(220, 38, 38, 0.16);
-        background: rgba(254, 242, 242, 0.98);
+        border-color: rgba(220, 38, 38, 0.14);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(254, 242, 242, 0.88));
       }
 
       .kpi-card--info {
-        border-color: rgba(37, 99, 235, 0.18);
-        background: rgba(239, 246, 255, 0.98);
+        border-color: rgba(37, 99, 235, 0.15);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(239, 246, 255, 0.88));
       }
 
       .kpi-label {
         margin: 0;
-        font-size: 10px;
-        font-weight: 700;
-        letter-spacing: 0.08em;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.09em;
         text-transform: uppercase;
-        color: var(--text-soft);
+        color: #718096;
       }
 
       .kpi-value {
-        margin: 12px 0 0;
-        font-size: 24px;
+        margin: 11px 0 0;
+        font-size: 23px;
         line-height: 1;
         font-weight: 800;
         color: var(--text);
       }
 
       .kpi-description {
-        margin: 10px 0 0;
+        margin: 11px 0 0;
         color: var(--text-soft);
-        font-size: 11px;
+        font-size: 10.6px;
+        line-height: 1.35;
       }
 
       .advanced-grid,
@@ -559,6 +710,249 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 10px;
+      }
+
+      .analytics-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .analytics-card {
+        border: 1px solid rgba(226, 232, 240, 0.78);
+        border-radius: var(--radius-md);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.86));
+        padding: 13px 14px;
+        min-height: 104px;
+        box-shadow:
+          0 12px 26px rgba(15, 23, 42, 0.044),
+          0 1px 0 rgba(255, 255, 255, 0.82) inset;
+      }
+
+      .page-analysis {
+        padding-top: 11mm;
+        padding-bottom: 20mm;
+      }
+
+      .page-analysis > section,
+      .page-analysis > .page-topline {
+        margin-top: 8px;
+      }
+
+      .page-analysis > .page-topline + section {
+        margin-top: 8px;
+      }
+
+      .page-analysis .card {
+        padding: 14px 17px;
+      }
+
+      .page-analysis .section-header {
+        margin-bottom: 9px;
+      }
+
+      .page-analysis .analytics-card {
+        min-height: 86px;
+        padding: 10px 12px;
+      }
+
+      .page-analysis .analytics-value {
+        margin-top: 8px;
+        font-size: 22px;
+      }
+
+      .page-analysis .analytics-copy {
+        margin-top: 6px;
+        font-size: 9.8px;
+      }
+
+      .page-analysis .card,
+      .page-analysis .analytics-card {
+        position: relative;
+      }
+
+      .page-analysis .card::after,
+      .page-analysis .analytics-card::after {
+        content: "";
+        position: absolute;
+        left: 14px;
+        right: 14px;
+        bottom: 0;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(226, 232, 240, 0.92), transparent);
+      }
+
+      .analytics-card--success {
+        border-color: rgba(22, 163, 74, 0.18);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(240, 253, 244, 0.82));
+      }
+
+      .analytics-card--warning {
+        border-color: rgba(245, 158, 11, 0.22);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 251, 235, 0.84));
+      }
+
+      .analytics-card--danger {
+        border-color: rgba(220, 38, 38, 0.16);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(254, 242, 242, 0.86));
+      }
+
+      .analytics-card--info {
+        border-color: rgba(37, 99, 235, 0.16);
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(239, 246, 255, 0.84));
+      }
+
+      .analytics-label {
+        margin: 0;
+        color: var(--text-soft);
+        font-size: 9.4px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .analytics-value {
+        margin: 12px 0 0;
+        color: var(--text);
+        font-size: 25px;
+        line-height: 1;
+        font-weight: 800;
+      }
+
+      .analytics-copy {
+        margin: 8px 0 0;
+        color: var(--text-soft);
+        font-size: 10.4px;
+        font-weight: 600;
+      }
+
+      .chart-card {
+        display: grid;
+        grid-template-columns: 142px minmax(0, 1fr);
+        gap: 18px;
+        align-items: center;
+        padding: 18px 20px;
+      }
+
+      .page-analysis .chart-card {
+        grid-template-columns: 122px minmax(0, 1fr);
+        padding: 14px 18px;
+      }
+
+      .mini-donut {
+        --chart-color: var(--teal);
+        width: 132px;
+        height: 132px;
+        border-radius: 999px;
+        display: grid;
+        place-items: center;
+        background:
+          conic-gradient(var(--chart-color) var(--chart-deg), rgba(226, 232, 240, 0.88) 0deg),
+          #ffffff;
+        box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.06);
+      }
+
+      .page-analysis .mini-donut {
+        width: 112px;
+        height: 112px;
+      }
+
+      .mini-donut-core {
+        width: 88px;
+        height: 88px;
+        border-radius: 999px;
+        display: grid;
+        place-items: center;
+        background: #ffffff;
+        box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.92);
+      }
+
+      .page-analysis .mini-donut-core {
+        width: 74px;
+        height: 74px;
+      }
+
+      .mini-donut-value {
+        font-size: 22px;
+        line-height: 1;
+        font-weight: 800;
+        color: var(--text);
+      }
+
+      .chart-legend {
+        display: grid;
+        gap: 8px;
+      }
+
+      .legend-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 9px 0;
+        border-bottom: 1px solid rgba(226, 232, 240, 0.82);
+        color: var(--text-soft);
+        font-weight: 700;
+      }
+
+      .micro-bars {
+        display: grid;
+        gap: 9px;
+      }
+
+      .page-analysis .micro-bars {
+        gap: 7px;
+      }
+
+      .micro-bar-row {
+        display: grid;
+        grid-template-columns: 82px minmax(0, 1fr) 34px;
+        gap: 9px;
+        align-items: center;
+        color: var(--text-soft);
+        font-size: 9.4px;
+        font-weight: 700;
+      }
+
+      .micro-bar-track {
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(226, 232, 240, 0.92);
+        overflow: hidden;
+      }
+
+      .micro-bar-fill {
+        height: 100%;
+        min-width: 4px;
+        border-radius: inherit;
+      }
+
+      .micro-bar-fill--success {
+        background: linear-gradient(90deg, var(--success), #86EFAC);
+      }
+
+      .micro-bar-fill--warning {
+        background: linear-gradient(90deg, var(--warning), #FCD34D);
+      }
+
+      .micro-bar-fill--danger {
+        background: linear-gradient(90deg, var(--danger), #FCA5A5);
+      }
+
+      .micro-bar-fill--info {
+        background: linear-gradient(90deg, var(--blue), #93C5FD);
+      }
+
+      .legend-row:last-child {
+        border-bottom: 0;
+      }
+
+      .legend-value {
+        color: var(--text);
       }
 
       .advanced-list,
@@ -704,14 +1098,15 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        min-height: 28px;
-        padding: 7px 10px;
+        min-height: 25px;
+        padding: 6px 12px;
         border-radius: var(--radius-sm);
-        font-size: 10px;
+        font-size: 9.4px;
         line-height: 1.2;
-        font-weight: 700;
-        letter-spacing: 0.04em;
+        font-weight: 800;
+        letter-spacing: 0.045em;
         border: 1px solid transparent;
+        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.026);
         white-space: nowrap;
         word-break: normal;
         overflow-wrap: normal;
@@ -750,7 +1145,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       }
 
       .table-card {
-        padding: 10px 10px 8px;
+        padding: 11px 11px 9px;
       }
 
       .page-details .compact-title {
@@ -759,11 +1154,12 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       }
 
       .page-details .table-card {
-        padding: 8px 8px 6px;
+        margin-top: 15px;
+        padding: 11px 11px 9px;
       }
 
       .page-details .section-header {
-        margin-bottom: 8px;
+        margin-bottom: 10px;
         gap: 8px;
       }
 
@@ -781,6 +1177,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         border-radius: 16px;
         overflow: hidden;
         background: rgba(255, 255, 255, 0.98);
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.035);
         break-inside: avoid;
         page-break-inside: avoid;
       }
@@ -802,7 +1199,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       th,
       td {
         padding: 6px 9px;
-        border-bottom: 1px solid var(--border);
+        border-bottom: 1px solid rgba(226, 232, 240, 0.84);
         vertical-align: middle;
         text-align: left;
         word-break: normal;
@@ -833,6 +1230,18 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         background: rgba(248, 250, 252, 0.62);
       }
 
+      tbody tr.row--absence td {
+        background: rgba(254, 242, 242, 0.72);
+      }
+
+      tbody tr.row--late td {
+        background: rgba(255, 251, 235, 0.66);
+      }
+
+      tbody tr.row--present td {
+        background: rgba(240, 253, 244, 0.44);
+      }
+
       tr,
       td,
       th {
@@ -859,7 +1268,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
 
       .table-shell .badge {
         display: inline-flex;
-        min-width: 70px;
+        min-width: 74px;
         white-space: nowrap;
         text-align: center;
         word-break: normal;
@@ -877,8 +1286,8 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
 
       .page-details th,
       .page-details td {
-        padding: 4px 7px;
-        line-height: 1.15;
+        padding: 6px 8px;
+        line-height: 1.22;
       }
 
       .page-details th {
@@ -898,15 +1307,39 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       }
 
       .page-details .badge {
-        min-height: 22px;
-        padding: 5px 8px;
-        font-size: 9px;
+        min-height: 23px;
+        padding: 5px 9px;
+        font-size: 8.8px;
+        font-weight: 800;
+      }
+
+      .page-details .badge--danger {
+        background: rgba(254, 226, 226, 0.92);
+        color: #B91C1C;
+      }
+
+      .page-details .badge--warning {
+        background: rgba(255, 237, 213, 0.96);
+        color: #C2410C;
+      }
+
+      .page-details .badge--success {
+        background: rgba(220, 252, 231, 0.94);
+        color: #15803D;
       }
 
       .table-value-empty {
         color: var(--text-soft);
         display: inline-block;
         min-height: 1em;
+      }
+
+      .table-value-absence {
+        color: #B91C1C;
+        font-size: 8.4px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
       }
 
       .team-summary-grid {
@@ -924,23 +1357,45 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         position: absolute;
         left: 14mm;
         right: 14mm;
-        bottom: 14mm;
+        bottom: 13mm;
         display: flex;
         justify-content: space-between;
         align-items: center;
-        gap: 12px;
+        gap: 16px;
         color: var(--text-soft);
-        font-size: 10px;
+        font-size: 8.4px;
+        letter-spacing: 0.055em;
+        opacity: 0.88;
+        padding-top: 9px;
+        border-top: 1px solid rgba(226, 232, 240, 0.82);
       }
 
       .footer strong {
         color: var(--text);
         white-space: nowrap;
+        font-size: 8.8px;
+        letter-spacing: 0.02em;
+      }
+
+      .footer-mark {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        text-transform: uppercase;
+        font-weight: 700;
+      }
+
+      .footer-mark::before {
+        content: "";
+        width: 5px;
+        height: 5px;
+        border-radius: 999px;
+        background: var(--orange);
       }
 
       .page-details .footer {
-        bottom: 10mm;
-        font-size: 9px;
+        bottom: 10.5mm;
+        font-size: 8.8px;
       }
 
       .analysis-conclusion {
@@ -948,7 +1403,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         border-left: 4px solid var(--danger);
         border-radius: var(--radius-md);
         background: linear-gradient(180deg, rgba(254, 242, 242, 0.96) 0%, rgba(255, 255, 255, 0.98) 100%);
-        padding: 14px 16px;
+        padding: 12px 16px;
         break-inside: avoid;
         page-break-inside: avoid;
       }
@@ -963,7 +1418,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       }
 
       .analysis-conclusion-copy {
-        margin: 8px 0 0;
+        margin: 6px 0 0;
         font-size: 11px;
         line-height: 1.5;
         color: var(--text);
@@ -1012,62 +1467,95 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       <section class="hero">
         <div>
           <span class="eyebrow">KONATECH POINTAGE</span>
-          <h1 class="hero-title">Rapport mensuel de présence</h1>
-          <p class="hero-subtitle">Synthèse RH | ${this.escapeHtml(employeeReport.monthLabel)}</p>
-          <p class="hero-copy">
-            Rapport premium aligné sur le flux de pointage actif, avec une lecture stable des indicateurs RH et de la conformité GPS.
-          </p>
+          <h1 class="hero-title">Synthèse RH mensuelle</h1>
+          <p class="hero-subtitle">${this.escapeHtml(employeeReport.monthLabel)}</p>
+          <p class="hero-copy">Indicateurs clés, présence et signaux de suivi.</p>
         </div>
         <aside class="meta-card">
           <div>
-            <p class="meta-label">Génération</p>
+            <p class="meta-label">Émission</p>
             <p class="meta-value">${this.escapeHtml(employeeReport.generationDateLabel)}</p>
           </div>
-          <p class="meta-copy">
-            Rendu PDF unifié via Puppeteer. Export détaillé pour un employé.
-          </p>
+          <p class="meta-copy">Confidentiel RH</p>
         </aside>
       </section>
 
       <section class="card">
         <div class="section-header">
           <div>
-            <p class="section-kicker">Identité</p>
-            <h2 class="section-title">Informations employé</h2>
+            <p class="section-kicker">Collaborateur</p>
+            <h2 class="section-title">Profil</h2>
           </div>
-          ${this.renderBadge('Flux PDF Puppeteer', 'info')}
+          ${this.renderBadge('Planning actif', 'neutral')}
         </div>
         <div class="info-grid">
           ${this.infoItem("Nom de l'employé", employeeReport.fullName)}
-          ${this.infoItem('Identifiant employe', employeeReport.employeeIdentifier)}
+          ${this.infoItem('Identifiant employé', employeeReport.employeeIdentifier)}
           ${this.infoItem('Département', employeeReport.departmentLabel)}
           ${this.infoItem('Planning', employeeReport.assignedScheduleLabel)}
         </div>
       </section>
 
-      <section class="card score-card">
-        <p class="section-kicker">Score global</p>
-        <h2 class="section-title">Lecture RH consolidée du mois</h2>
-        <div class="score-highlight">
-          ${this.renderBadge(this.scoreLabel(employeeReport.performanceScore), this.scoreTone(employeeReport.performanceScore))}
-        </div>
-        <div class="score-pill score-pill--${this.scoreTone(employeeReport.performanceScore)}">
+      <section class="card score-card score-card--${this.scoreTone(employeeReport.performanceScore)}">
+        <div class="score-layout">
+          <div class="score-ring score-ring--${this.scoreTone(employeeReport.performanceScore)}" style="--score-deg: ${this.scoreRingDegrees(employeeReport.performanceScore)}deg;">
+            <div class="score-pill">
+              <div>
+                <div class="score-value">${employeeReport.performanceScore}</div>
+                <div class="score-caption">/ 100</div>
+              </div>
+            </div>
+          </div>
           <div>
-            <div class="score-value">${employeeReport.performanceScore}</div>
-            <div class="score-caption">/ 100</div>
+            <p class="section-kicker">Score global</p>
+            <h2 class="section-title">Priorité RH du mois</h2>
+            <div class="score-highlight">
+              ${this.renderBadge(this.scoreLabel(employeeReport.performanceScore), this.scoreTone(employeeReport.performanceScore))}
+              ${this.renderBadge(this.scoreExecutiveBadge(employeeReport), this.scoreTone(employeeReport.performanceScore))}
+            </div>
+            <div class="score-meter">
+              <div class="score-meter-fill score-meter-fill--${this.scoreTone(employeeReport.performanceScore)}" style="width: ${this.visibleScorePercent(employeeReport.performanceScore)}%;"></div>
+            </div>
+            <p class="score-narrative">${this.escapeHtml(this.scoreNarrative(employeeReport))}</p>
+            <div class="score-analytics">
+              ${this.scoreAnalyticsItem(
+                'Présence',
+                `${this.formatRate(employeeReport.presenceRate)}%`,
+                this.visibleRatePercent(employeeReport.presenceRate),
+                'success',
+              )}
+              ${this.scoreAnalyticsItem(
+                'Absence',
+                String(employeeReport.absenceCount),
+                this.visibleRatePercent(
+                  this.rateFromCount(
+                    employeeReport.absenceCount,
+                    employeeReport.workingDays,
+                  ),
+                ),
+                employeeReport.absenceCount > 0 ? 'danger' : 'success',
+              )}
+              ${this.scoreAnalyticsItem(
+                'Retard',
+                String(employeeReport.lateCount),
+                this.visibleRatePercent(
+                  this.rateFromCount(
+                    employeeReport.lateCount,
+                    employeeReport.workingDays,
+                  ),
+                ),
+                employeeReport.lateCount > 0 ? 'warning' : 'success',
+              )}
+            </div>
           </div>
         </div>
-        <div class="score-meter">
-          <div class="score-meter-fill score-meter-fill--${this.scoreTone(employeeReport.performanceScore)}" style="width: ${this.clampScore(employeeReport.performanceScore)}%;"></div>
-        </div>
-        <p class="score-narrative">${this.escapeHtml(this.scoreNarrative(employeeReport))}</p>
       </section>
 
       <section class="kpi-grid">
         ${this.kpiCard(
-          'Pr?sence',
+          'Présence',
           `${this.formatRate(employeeReport.presenceRate)} %`,
-          `${employeeReport.presenceDays} / ${employeeReport.workingDays} jours planifi?s`,
+          `${employeeReport.presenceDays} / ${employeeReport.workingDays} jours planifiés`,
           'success',
         )}
         ${this.kpiCard(
@@ -1079,72 +1567,29 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         ${this.kpiCard(
           'Retards',
           String(employeeReport.lateCount),
-          `${employeeReport.lateCount} occurrence(s) sur le mois`,
+          `${employeeReport.lateCount} occurrence(s)`,
           employeeReport.lateCount > 0 ? 'warning' : 'success',
         )}
         ${this.kpiCard(
-          'Heures travaill?es',
+          'Heures travaillées',
           employeeReport.totalWorkedHours,
-          `${employeeReport.entryCount} entr?e(s) et ${employeeReport.exitCount} sortie(s)`,
+          `${employeeReport.entryCount} entrée(s) | ${employeeReport.exitCount} sortie(s)`,
           'info',
         )}
         ${this.kpiCard(
-          'Heures suppl?mentaires',
+          'Heures supp.',
           employeeReport.overtimeHours,
-          `${employeeReport.scheduledOvertimeHours} planifi?es | ${employeeReport.outsideScheduleOvertimeHours} hors planning`,
-          employeeReport.exitBreakdown.overtimeDayCount > 0 ? 'info' : 'success',
+          `${employeeReport.scheduledOvertimeHours} planifiées | ${employeeReport.outsideScheduleOvertimeHours} hors planning`,
+          employeeReport.exitBreakdown.overtimeDayCount > 0
+            ? 'info'
+            : 'success',
         )}
         ${this.kpiCard(
-          'D?part t?t',
+          'Départs tôt',
           String(employeeReport.earlyExitCount),
-          `${employeeReport.earlyExitCount} journ?e(s) avec d?part t?t`,
+          `${employeeReport.earlyExitCount} sortie(s) anticipée(s)`,
           employeeReport.earlyExitCount > 0 ? 'warning' : 'success',
         )}
-      </section>
-
-      <section class="advanced-grid">
-        <article class="card">
-          <div class="section-header">
-            <div>
-              <p class="section-kicker">Retards à l'entrée</p>
-              <h2 class="section-title">Distribution mensuelle</h2>
-            </div>
-          </div>
-          <ul class="advanced-list">
-            ${this.advancedItem('5 à 15 min', String(employeeReport.lateRangeBreakdown.fiveToFifteenCount), 'retard(s) léger(s) à surveiller')}
-            ${this.advancedItem('16 à 30 min', String(employeeReport.lateRangeBreakdown.sixteenToThirtyCount), 'retard(s) modérés constatés')}
-            ${this.advancedItem('Plus de 30 min', String(employeeReport.lateRangeBreakdown.overThirtyCount), 'retard(s) critiques sur la période')}
-          </ul>
-        </article>
-        <article class="card">
-          <div class="section-header">
-            <div>
-              <p class="section-kicker">Sécurité GPS</p>
-              <h2 class="section-title">Conformité des pointages</h2>
-            </div>
-          </div>
-          <ul class="advanced-list">
-            ${this.advancedItem('Pointages GPS validés', String(employeeReport.gpsBreakdown.gpsValidatedPointages), 'validation géolocalisée conforme')}
-            ${this.advancedItem('Pointages sans GPS', String(employeeReport.gpsBreakdown.nonGpsPointages), 'contrôle supplémentaire recommandé')}
-            ${this.advancedItem('Dans la zone', String(employeeReport.gpsBreakdown.insideZonePointages), 'pointages reconnus dans le périmètre autorisé')}
-            ${this.advancedItem('Mode actif', employeeReport.gpsBreakdown.modeLabel, report.currentVerificationModelLabel)}
-          </ul>
-        </article>
-      </section>
-
-      <section class="card analysis-card">
-        <div class="section-header">
-          <div>
-            <p class="section-kicker">Analyse automatique RH</p>
-            <h2 class="section-title">Points saillants du mois</h2>
-          </div>
-          ${this.renderBadge('Analyse RH', 'neutral')}
-        </div>
-        <ul class="analysis-list">
-          ${this.buildAnalysisItems(employeeReport)
-            .map((item) => `<li class="analysis-item"><span>${this.escapeHtml(item)}</span></li>`)
-            .join('')}
-        </ul>
       </section>
 
       ${this.footer(report, pageNumber, totalPages)}
@@ -1162,64 +1607,138 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       <section class="compact-header">
         <div>
           <span class="eyebrow">KONATECH POINTAGE</span>
-          <h1 class="compact-title">Analyse automatique RH</h1>
+          <h1 class="compact-title">Analytics mensuels</h1>
           <p class="hero-copy">
             ${this.escapeHtml(employeeReport.fullName)} | ${this.escapeHtml(employeeReport.monthLabel)}
           </p>
         </div>
         <div class="compact-meta">
           ${this.renderBadge(this.scoreLabel(employeeReport.performanceScore), this.scoreTone(employeeReport.performanceScore))}
-          ${this.renderBadge(employeeReport.gpsBreakdown.modeLabel, 'info')}
+          ${this.renderBadge(this.readableGpsModeLabel(employeeReport.gpsBreakdown.modeLabel), 'info')}
         </div>
+      </section>
+
+      <section class="card chart-card">
+        <div class="mini-donut" style="--chart-deg: ${this.rateDegrees(employeeReport.presenceRate)}deg;">
+          <div class="mini-donut-core">
+            <span class="mini-donut-value">${this.formatRate(employeeReport.presenceRate)}%</span>
+          </div>
+        </div>
+        <div>
+          <p class="section-kicker">Présence</p>
+          <h2 class="section-title">Taux mensuel</h2>
+          <div class="chart-legend">
+            <div class="legend-row">
+              <span>Présences planifiées</span>
+              <span class="legend-value">${employeeReport.presenceDays} / ${employeeReport.workingDays}</span>
+            </div>
+            <div class="legend-row">
+              <span>Absences</span>
+              <span class="legend-value">${employeeReport.absenceCount}</span>
+            </div>
+            <div class="legend-row">
+              <span>Score global</span>
+              <span class="legend-value">${employeeReport.performanceScore} / 100</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="analytics-grid">
+        ${this.analyticsCard('5 à 15 min', String(employeeReport.lateRangeBreakdown.fiveToFifteenCount), 'Retards légers', 'warning')}
+        ${this.analyticsCard('16 à 30 min', String(employeeReport.lateRangeBreakdown.sixteenToThirtyCount), 'Retards modérés', 'warning')}
+        ${this.analyticsCard('+30 min', String(employeeReport.lateRangeBreakdown.overThirtyCount), 'Retards critiques', employeeReport.lateRangeBreakdown.overThirtyCount > 0 ? 'danger' : 'success')}
       </section>
 
       <section class="advanced-grid">
         <article class="card">
           <div class="section-header">
             <div>
-              <p class="section-kicker">Retards à l'entrée</p>
-              <h2 class="section-title">Distribution mensuelle</h2>
+              <p class="section-kicker">GPS</p>
+              <h2 class="section-title">Conformité</h2>
             </div>
           </div>
-          <ul class="advanced-list">
-            ${this.advancedItem('5 à 15 min', String(employeeReport.lateRangeBreakdown.fiveToFifteenCount), 'retard(s) légers à surveiller')}
-            ${this.advancedItem('16 à 30 min', String(employeeReport.lateRangeBreakdown.sixteenToThirtyCount), 'retard(s) modérés constatés')}
-            ${this.advancedItem('Plus de 30 min', String(employeeReport.lateRangeBreakdown.overThirtyCount), 'retard(s) critiques sur la période')}
-          </ul>
+          <div class="analytics-grid">
+            ${this.analyticsCard('Validés', String(employeeReport.gpsBreakdown.gpsValidatedPointages), 'GPS conforme', 'success')}
+            ${this.analyticsCard('Sans GPS', String(employeeReport.gpsBreakdown.nonGpsPointages), 'À vérifier', employeeReport.gpsBreakdown.nonGpsPointages > 0 ? 'warning' : 'success')}
+            ${this.analyticsCard('Dans zone', String(employeeReport.gpsBreakdown.insideZonePointages), this.readableGpsModeLabel(employeeReport.gpsBreakdown.modeLabel), 'info')}
+          </div>
         </article>
         <article class="card">
           <div class="section-header">
             <div>
-              <p class="section-kicker">Sécurité GPS</p>
-              <h2 class="section-title">Conformité des pointages</h2>
+              <p class="section-kicker">Sorties</p>
+              <h2 class="section-title">Rythme mensuel</h2>
             </div>
           </div>
-          <ul class="advanced-list">
-            ${this.advancedItem('Pointages GPS validés', String(employeeReport.gpsBreakdown.gpsValidatedPointages), 'validation géolocalisée conforme')}
-            ${this.advancedItem('Pointages sans GPS', String(employeeReport.gpsBreakdown.nonGpsPointages), 'contrôle supplémentaire recommandé')}
-            ${this.advancedItem('Dans la zone', String(employeeReport.gpsBreakdown.insideZonePointages), 'pointages reconnus dans le périmètre autorisé')}
-            ${this.advancedItem('Mode actif', employeeReport.gpsBreakdown.modeLabel, report.currentVerificationModelLabel)}
-          </ul>
+          <div class="analytics-grid">
+            ${this.analyticsCard('Normales', String(employeeReport.exitBreakdown.normalExitCount), 'Sorties conformes', 'success')}
+            ${this.analyticsCard('Tôt', String(employeeReport.exitBreakdown.earlyExitCount), 'Départs anticipés', employeeReport.exitBreakdown.earlyExitCount > 0 ? 'warning' : 'success')}
+            ${this.analyticsCard('Supp.', String(employeeReport.exitBreakdown.overtimeDayCount), employeeReport.overtimeHours, 'info')}
+          </div>
         </article>
+      </section>
+
+      <section class="card">
+        <div class="section-header">
+          <div>
+            <p class="section-kicker">Lecture analytique</p>
+            <h2 class="section-title">Distribution des signaux</h2>
+          </div>
+          ${this.renderBadge('Indicateurs RH', 'neutral')}
+        </div>
+        <div class="micro-bars">
+          ${this.microBar(
+            'Présence',
+            `${this.formatRate(employeeReport.presenceRate)}%`,
+            this.visibleRatePercent(employeeReport.presenceRate),
+            'success',
+          )}
+          ${this.microBar(
+            'Absences',
+            String(employeeReport.absenceCount),
+            this.visibleRatePercent(
+              this.rateFromCount(
+                employeeReport.absenceCount,
+                employeeReport.workingDays,
+              ),
+            ),
+            employeeReport.absenceCount > 0 ? 'danger' : 'success',
+          )}
+          ${this.microBar(
+            'Retards',
+            String(employeeReport.lateCount),
+            this.visibleRatePercent(
+              this.rateFromCount(
+                employeeReport.lateCount,
+                employeeReport.workingDays,
+              ),
+            ),
+            employeeReport.lateCount > 0 ? 'warning' : 'success',
+          )}
+        </div>
       </section>
 
       <section class="card analysis-card">
         <div class="section-header">
           <div>
-            <p class="section-kicker">Analyse automatique RH</p>
-            <h2 class="section-title">Points saillants du mois</h2>
+            <p class="section-kicker">Synthèse</p>
+            <h2 class="section-title">Points d'attention</h2>
           </div>
-          ${this.renderBadge('Lecture RH', 'neutral')}
+          ${this.renderBadge('Confidentiel RH', 'neutral')}
         </div>
         <ul class="analysis-list">
           ${this.buildAnalysisItems(employeeReport)
-            .map((item) => `<li class="analysis-item"><span>${this.escapeHtml(item)}</span></li>`)
+            .map(
+              (item) =>
+                `<li class="analysis-item"><span>${this.escapeHtml(item)}</span></li>`,
+            )
             .join('')}
         </ul>
       </section>
 
       <section class="analysis-conclusion">
-        <p class="analysis-conclusion-title">Conclusion RH</p>
+        <p class="analysis-conclusion-title">Décision recommandée</p>
         <p class="analysis-conclusion-copy">${this.escapeHtml(this.buildAnalysisConclusion(employeeReport))}</p>
       </section>
 
@@ -1238,7 +1757,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       rows.length > 0
         ? rows
             .map(
-              (row) => `<tr>
+              (row) => `<tr class="${this.dailyRowClass(row.statusLabel)}">
                 <td>
                   <div class="table-identity">
                     <strong>${this.escapeHtml(row.date)}</strong>
@@ -1263,12 +1782,12 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       <section class="compact-header detail-header">
         <div class="detail-header-copy">
           <span class="eyebrow">KONATECH POINTAGE</span>
-          <h1 class="compact-title">Détail journalier</h1>
+          <h1 class="compact-title">Journal quotidien</h1>
           <p class="detail-subtitle">
             ${this.escapeHtml(employeeReport.fullName)} | ${this.escapeHtml(employeeReport.monthLabel)}
           </p>
           <p class="detail-meta-line">
-            <strong>Identifiant employe</strong> ${this.escapeHtml(employeeReport.employeeIdentifier)}
+            <strong>Identifiant employé</strong> ${this.escapeHtml(employeeReport.employeeIdentifier)}
             <span class="detail-meta-separator">|</span>
             <strong>D&eacute;partement</strong> ${this.escapeHtml(employeeReport.departmentLabel)}
           </p>
@@ -1279,9 +1798,8 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         <div class="section-header">
           <div>
             <p class="section-kicker">Vue quotidienne</p>
-            <h2 class="section-title">Entrées, sorties et statuts</h2>
+            <h2 class="section-title">Présence, retards et sorties</h2>
           </div>
-          ${this.renderBadge(`Page ${pageNumber} / ${totalPages}`, 'neutral')}
         </div>
         <div class="table-shell">
           <table>
@@ -1292,7 +1810,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
                 <th style="width: 11%;">Sortie</th>
                 <th style="width: 14%;">Statut</th>
                 <th style="width: 10%;">Retard</th>
-                <th style="width: 15%;">Départ tôt</th>
+                <th style="width: 15%;">Départs tôt</th>
                 <th style="width: 15%;">Heures supp.</th>
               </tr>
             </thead>
@@ -1334,20 +1852,16 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       <section class="hero">
         <div>
           <span class="eyebrow">KONATECH POINTAGE</span>
-          <h1 class="hero-title">Rapport mensuel de présence</h1>
-          <p class="hero-subtitle">Synthèse équipe | ${this.escapeHtml(this.formatPeriod(report.month, report.year))}</p>
-          <p class="hero-copy">
-            Vue globale des collaborateurs actifs, des absences, des retards et des heures consolidées sur la période.
-          </p>
+          <h1 class="hero-title">Synthèse équipe</h1>
+          <p class="hero-subtitle">${this.escapeHtml(this.formatPeriod(report.month, report.year))}</p>
+          <p class="hero-copy">Vue consolidée des présences, absences et heures.</p>
         </div>
         <aside class="meta-card">
           <div>
-            <p class="meta-label">Génération</p>
+            <p class="meta-label">Émission</p>
             <p class="meta-value">${this.escapeHtml(this.formatGeneratedAt(report.generatedAt))}</p>
           </div>
-          <p class="meta-copy">
-            Rendu PDF unifié via Puppeteer. Rapport équipe paginé côté backend.
-          </p>
+          <p class="meta-copy">Confidentiel RH</p>
         </aside>
       </section>
 
@@ -1486,7 +2000,8 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
   }
 
   private buildDocumentTitle(report: MonthlyAttendanceExportReport) {
-    const monthLabel = this.frenchMonthLabels[report.month - 1] ?? String(report.month);
+    const monthLabel =
+      this.frenchMonthLabels[report.month - 1] ?? String(report.month);
     const scope = report.employeeReport?.fullName ?? 'équipe';
 
     return `Rapport mensuel de présence ${scope} ${monthLabel} ${report.year}`;
@@ -1498,7 +2013,8 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
     totalPages: number,
   ) {
     return `<footer class="footer">
-      <span>${this.escapeHtml(this.buildDocumentTitle(report))}</span>
+      <span class="footer-mark">Document généré automatiquement par KONATECH POINTAGE</span>
+      <span>Confidentiel RH</span>
       <strong>Page ${pageNumber} / ${totalPages}</strong>
     </footer>`;
   }
@@ -1523,6 +2039,51 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
     </article>`;
   }
 
+  private analyticsCard(
+    label: string,
+    value: string,
+    copy: string,
+    tone: 'success' | 'warning' | 'danger' | 'info',
+  ) {
+    return `<article class="analytics-card analytics-card--${tone}">
+      <p class="analytics-label">${this.escapeHtml(label)}</p>
+      <p class="analytics-value">${this.escapeHtml(value)}</p>
+      <p class="analytics-copy">${this.escapeHtml(copy)}</p>
+    </article>`;
+  }
+
+  private scoreAnalyticsItem(
+    label: string,
+    value: string,
+    percent: number,
+    tone: 'success' | 'warning' | 'danger' | 'info',
+  ) {
+    return `<div class="score-analytics-item">
+      <div class="score-analytics-top">
+        <span>${this.escapeHtml(label)}</span>
+        <span class="score-analytics-value">${this.escapeHtml(value)}</span>
+      </div>
+      <div class="score-analytics-track">
+        <div class="score-analytics-fill score-analytics-fill--${tone}" style="width: ${percent}%;"></div>
+      </div>
+    </div>`;
+  }
+
+  private microBar(
+    label: string,
+    value: string,
+    percent: number,
+    tone: 'success' | 'warning' | 'danger' | 'info',
+  ) {
+    return `<div class="micro-bar-row">
+      <span>${this.escapeHtml(label)}</span>
+      <span class="micro-bar-track">
+        <span class="micro-bar-fill micro-bar-fill--${tone}" style="width: ${percent}%;"></span>
+      </span>
+      <strong>${this.escapeHtml(value)}</strong>
+    </div>`;
+  }
+
   private advancedItem(label: string, value: string, copy: string) {
     return `<li class="advanced-item">
       <div>
@@ -1543,14 +2104,20 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
     const normalized = this.normalizeText(statusLabel).toLowerCase();
 
     if (normalized.includes('absen')) {
-      return this.renderBadge('Absence', 'danger');
+      return this.renderBadge('ABSENCE', 'danger');
     }
 
     if (normalized.includes('retard') || normalized.includes('incomplet')) {
-      return this.renderBadge(this.normalizeStatusLabel(statusLabel), 'warning');
+      return this.renderBadge(
+        this.normalizeStatusLabel(statusLabel).toUpperCase(),
+        'warning',
+      );
     }
 
-    return this.renderBadge(this.normalizeStatusLabel(statusLabel), 'success');
+    return this.renderBadge(
+      this.normalizeStatusLabel(statusLabel).toUpperCase(),
+      'success',
+    );
   }
 
   private renderGpsBadge(gpsLabel: string) {
@@ -1579,103 +2146,99 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
 
     if (this.hasNoPresenceMonth(employeeReport)) {
       items.push(
-        `Aucune présence enregistrée : 0 présence sur ${employeeReport.workingDays} jour(s) planifié(s), avec ${employeeReport.absenceCount} absence(s) constatée(s).`,
+        `Aucune présence sur ${employeeReport.workingDays} jour(s) planifié(s).`,
       );
-      items.push(
-        `Score global critique : ${employeeReport.performanceScore}/100, avec aucune heure travaillée enregistrée sur la période.`,
-      );
-      items.push(
-        "Les indicateurs de retard et de sécurité GPS ne sont pas significatifs lorsqu'aucun pointage n'est enregistré.",
-      );
+      items.push(`Score critique : ${employeeReport.performanceScore}/100.`);
+      items.push('Revue administrative recommandée.');
 
       return items;
     }
 
     if (employeeReport.absenceCount >= 2) {
-      items.push(
-        `Taux d'absence élevé : ${employeeReport.absenceCount} absence(s) constatée(s) sur la période.`,
-      );
+      items.push(`${employeeReport.absenceCount} absences à traiter.`);
     } else if (employeeReport.absenceCount === 0) {
-      items.push('Présence continue : aucune absence constat?e sur la période.');
+      items.push('Aucune absence');
     }
 
     if (employeeReport.lateCount >= 4) {
-      items.push(
-        `Retards fréquents : ${employeeReport.lateCount} retard(s) relevé(s) à l'entrée.`,
-      );
+      items.push(`${employeeReport.lateCount} retards à suivre.`);
     } else if (employeeReport.lateCount === 0) {
-      items.push('Ponctualit? stable : aucun retard enregistré ce mois-ci.');
+      items.push('Aucun retard');
     }
 
     if (employeeReport.gpsBreakdown.nonGpsPointages > 0) {
       items.push(
-        `Conformité GPS à renforcer : ${employeeReport.gpsBreakdown.nonGpsPointages} pointage(s) sans validation GPS.`,
+        `${employeeReport.gpsBreakdown.nonGpsPointages} pointage(s) sans GPS.`,
       );
     } else {
-      items.push('Conformité GPS solide : tous les pointages exploités sont valides.');
+      items.push('GPS conforme');
     }
 
     if (employeeReport.outsideScheduleWorkDays > 0) {
       items.push(
-        `Travail hors planning / Outside schedule work : ${employeeReport.outsideScheduleWorkDays} jour(s), ${employeeReport.outsideScheduleOvertimeHours} comptabilisées sans impact sur le taux de présence.`,
+        `${employeeReport.outsideScheduleWorkDays} jour(s) hors planning.`,
       );
     }
 
     if (employeeReport.earlyExitCount > 0) {
-      items.push(
-        `Départ tôt détecté : ${employeeReport.earlyExitCount} sortie(s) avant l'horaire planifié.`,
-      );
+      items.push(`${employeeReport.earlyExitCount} départ(s) anticipé(s).`);
     } else {
-      items.push('Sorties stabilisées : aucun d?part t?t relev? sur la période.');
+      items.push('Aucun départ anticipé');
     }
 
     return items;
   }
 
-  private buildAnalysisConclusion(employeeReport: MonthlyAttendanceEmployeeReport) {
+  private buildAnalysisConclusion(
+    employeeReport: MonthlyAttendanceEmployeeReport,
+  ) {
     if (this.hasNoPresenceMonth(employeeReport)) {
-      return "Conclusion : aucune présence n'a ?t? enregistrée pour cet employé sur la période. Le score global est critique et nécessite une revue managériale afin de vérifier la situation administrative, le planning ou la présence effective de l'employé. Les indicateurs de retard et de sécurité GPS ne sont pas significatifs lorsqu'il n'y a aucun pointage.";
+      return 'Intervention RH recommandée';
     }
 
     if (employeeReport.performanceScore < 50) {
-      return "Conclusion : le mois présente un niveau de risque RH élevé. Une revue managériale est recommandée pour traiter les absences, la ponctualit? ou les départs t?t relev?s dans le rapport.";
+      return 'Intervention RH recommandée';
     }
 
     if (employeeReport.absenceCount > 0 || employeeReport.lateCount > 0) {
-      return "Conclusion : la période reste exploitable mais demande un suivi managérial cibl? afin de stabiliser la présence, la ponctualit? et les heures réellement pointées.";
+      return 'Suivi managérial ciblé';
     }
 
     if (employeeReport.outsideScheduleWorkDays > 0) {
-      return "Conclusion : la présence planifiée reste stable, avec du travail hors planning correctement isolé en heures supplémentaires sans impacter le taux de présence.";
+      return 'Présence stable, heures hors planning isolées';
     }
 
-    return "Conclusion : la période est globalement maîtrisée, avec une présence régulière, une ponctualit? stable et un niveau de conformité exploitable pour le suivi RH.";
+    return 'Mois maîtrisé';
   }
 
   private scoreNarrative(employeeReport: MonthlyAttendanceEmployeeReport) {
     if (employeeReport.performanceScore >= 85) {
-      return 'Performance très solide sur la période, avec une lecture RH sereine et un suivi opérationnel simple.';
+      return 'Mois solide';
     }
 
     if (employeeReport.performanceScore >= 70) {
-      return 'Mois globalement maîtrisé, avec quelques points d attention à suivre pour maintenir la régularité.';
+      return 'Mois stable';
     }
 
     if (employeeReport.performanceScore >= 50) {
-      return 'La période demande un suivi plus rapproché sur la présence, la ponctualité ou la régularité des sorties.';
+      return 'Suivi recommandé';
     }
 
-    return "Signal d'alerte RH : la période mérite une revue managériale et des actions correctives ciblées.";
+    return 'Intervention RH recommandée';
   }
 
   private renderDailyTimeValue(
     value: string,
-    _row: MonthlyAttendanceDailyReportRow,
+    row: MonthlyAttendanceDailyReportRow,
   ) {
     const fallback = '';
     const displayValue = this.readableValue(value, fallback);
 
     if (displayValue === '') {
+      if (this.isAbsenceStatus(row.statusLabel)) {
+        return '<span class="table-value-absence">Absence</span>';
+      }
+
       return '<span class="table-value-empty"></span>';
     }
 
@@ -1694,6 +2257,20 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
 
   private isAbsenceStatus(statusLabel: string) {
     return this.normalizeText(statusLabel).toLowerCase().includes('absen');
+  }
+
+  private dailyRowClass(statusLabel: string) {
+    const normalized = this.normalizeText(statusLabel).toLowerCase();
+
+    if (normalized.includes('absen')) {
+      return 'row--absence';
+    }
+
+    if (normalized.includes('retard') || normalized.includes('incomplet')) {
+      return 'row--late';
+    }
+
+    return 'row--present';
   }
 
   private hasNoPresenceMonth(employeeReport: MonthlyAttendanceEmployeeReport) {
@@ -1744,7 +2321,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
     }
 
     if (score >= 50) {
-      return 'À surveiller';
+      return 'Attention';
     }
 
     return 'Critique';
@@ -1754,13 +2331,72 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
     return Math.max(0, Math.min(score, 100));
   }
 
-  private buildTeamSummary(rows: MonthlyAttendanceExportRow[]): TeamReportSummary {
+  private visibleScorePercent(score: number) {
+    const clampedScore = this.clampScore(score);
+
+    return clampedScore > 0 ? Math.max(8, clampedScore) : 5;
+  }
+
+  private visibleRatePercent(rate: number) {
+    const clampedRate = Math.max(0, Math.min(rate, 100));
+
+    return clampedRate > 0 ? Math.max(4, clampedRate) : 0;
+  }
+
+  private rateFromCount(value: number, total: number) {
+    if (total <= 0) {
+      return 0;
+    }
+
+    return (value / total) * 100;
+  }
+
+  private scoreRingDegrees(score: number) {
+    return Math.round((this.visibleScorePercent(score) / 100) * 360);
+  }
+
+  private rateDegrees(rate: number) {
+    const clampedRate = Math.max(0, Math.min(rate, 100));
+
+    return Math.round((clampedRate / 100) * 360);
+  }
+
+  private scoreExecutiveBadge(employeeReport: MonthlyAttendanceEmployeeReport) {
+    if (employeeReport.performanceScore < 50) {
+      return 'Priorité RH';
+    }
+
+    if (employeeReport.absenceCount > 0 || employeeReport.lateCount > 0) {
+      return 'Suivi ciblé';
+    }
+
+    return 'Conforme';
+  }
+
+  private readableGpsModeLabel(value: string) {
+    const normalized = this.normalizeText(value).toLowerCase();
+
+    if (normalized.includes('obligatoire')) {
+      return 'Validation GPS active';
+    }
+
+    if (normalized.includes('gps')) {
+      return 'GPS conforme';
+    }
+
+    return this.readableValue(value, 'Validation non renseignée');
+  }
+
+  private buildTeamSummary(
+    rows: MonthlyAttendanceExportRow[],
+  ): TeamReportSummary {
     return rows.reduce<TeamReportSummary>(
       (summary, row) => ({
         totalEmployees: summary.totalEmployees + 1,
         totalWorkingDays: summary.totalWorkingDays + row.workingDays,
         totalPresenceDays:
-          summary.totalPresenceDays + (row.workingDays > 0 ? row.presenceDays : 0),
+          summary.totalPresenceDays +
+          (row.workingDays > 0 ? row.presenceDays : 0),
         totalWorkedDays: summary.totalWorkedDays + row.totalWorkedDays,
         totalOutsideScheduleWorkDays:
           summary.totalOutsideScheduleWorkDays + row.outsideScheduleWorkDays,

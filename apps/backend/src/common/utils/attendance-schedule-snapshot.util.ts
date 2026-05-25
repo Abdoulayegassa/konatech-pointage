@@ -1,8 +1,5 @@
 import { Prisma } from '@prisma/client';
-import {
-  isScheduledOnDate,
-  setTimeOnDate,
-} from './attendance-date.util';
+import { isScheduledOnDate, setTimeOnDate } from './attendance-date.util';
 
 type ScheduleWorkDaysValue = Prisma.JsonValue | readonly string[];
 
@@ -88,8 +85,7 @@ export function resolveAttendanceSchedule(
       name: attendance.scheduleNameSnapshot ?? null,
       startTime: attendance.scheduleStartTimeSnapshot ?? null,
       endTime: attendance.scheduleEndTimeSnapshot ?? null,
-      latenessMarginMinutes:
-        attendance.scheduleLatenessMarginSnapshot ?? null,
+      latenessMarginMinutes: attendance.scheduleLatenessMarginSnapshot ?? null,
       workDays: attendance.scheduleWorkDaysSnapshot ?? null,
       capturedAt: attendance.scheduleCapturedAt ?? null,
     };
@@ -138,7 +134,10 @@ export function getResolvedAttendanceScheduledExitTime(
   schedule: ResolvedAttendanceSchedule,
   date: Date,
 ) {
-  if (!schedule.endTime || !isScheduledOnResolvedAttendanceDate(schedule, date)) {
+  if (
+    !schedule.endTime ||
+    !isScheduledOnResolvedAttendanceDate(schedule, date)
+  ) {
     return null;
   }
 

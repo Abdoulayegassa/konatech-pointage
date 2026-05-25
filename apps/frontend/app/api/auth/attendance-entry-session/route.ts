@@ -101,10 +101,7 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE() {
-  clearSessionCookie(
-    await cookies(),
-    ATTENDANCE_ENTRY_SESSION_COOKIE_NAME,
-  );
+  clearSessionCookie(await cookies(), ATTENDANCE_ENTRY_SESSION_COOKIE_NAME);
 
   return NextResponse.json({
     success: true,

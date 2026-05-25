@@ -157,14 +157,8 @@ export async function proxyApiRequest(
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    if (
-      response.status === 401 &&
-      options.sessionMode === 'attendance-entry'
-    ) {
-      clearSessionCookie(
-        await cookies(),
-        ATTENDANCE_ENTRY_SESSION_COOKIE_NAME,
-      );
+    if (response.status === 401 && options.sessionMode === 'attendance-entry') {
+      clearSessionCookie(await cookies(), ATTENDANCE_ENTRY_SESSION_COOKIE_NAME);
     }
 
     return NextResponse.json(
@@ -275,14 +269,8 @@ export async function proxyApiFileRequest(
   }
 
   if (!response.ok) {
-    if (
-      response.status === 401 &&
-      options.sessionMode === 'attendance-entry'
-    ) {
-      clearSessionCookie(
-        await cookies(),
-        ATTENDANCE_ENTRY_SESSION_COOKIE_NAME,
-      );
+    if (response.status === 401 && options.sessionMode === 'attendance-entry') {
+      clearSessionCookie(await cookies(), ATTENDANCE_ENTRY_SESSION_COOKIE_NAME);
     }
 
     return NextResponse.json(

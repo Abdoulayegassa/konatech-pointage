@@ -1,9 +1,4 @@
-import {
-  HttpException,
-  HttpStatus,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ThrottlerGuard, ThrottlerRequest } from '@nestjs/throttler';
 import {
   ATTENDANCE_ENTRY_PIN_LONG_THROTTLER_NAME,
@@ -16,8 +11,15 @@ export class AppThrottlerGuard extends ThrottlerGuard {
   private readonly logger = new Logger(AppThrottlerGuard.name);
 
   protected async handleRequest(requestProps: ThrottlerRequest) {
-    const { context, limit, ttl, throttler, blockDuration, getTracker, generateKey } =
-      requestProps;
+    const {
+      context,
+      limit,
+      ttl,
+      throttler,
+      blockDuration,
+      getTracker,
+      generateKey,
+    } = requestProps;
     const { req, res } = this.getRequestResponse(context);
     const throttlerName = throttler.name ?? 'default';
     const ignoreUserAgents =

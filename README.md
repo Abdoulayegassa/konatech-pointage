@@ -177,39 +177,39 @@ Backend test env: `apps/backend/.env.test`
 
 ## Workspace Commands
 
-| Command                        | Purpose                                                                      |
-| ------------------------------ | ---------------------------------------------------------------------------- |
-| `pnpm dev`                     | Start frontend and backend together                                          |
-| `pnpm dev:frontend`            | Start only the Next.js app                                                   |
-| `pnpm dev:backend`             | Start only the NestJS API                                                    |
-| `pnpm build`                   | Build both apps                                                              |
-| `pnpm build:frontend`          | Build only the Next.js app                                                   |
-| `pnpm build:backend`           | Build only the NestJS API                                                    |
-| `pnpm typecheck`               | Run TypeScript checks for both apps                                          |
-| `pnpm typecheck:frontend`      | Run TypeScript checks for the frontend only                                  |
-| `pnpm typecheck:backend`       | Run TypeScript checks for the backend only                                   |
-| `pnpm lint`                    | Run ESLint across the workspace                                              |
-| `pnpm lint:fix`                | Run ESLint with autofix enabled                                              |
-| `pnpm format`                  | Format supported files with Prettier                                         |
-| `pnpm format:check`            | Check Prettier formatting without writing files                              |
-| `pnpm check`                   | Run lint, typecheck, and build                                               |
-| `pnpm test`                    | Alias for backend e2e tests                                                  |
-| `pnpm test:backend`            | Run backend e2e tests                                                        |
-| `pnpm test:proxy`              | Start backend + frontend on temporary ports and verify Next.js proxy wiring  |
-| `pnpm validate:backend`        | Prisma generate, backend typecheck, backend build, and backend tests         |
-| `pnpm validate:frontend`       | Frontend typecheck, frontend build, and frontend -> backend proxy validation |
-| `pnpm validate`                | Full local validation: format, lint, Prisma generate, builds, tests, proxy   |
-| `pnpm clean:windows`           | Remove common Windows build artifacts safely                                 |
-| `pnpm clean:windows:dev`       | Same cleanup plus stop local frontend/backend dev servers on known ports      |
-| `pnpm clean:windows:prisma`    | Same cleanup plus Prisma client regeneration                                 |
-| `pnpm db:up`                   | Start PostgreSQL with Docker Compose                                         |
-| `pnpm db:status`               | Show Docker Compose status                                                   |
-| `pnpm db:down`                 | Stop PostgreSQL                                                              |
-| `pnpm prisma:generate`         | Generate Prisma client                                                       |
-| `pnpm prisma:status`           | Inspect Prisma migration status without modifying the database                |
-| `pnpm prisma:migrate`          | Apply development migrations                                                 |
-| `pnpm prisma:migrate:deploy`   | Apply existing migrations without creating new ones                          |
-| `pnpm prisma:seed`             | Seed demo data                                                               |
+| Command                      | Purpose                                                                      |
+| ---------------------------- | ---------------------------------------------------------------------------- |
+| `pnpm dev`                   | Start frontend and backend together                                          |
+| `pnpm dev:frontend`          | Start only the Next.js app                                                   |
+| `pnpm dev:backend`           | Start only the NestJS API                                                    |
+| `pnpm build`                 | Build both apps                                                              |
+| `pnpm build:frontend`        | Build only the Next.js app                                                   |
+| `pnpm build:backend`         | Build only the NestJS API                                                    |
+| `pnpm typecheck`             | Run TypeScript checks for both apps                                          |
+| `pnpm typecheck:frontend`    | Run TypeScript checks for the frontend only                                  |
+| `pnpm typecheck:backend`     | Run TypeScript checks for the backend only                                   |
+| `pnpm lint`                  | Run ESLint across the workspace                                              |
+| `pnpm lint:fix`              | Run ESLint with autofix enabled                                              |
+| `pnpm format`                | Format supported files with Prettier                                         |
+| `pnpm format:check`          | Check Prettier formatting without writing files                              |
+| `pnpm check`                 | Run lint, typecheck, and build                                               |
+| `pnpm test`                  | Alias for backend e2e tests                                                  |
+| `pnpm test:backend`          | Run backend e2e tests                                                        |
+| `pnpm test:proxy`            | Start backend + frontend on temporary ports and verify Next.js proxy wiring  |
+| `pnpm validate:backend`      | Prisma generate, backend typecheck, backend build, and backend tests         |
+| `pnpm validate:frontend`     | Frontend typecheck, frontend build, and frontend -> backend proxy validation |
+| `pnpm validate`              | Full local validation: format, lint, Prisma generate, builds, tests, proxy   |
+| `pnpm clean:windows`         | Remove common Windows build artifacts safely                                 |
+| `pnpm clean:windows:dev`     | Same cleanup plus stop local frontend/backend dev servers on known ports     |
+| `pnpm clean:windows:prisma`  | Same cleanup plus Prisma client regeneration                                 |
+| `pnpm db:up`                 | Start PostgreSQL with Docker Compose                                         |
+| `pnpm db:status`             | Show Docker Compose status                                                   |
+| `pnpm db:down`               | Stop PostgreSQL                                                              |
+| `pnpm prisma:generate`       | Generate Prisma client                                                       |
+| `pnpm prisma:status`         | Inspect Prisma migration status without modifying the database               |
+| `pnpm prisma:migrate`        | Apply development migrations                                                 |
+| `pnpm prisma:migrate:deploy` | Apply existing migrations without creating new ones                          |
+| `pnpm prisma:seed`           | Seed demo data                                                               |
 
 ## Running Tests
 

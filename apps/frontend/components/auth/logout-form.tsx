@@ -4,7 +4,7 @@ export function LogoutForm() {
   return (
     <form action="/api/auth/logout" method="post">
       <Button type="submit" variant="secondary">
-        Se deconnecter
+        Se déconnecter
       </Button>
     </form>
   );

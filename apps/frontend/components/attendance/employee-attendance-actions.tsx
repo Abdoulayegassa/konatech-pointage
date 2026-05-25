@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   type AttendanceRecord,
@@ -243,18 +242,9 @@ export function EmployeeAttendanceActions({
   }
 
   const isBusy = activeAction !== null;
-  const isSecurityEnabled = resolvedSecurityPolicy.enabled;
   const verificationAction = activeAction ?? lastAction;
   const flowMeta = getAttendanceFlowMeta(flowState, verificationAction);
   const flowStyles = flowToneStyles[flowMeta.tone];
-  const checkInLabel =
-    activeAction === 'check-in'
-      ? 'Verification...'
-      : "Pointer l'entree";
-  const checkOutLabel =
-    activeAction === 'check-out'
-      ? 'Verification...'
-      : 'Pointer la sortie';
   const primaryAction =
     canCheckIn && !canCheckOut
       ? 'check-in'
@@ -273,27 +263,11 @@ export function EmployeeAttendanceActions({
 
   return (
     <div className="space-y-4">
-      <div className="space-y-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="space-y-1">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-              Pointage
-            </p>
-            <h3 className="text-xl font-semibold leading-tight text-slate-950">
-              Action rapide
-            </h3>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Badge variant={isSecurityEnabled ? 'success' : 'outline'}>
-              {isSecurityEnabled ? 'Securite GPS' : 'Pointage direct'}
-            </Badge>
-          </div>
-        </div>
-
+      {flowState !== 'idle' || feedback ? (
         <div
           aria-live="polite"
           className={cn(
-            'rounded-[24px] border px-4 py-4 shadow-sm transition duration-300 sm:px-5',
+            'rounded-[24px] border px-4 py-4 shadow-sm sm:px-5',
             flowStyles.container,
           )}
         >
@@ -325,46 +299,15 @@ export function EmployeeAttendanceActions({
             </div>
           </div>
         </div>
-
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-[22px] border border-slate-200/80 bg-white/85 p-4 shadow-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-              Mode
-            </p>
-            <p className="mt-1.5 text-sm font-semibold text-slate-950">
-              {isSecurityEnabled ? 'Securite GPS active' : 'Pointage direct'}
-            </p>
-          </div>
-          <div className="rounded-[22px] border border-slate-200/80 bg-white/85 p-4 shadow-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-              Zone autorisee
-            </p>
-            <p className="mt-1.5 text-sm font-semibold text-slate-950">
-              {resolvedSecurityPolicy.allowedRadiusMeters
-                ? `${resolvedSecurityPolicy.allowedRadiusMeters} m`
-                : 'Non appliquee'}
-            </p>
-          </div>
-          <div className="rounded-[22px] border border-slate-200/80 bg-white/85 p-4 shadow-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-              Regle
-            </p>
-            <p className="mt-1.5 text-sm font-semibold text-slate-950">
-              {isSecurityEnabled
-                ? 'Geolocalisation obligatoire'
-                : 'Aucun blocage GPS'}
-            </p>
-          </div>
-        </div>
-      </div>
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2">
         <Button
           className={cn(
-            'group min-h-[96px] w-full flex-col items-start justify-center gap-2 px-5 py-4 text-left shadow-[0_18px_36px_rgba(16,50,60,0.16)]',
+            'group min-h-[108px] w-full flex-col items-center justify-center gap-3 rounded-[28px] px-5 py-5 text-center text-base shadow-[0_18px_36px_rgba(16,50,60,0.12)] sm:min-h-[112px]',
             primaryAction === 'check-in'
-              ? 'bg-[linear-gradient(135deg,rgba(16,50,60,0.98),rgba(19,96,109,0.92))] text-white hover:bg-[linear-gradient(135deg,rgba(16,50,60,0.98),rgba(19,96,109,0.92))]'
-              : 'bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] text-slate-950 hover:bg-white',
+              ? 'bg-[linear-gradient(135deg,rgba(25,135,84,0.98),rgba(34,197,94,0.88))] text-white hover:bg-[linear-gradient(135deg,rgba(25,135,84,0.98),rgba(34,197,94,0.88))]'
+              : 'border-slate-200 bg-slate-100 text-slate-400 shadow-none hover:bg-slate-100',
           )}
           disabled={!canCheckIn || isBusy}
           onClick={() => submit('check-in', '/api/attendance/me/check-in')}
@@ -372,34 +315,19 @@ export function EmployeeAttendanceActions({
           type="button"
           variant={primaryAction === 'check-in' ? 'default' : 'secondary'}
         >
-          <span className="flex w-full items-center justify-between gap-3">
-            <span className="text-base">{checkInLabel}</span>
-            <span
-              className={cn(
-                'rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em]',
-                primaryAction === 'check-in'
-                  ? 'bg-white/12 text-white/85'
-                  : 'border border-slate-200 bg-white text-slate-500',
-              )}
-            >
-              Check-in
-            </span>
+          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/18 text-2xl">
+            ↑
           </span>
-          <span
-            className={cn(
-              'text-sm leading-5',
-              primaryAction === 'check-in' ? 'text-white/78' : 'text-slate-600',
-            )}
-          >
-            Entree.
+          <span className="text-lg font-extrabold">
+            {activeAction === 'check-in' ? 'Vérification...' : 'Entrée'}
           </span>
         </Button>
         <Button
           className={cn(
-            'group min-h-[96px] w-full flex-col items-start justify-center gap-2 px-5 py-4 text-left shadow-[0_18px_36px_rgba(15,45,58,0.12)]',
+            'group min-h-[108px] w-full flex-col items-center justify-center gap-3 rounded-[28px] px-5 py-5 text-center text-base shadow-[0_18px_36px_rgba(15,45,58,0.12)] sm:min-h-[112px]',
             primaryAction === 'check-out'
               ? 'bg-[linear-gradient(135deg,rgba(244,110,40,0.98),rgba(255,141,74,0.92))] text-white hover:bg-[linear-gradient(135deg,rgba(244,110,40,0.98),rgba(255,141,74,0.92))]'
-              : 'bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] text-slate-950 hover:bg-white',
+              : 'border-slate-200 bg-slate-100 text-slate-400 shadow-none hover:bg-slate-100',
           )}
           disabled={!canCheckOut || isBusy}
           onClick={() => submit('check-out', '/api/attendance/me/check-out')}
@@ -407,28 +335,11 @@ export function EmployeeAttendanceActions({
           type="button"
           variant={primaryAction === 'check-out' ? 'default' : 'secondary'}
         >
-          <span className="flex w-full items-center justify-between gap-3">
-            <span className="text-base">{checkOutLabel}</span>
-            <span
-              className={cn(
-                'rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em]',
-                primaryAction === 'check-out'
-                  ? 'bg-white/12 text-white/85'
-                  : 'border border-slate-200 bg-white text-slate-500',
-              )}
-            >
-              Check-out
-            </span>
+          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/18 text-2xl">
+            ↓
           </span>
-          <span
-            className={cn(
-              'text-sm leading-5',
-              primaryAction === 'check-out'
-                ? 'text-white/82'
-                : 'text-slate-600',
-            )}
-          >
-            Sortie.
+          <span className="text-lg font-extrabold">
+            {activeAction === 'check-out' ? 'Vérification...' : 'Sortie'}
           </span>
         </Button>
       </div>
@@ -451,10 +362,10 @@ export function EmployeeAttendanceActions({
           <div className="space-y-3">
             <div className="space-y-1">
               <p className="text-sm font-semibold text-slate-950">
-                Pointage termine.
+                Pointage terminé.
               </p>
               <p className="text-sm leading-5 text-slate-600">
-                Terminer ou changer d employe.
+                Terminer ou changer d'employé.
               </p>
             </div>
 
@@ -463,7 +374,7 @@ export function EmployeeAttendanceActions({
                 Terminer
               </Button>
               <AttendanceEntrySessionButton
-                label="Changer demploye"
+                label="Se déconnecter"
                 variant="default"
               />
             </div>

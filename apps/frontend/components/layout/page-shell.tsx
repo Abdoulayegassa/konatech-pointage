@@ -28,8 +28,7 @@ type PageHeroProps = {
 };
 
 const heroStatToneMap = {
-  default:
-    'border-slate-200/80 bg-white/88 text-slate-600',
+  default: 'border-slate-200/80 bg-white/88 text-slate-600',
   success:
     'border-success/15 bg-[linear-gradient(180deg,rgba(240,253,244,0.88),rgba(255,255,255,0.96))] text-success',
   warning:
@@ -93,7 +92,9 @@ export function PageHero({
             {dateLabel ? <Badge variant="outline">{dateLabel}</Badge> : null}
           </div>
           {actions ? (
-            <div className="flex flex-wrap gap-2 sm:items-center">{actions}</div>
+            <div className="flex flex-wrap gap-2 sm:items-center">
+              {actions}
+            </div>
           ) : null}
         </div>
 

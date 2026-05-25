@@ -52,7 +52,9 @@ type AttendanceSecurityEvaluation = {
 
 @Injectable()
 export class AttendanceSecurityService {
-  constructor(private readonly policyService: AttendanceSecurityPolicyService) {}
+  constructor(
+    private readonly policyService: AttendanceSecurityPolicyService,
+  ) {}
 
   getPolicy() {
     return this.policyService.getPolicy();

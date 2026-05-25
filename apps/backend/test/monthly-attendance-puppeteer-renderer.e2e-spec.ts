@@ -17,9 +17,7 @@ describe('MonthlyAttendancePuppeteerPdfRendererService', () => {
       lateLabel: index % 4 === 0 ? '00:10' : '',
       earlyExitLabel: index % 5 === 0 ? '00:08' : '',
       workTypeLabel:
-        index % 3 === 0
-          ? 'Travail hors planning / Outside schedule work'
-          : '-',
+        index % 3 === 0 ? 'Travail hors planning / Outside schedule work' : '-',
       overtimeLabel:
         index % 3 === 0
           ? 'Travail hors planning / Outside schedule work - 05:00'
@@ -38,7 +36,7 @@ describe('MonthlyAttendancePuppeteerPdfRendererService', () => {
     legacyVerificationLabel:
       'Les photos historiques restent archivées sans être actives dans ce rapport',
     blockedAttemptsLabel:
-      "Les tentatives hors zone peuvent être bloquées en temps réel mais ne sont pas historisées dans cet export",
+      'Les tentatives hors zone peuvent être bloquées en temps réel mais ne sont pas historisées dans cet export',
     rows: [],
     employeeReport: {
       fullName: 'Awa Traoré',
@@ -104,23 +102,53 @@ describe('MonthlyAttendancePuppeteerPdfRendererService', () => {
     expect(html).toContain('page-synthesis');
     expect(html).toContain('page-analysis');
     expect(html).toContain('page-details');
-    expect(html).toContain('Entrées, sorties et statuts');
+    expect(html).toContain('Présence, retards et sorties');
     expect(html).toContain('Heures supp.');
-    expect(html).toContain('Départ tôt');
-    expect(html).toContain('Identifiant employe');
+    expect(html).toContain('Départs tôt');
+    expect(html).toContain('Identifiant employé');
     expect(html).toContain('D&eacute;partement');
     expect(html).toContain('08:00 - 17:00 | Lun, Mar, Mer, Jeu, Ven');
     expect(html).not.toContain('Entrées, sorties, statuts et GPS');
-    expect(html).not.toContain('>GPS<');
     expect(html).not.toContain('table-value-muted');
     expect(html).not.toContain('>.<');
     expect(html).toContain('writing-mode: horizontal-tb');
     expect(html).not.toContain('writing-mode: vertical');
     expect(html).not.toContain('transform: rotate');
     expect(html).not.toContain('word-break: break-word');
-    expect(html).toContain('Conclusion : la période reste exploitable');
-    expect(html).toContain('Sécurité GPS');
+    expect(html).toContain('Suivi managérial ciblé');
+    expect(html).toContain(
+      'Document généré automatiquement par KONATECH POINTAGE',
+    );
+    expect(html).toContain('Conformité');
+    expect(html).toContain('score-analytics');
+    expect(html).toContain('mini-donut');
+    expect(html).toContain('micro-bars');
+    expect(html).toContain('Validation GPS active');
+    expect(html).not.toContain('GPS obligatoire');
+    expect(html).toContain('<strong>Page 3 / 3</strong>');
+    expect(html).not.toContain(
+      '<span class="badge badge--neutral">Page 3 / 3</span>',
+    );
     expect(html).toContain('Travail hors planning / Outside schedule work');
+    expect(html).not.toContain('Flux PDF Puppeteer');
+    expect(html).not.toContain('Rendu PDF unifié');
+    expect(html).not.toContain('planifi?');
+    expect(html).not.toContain('t?t');
+  });
+
+  it('keeps very low scores visually readable without changing the score', () => {
+    const report = buildReport(buildDailyRows(1));
+
+    report.employeeReport!.performanceScore = 0;
+
+    const html = buildDocument(report);
+
+    expect(html).toContain('<div class="score-value">0</div>');
+    expect(html).toContain('score-card--danger');
+    expect(html).toContain('score-ring--danger');
+    expect(html).toContain('style="--score-deg: 18deg;"');
+    expect(html).toContain('style="width: 5%;"');
+    expect(html).toContain('Intervention RH recommandée');
   });
 
   it('keeps a single detail page for a 21-row employee report', () => {
@@ -139,8 +167,11 @@ describe('MonthlyAttendancePuppeteerPdfRendererService', () => {
       }
     ).chunkRows.bind(renderer);
 
-    expect(chunkRows(Array.from({ length: 22 }, (_, index) => index), 21)).toEqual(
-      [Array.from({ length: 20 }, (_, index) => index), [20, 21]],
-    );
+    expect(
+      chunkRows(
+        Array.from({ length: 22 }, (_, index) => index),
+        21,
+      ),
+    ).toEqual([Array.from({ length: 20 }, (_, index) => index), [20, 21]]);
   });
 });

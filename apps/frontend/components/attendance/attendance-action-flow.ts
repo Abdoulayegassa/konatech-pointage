@@ -21,9 +21,7 @@ export function getActionLabel(action: AttendanceAction | null) {
   return action === 'check-out' ? 'la sortie' : "l'entree";
 }
 
-export function getFriendlyAttendanceError(
-  message: string | undefined,
-) {
+export function getFriendlyAttendanceError(message: string | undefined) {
   if (!message) {
     return 'Action impossible pour le moment.';
   }

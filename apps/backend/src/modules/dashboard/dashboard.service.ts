@@ -400,8 +400,7 @@ export class DashboardService {
         presentToday: scheduledPresentToday,
         lateEmployeesToday,
         absentEmployeesToday,
-        outsideScheduleWorkDays:
-          outsideScheduleMonthlyAggregate._count.id ?? 0,
+        outsideScheduleWorkDays: outsideScheduleMonthlyAggregate._count.id ?? 0,
         outsideScheduleOvertimeHoursThisMonth: this.roundHours(
           outsideScheduleMonthlyAggregate._sum.overtimeHours ?? 0,
         ),
@@ -517,8 +516,7 @@ export class DashboardService {
       input.legacySensitiveCheckInCount + input.legacySensitiveCheckOutCount;
     const legacyHistoricalPhotoCount =
       input.legacyPhotoCheckInCount + input.legacyPhotoCheckOutCount;
-    const topLegacySecurityEmployees =
-      input.topLegacySecurityEmployees ?? [];
+    const topLegacySecurityEmployees = input.topLegacySecurityEmployees ?? [];
 
     return {
       attendanceRate: this.toRate(
@@ -700,7 +698,7 @@ export class DashboardService {
 
       const workedDateKeys =
         workedDateKeysByEmployee.get(employee.id) ?? new Set();
-        const cursor = new Date(startOfMonth);
+      const cursor = new Date(startOfMonth);
 
       while (cursor < countingEnd) {
         const currentDate = normalizeAttendanceDate(cursor);
@@ -1058,6 +1056,8 @@ export class DashboardService {
     employeeIdentifier: string | null,
     employeeCode: string | null,
   ) {
-    return employeeIdentifier?.trim() || employeeCode?.trim() || 'ID non defini';
+    return (
+      employeeIdentifier?.trim() || employeeCode?.trim() || 'ID non defini'
+    );
   }
 }

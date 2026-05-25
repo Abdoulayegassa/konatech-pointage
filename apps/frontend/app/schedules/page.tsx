@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import { AdminNav } from '@/components/admin/admin-nav';
 import { LogoutForm } from '@/components/auth/logout-form';
-import { PageHero, PageShell } from '@/components/layout/page-shell';
+import { PageShell } from '@/components/layout/page-shell';
 import { AdminSchedulesManager } from '@/components/schedules/admin-schedules-manager';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -33,117 +33,80 @@ export default async function SchedulesPage() {
   }
 
   const schedules = await getSchedulesData(token);
-  const activeSchedules = schedules.filter(
-    (schedule) => schedule.isActive,
-  ).length;
   const assignedEmployees = schedules.reduce(
     (total, schedule) => total + schedule.employees.length,
     0,
   );
-  const inactiveSchedules = schedules.length - activeSchedules;
-  const utilizedSchedules = schedules.filter(
-    (schedule) => schedule.employees.length > 0,
-  ).length;
-  const heroHighlights = [
-    {
-      label: 'Plannings',
-      value: schedules.length,
-      meta: 'Catalogue total',
-    },
-    {
-      label: 'Actifs',
-      value: activeSchedules,
-      meta: `${inactiveSchedules} inactif(s)`,
-      tone: 'success' as const,
-    },
-    {
-      label: 'Non utilises',
-      value: schedules.length - utilizedSchedules,
-      meta: 'A rationaliser',
-      tone: 'warning' as const,
-    },
-  ];
 
   return (
-    <PageShell>
-      <PageHero
-        actions={
-          <>
+    <PageShell contentClassName="gap-4 lg:gap-5">
+      <header className="admin-reveal rounded-[30px] border border-white/70 bg-white/95 p-4 shadow-[0_18px_46px_rgba(15,45,58,0.08)] sm:p-5 lg:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
             <AdminNav current="schedules" />
             <LogoutForm />
-          </>
-        }
-        aside={
-          <Card className="border-slate-200/80 bg-slate-950 text-white shadow-[0_28px_56px_rgba(15,23,42,0.22)]">
-            <CardHeader className="space-y-4 border-b border-white/10 pb-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-stretch">
+            <div className="space-y-2">
+              <Badge className="bg-accent/10 text-accent" variant="warning">
+                {formatLongDate(new Date())}
+              </Badge>
+              <h1 className="text-2xl font-black leading-tight text-slate-950 sm:text-3xl">
+                Bonjour {user.firstName} 👋
+              </h1>
+              <div className="space-y-1">
+                <CardTitle className="text-xl text-slate-950 sm:text-2xl">
+                  Gestion des plannings
+                </CardTitle>
+                <p className="max-w-xl text-sm leading-5 text-slate-600">
+                  Horaires, jours actifs et affectations.
+                </p>
+              </div>
+            </div>
+
+            <Card className="border-slate-800 bg-slate-950 text-white shadow-[0_18px_42px_rgba(15,23,42,0.20)]">
+              <CardHeader className="pb-2">
                 <Badge
-                  className="border-white/10 bg-white/10 text-white"
+                  className="w-fit border-white/10 bg-white/10 text-white"
                   variant="outline"
                 >
-                  Session admin
+                  Session active
                 </Badge>
-                <span className="rounded-full border border-accent/20 bg-accent/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-orange-200">
-                  Schedule sync
-                </span>
-              </div>
-              <div className="space-y-2">
-                <CardTitle className="text-xl text-white">Session</CardTitle>
-                <p className="text-sm leading-5 text-slate-300">
-                  Catalogue et priorites.
-                </p>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3.5 pt-4">
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-                  Connecte
-                </p>
-                <p className="mt-1.5 text-lg font-semibold text-white">
-                  {user.firstName} {user.lastName}
-                </p>
-                <p className="mt-1 text-sm text-slate-300">
-                  {user.department ?? 'Administration Konatech'}
-                </p>
-              </div>
+              </CardHeader>
+              <CardContent className="space-y-3 p-4 pt-0">
+                <div>
+                  <p className="text-base font-bold text-white">
+                    {user.firstName} {user.lastName}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-400">
+                    {user.department ?? user.accessRole}
+                  </p>
+                </div>
 
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-                    Affectations
-                  </p>
-                  <p className="mt-1.5 text-base font-semibold text-white">
-                    {assignedEmployees}
-                  </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                      Plannings
+                    </p>
+                    <p className="mt-1 text-lg font-black text-white">
+                      {schedules.length}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-accent/20 bg-accent/10 p-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-orange-200">
+                      Affectations
+                    </p>
+                    <p className="mt-1 text-lg font-black text-white">
+                      {assignedEmployees}
+                    </p>
+                  </div>
                 </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-                    Utilises
-                  </p>
-                  <p className="mt-1.5 text-base font-semibold text-white">
-                    {utilizedSchedules}
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
-                <div className="rounded-2xl border border-accent/20 bg-accent/10 px-3.5 py-3 text-sm font-medium text-slate-100">
-                  Plannings peu utilises
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/5 px-3.5 py-3 text-sm font-medium text-slate-100">
-                  Catalogue a rationaliser
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        }
-        badge="Konatech scheduling hub"
-        dateLabel={formatLongDate(new Date())}
-        description="Creation, tri et maintenance des horaires dans une vue plus compacte."
-        eyebrow="Schedule registry"
-        stats={heroHighlights}
-        title="Planifier vite, comparer vite, agir vite."
-      />
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </header>
 
       <AdminSchedulesManager initialSchedules={schedules} />
     </PageShell>

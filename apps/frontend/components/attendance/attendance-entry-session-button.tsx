@@ -15,7 +15,7 @@ type AttendanceEntrySessionButtonProps = {
 
 export function AttendanceEntrySessionButton({
   className,
-  label = 'Changer demploye',
+  label = 'Se déconnecter',
   onLoggedOut,
   size = 'default',
   variant = 'secondary',

@@ -97,10 +97,14 @@ async function terminateProcessTree(child) {
 
   if (isWindows) {
     await new Promise((resolveClose) => {
-      const killer = spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
-        stdio: 'ignore',
-        windowsHide: true,
-      });
+      const killer = spawn(
+        'taskkill',
+        ['/pid', String(child.pid), '/t', '/f'],
+        {
+          stdio: 'ignore',
+          windowsHide: true,
+        },
+      );
 
       killer.once('error', () => resolveClose());
       killer.once('exit', () => resolveClose());
@@ -265,12 +269,12 @@ async function main() {
       .join('\n');
 
     const message =
-      error instanceof Error ? error.message : 'Unknown proxy validation error.';
+      error instanceof Error
+        ? error.message
+        : 'Unknown proxy validation error.';
 
     throw new Error(
-      logDump
-        ? `${message}\n\nRecent process logs:\n${logDump}`
-        : message,
+      logDump ? `${message}\n\nRecent process logs:\n${logDump}` : message,
       {
         cause: error,
       },

@@ -143,10 +143,7 @@ export class AttendanceMonthlyMetricsService
       );
       const isOutsideScheduleWork =
         Boolean(attendance.clockInAt) &&
-        !isScheduledOnResolvedAttendanceDate(
-          resolvedSchedule,
-          attendance.date,
-        );
+        !isScheduledOnResolvedAttendanceDate(resolvedSchedule, attendance.date);
       const scheduledExitTime = isOutsideScheduleWork
         ? null
         : getResolvedAttendanceScheduledExitTime(
@@ -252,7 +249,10 @@ export class AttendanceMonthlyMetricsService
       return range.endOfMonth;
     }
 
-    const nextDay = addAttendanceDays(normalizeAttendanceDate(referenceDate), 1);
+    const nextDay = addAttendanceDays(
+      normalizeAttendanceDate(referenceDate),
+      1,
+    );
 
     return nextDay < range.endOfMonth ? nextDay : range.endOfMonth;
   }

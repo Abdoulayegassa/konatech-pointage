@@ -315,7 +315,7 @@ export class EmployeesService {
           error.meta.target.includes('employeeIdentifier')
         ) {
           throw new ConflictException(
-            "Impossible de generer un identifiant employe unique.",
+            'Impossible de generer un identifiant employe unique.',
           );
         }
 
@@ -389,10 +389,12 @@ export class EmployeesService {
     accessRole: AccessRole,
     nextPinCode: string | null | undefined,
     requirePinForEmployee: boolean,
-    currentPinSecret: {
-      pinCode: string | null;
-      pinCodeHash: string | null;
-    } | undefined = {
+    currentPinSecret:
+      | {
+          pinCode: string | null;
+          pinCodeHash: string | null;
+        }
+      | undefined = {
       pinCode: null,
       pinCodeHash: null,
     },

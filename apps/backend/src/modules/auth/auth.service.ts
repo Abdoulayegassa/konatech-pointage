@@ -2,7 +2,10 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AccessRole } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { PublicEmployee, publicEmployeeSelect } from '../../common/prisma/selects';
+import {
+  PublicEmployee,
+  publicEmployeeSelect,
+} from '../../common/prisma/selects';
 import { signJwtToken, verifyJwtToken } from '../../common/security/jwt.util';
 import {
   hashPinCode,
@@ -156,10 +159,7 @@ export class AuthService {
   }
 
   private buildLoginResponse(
-    employee:
-      | LoginEmployee
-      | AttendanceEntryLoginEmployee
-      | PublicEmployee,
+    employee: LoginEmployee | AttendanceEntryLoginEmployee | PublicEmployee,
     expiresIn: string,
   ) {
     const accessToken = signJwtToken(
@@ -176,8 +176,7 @@ export class AuthService {
       pinCode: _pinCode,
       pinCodeHash: _pinCodeHash,
       ...user
-    } = employee as LoginEmployee &
-      AttendanceEntryLoginEmployee;
+    } = employee as LoginEmployee & AttendanceEntryLoginEmployee;
 
     return {
       accessToken,
