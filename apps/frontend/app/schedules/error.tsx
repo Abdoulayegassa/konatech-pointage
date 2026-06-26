@@ -23,15 +23,15 @@ export default function SchedulesErrorPage({
           <CardHeader className="space-y-4 border-b border-slate-200/80 pb-5">
             <div className="flex flex-wrap items-center gap-3">
               <Badge variant="warning">Erreur de rendu</Badge>
-              <Badge variant="outline">Schedules</Badge>
+              <Badge variant="outline">Plannings</Badge>
             </div>
             <CardTitle className="text-2xl text-slate-950">
               La gestion des plannings n&apos;a pas pu s&apos;afficher
               correctement
             </CardTitle>
             <p className="max-w-2xl text-sm leading-6 text-slate-600">
-              Une erreur inattendue a interrompu le chargement des donnees de
-              planning. Aucun changement n&apos;a ete applique.
+              Une erreur inattendue a interrompu le chargement des données de
+              planning. Aucun changement n&apos;a été appliqué.
             </p>
           </CardHeader>
           <CardContent className="space-y-5 pt-5 text-sm leading-6 text-slate-600">
@@ -39,7 +39,7 @@ export default function SchedulesErrorPage({
               {error.message}
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
-              <Button onClick={reset}>Reessayer</Button>
+              <Button onClick={reset}>Réessayer</Button>
               <Button
                 onClick={() => window.location.assign('/schedules')}
                 variant="secondary"

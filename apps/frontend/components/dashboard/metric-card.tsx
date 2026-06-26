@@ -6,10 +6,17 @@ type MetricCardProps = {
   label: string;
   value: number | string;
   hint: string;
-  tone: 'default' | 'outline' | 'success' | 'warning';
+  periodLabel?: string;
+  tone: 'default' | 'outline' | 'success' | 'warning' | 'danger' | 'purple';
 };
 
-export function MetricCard({ hint, label, tone, value }: MetricCardProps) {
+export function MetricCard({
+  hint,
+  label,
+  periodLabel = "Aujourd'hui",
+  tone,
+  value,
+}: MetricCardProps) {
   const toneMeta = {
     default: {
       label: 'Operations',
@@ -35,6 +42,18 @@ export function MetricCard({ hint, label, tone, value }: MetricCardProps) {
       surface: 'border-accent/15 bg-white/95',
       accent: 'bg-accent',
     },
+    danger: {
+      label: 'Alerte',
+      panel: 'border-red-500/15 bg-red-50 text-red-700',
+      surface: 'border-red-500/15 bg-white/95',
+      accent: 'bg-red-600',
+    },
+    purple: {
+      label: 'Sorties',
+      panel: 'border-purple-500/15 bg-purple-50 text-purple-700',
+      surface: 'border-purple-500/15 bg-white/95',
+      accent: 'bg-purple-600',
+    },
   }[tone];
 
   return (
@@ -50,7 +69,7 @@ export function MetricCard({ hint, label, tone, value }: MetricCardProps) {
             {label}
           </p>
           <CardTitle className="text-xs font-semibold leading-5 text-slate-500">
-            Aujourd hui
+            {periodLabel}
           </CardTitle>
         </div>
         <Badge className={toneMeta.panel} variant="outline">

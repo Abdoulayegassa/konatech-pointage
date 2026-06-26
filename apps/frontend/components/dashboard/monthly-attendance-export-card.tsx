@@ -8,17 +8,17 @@ import { getClientErrorMessage } from '@/lib/client-error';
 
 const monthOptions = [
   { value: 1, label: 'Janvier' },
-  { value: 2, label: 'Fevrier' },
+  { value: 2, label: 'Février' },
   { value: 3, label: 'Mars' },
   { value: 4, label: 'Avril' },
   { value: 5, label: 'Mai' },
   { value: 6, label: 'Juin' },
   { value: 7, label: 'Juillet' },
-  { value: 8, label: 'Aout' },
+  { value: 8, label: 'Août' },
   { value: 9, label: 'Septembre' },
   { value: 10, label: 'Octobre' },
   { value: 11, label: 'Novembre' },
-  { value: 12, label: 'Decembre' },
+  { value: 12, label: 'Décembre' },
 ] as const;
 
 const inputClassName =
@@ -66,6 +66,8 @@ function normalizeDownloadSegment(value: string) {
 }
 
 export function MonthlyAttendanceExportCard() {
+  // Monthly HR PDF source of truth is the backend premium renderer.
+  // This component only selects filters and downloads the generated file.
   const defaults = getDefaultMonthYear();
   const [month, setMonth] = useState(defaults.month);
   const [year, setYear] = useState(defaults.year);
@@ -113,7 +115,7 @@ export function MonthlyAttendanceExportCard() {
       const yearValue = Number(year);
 
       if (!Number.isInteger(monthValue) || monthValue < 1 || monthValue > 12) {
-        setError('Selectionnez un mois valide.');
+        setError('Sélectionnez un mois valide.');
         return;
       }
 
@@ -122,7 +124,7 @@ export function MonthlyAttendanceExportCard() {
         yearValue < 2000 ||
         yearValue > 2100
       ) {
-        setError('Saisissez une annee valide entre 2000 et 2100.');
+        setError('Saisissez une année valide entre 2000 et 2100.');
         return;
       }
 
@@ -152,7 +154,7 @@ export function MonthlyAttendanceExportCard() {
         setError(
           getClientErrorMessage(
             payload,
-            "Impossible de generer l'export mensuel.",
+            'Impossible de générer le rapport.',
           ),
         );
         return;
@@ -191,7 +193,7 @@ export function MonthlyAttendanceExportCard() {
         : '';
 
       setSuccessMessage(
-        `Rapport PDF telecharge pour ${selectedMonth} ${yearValue}${employeeScope}.`,
+        `Rapport PDF téléchargé pour ${selectedMonth} ${yearValue}${employeeScope}.`,
       );
     } finally {
       setIsExporting(false);
@@ -209,10 +211,10 @@ export function MonthlyAttendanceExportCard() {
             </div>
             <div className="space-y-1">
               <CardTitle className="text-xl sm:text-2xl">
-                Exporter le rapport mensuel
+                Rapport mensuel RH
               </CardTitle>
               <p className="max-w-xl text-sm leading-5 text-slate-600">
-                PDF par equipe ou par employe.
+                Export PDF par équipe ou par employé.
               </p>
             </div>
           </div>
@@ -220,7 +222,7 @@ export function MonthlyAttendanceExportCard() {
           <div className="inline-flex items-center gap-3 rounded-full border border-accent/15 bg-accent/10 px-4 py-2 shadow-sm">
             <span className="h-2.5 w-2.5 rounded-full bg-accent" />
             <span className="text-sm font-medium text-accent">
-              Telechargement immediat
+              Téléchargement immédiat
             </span>
           </div>
         </div>
@@ -259,7 +261,7 @@ export function MonthlyAttendanceExportCard() {
                 </label>
 
                 <label className="block">
-                  <span className={labelClassName}>Annee</span>
+                  <span className={labelClassName}>Année</span>
                   <input
                     className={inputClassName}
                     inputMode="numeric"
@@ -273,13 +275,13 @@ export function MonthlyAttendanceExportCard() {
               </div>
 
               <label className="mt-4 block">
-                <span className={labelClassName}>Perimetre</span>
+                <span className={labelClassName}>Périmètre</span>
                 <select
                   className={inputClassName}
                   onChange={(event) => setEmployeeId(event.target.value)}
                   value={employeeId}
                 >
-                  <option value="all">Toute l equipe</option>
+                  <option value="all">Toute l'équipe</option>
                   {employees.map((employee) => (
                     <option key={employee.id} value={employee.id}>
                       {employee.firstName} {employee.lastName} -{' '}
@@ -294,10 +296,10 @@ export function MonthlyAttendanceExportCard() {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-bold text-slate-950">
-                    Rapport PDF premium
+                    Synthèse RH mensuelle
                   </p>
                   <p className="mt-1 text-sm leading-5 text-slate-600">
-                    Presences, retards, absences, heures et plannings.
+                    Présences, retards, absences, heures et plannings.
                   </p>
                 </div>
                 <Badge variant="success">PDF</Badge>
@@ -308,10 +310,10 @@ export function MonthlyAttendanceExportCard() {
           <div className="flex flex-col gap-3 rounded-[22px] border border-slate-200 bg-slate-50/85 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-semibold text-slate-950">
-                Action d export
+                Action d'export
               </p>
               <p className="mt-1 text-sm leading-5 text-slate-600">
-                Generation avec les filtres choisis.
+                Génération avec les filtres choisis.
               </p>
             </div>
             <Button
@@ -319,7 +321,7 @@ export function MonthlyAttendanceExportCard() {
               disabled={isExporting}
               type="submit"
             >
-              {isExporting ? 'Generation...' : 'Telecharger le rapport PDF'}
+              {isExporting ? 'Génération...' : 'Télécharger le rapport'}
             </Button>
           </div>
         </form>

@@ -183,7 +183,7 @@ export function AdminEmployeesManager({
           tone: 'error',
           message: getClientErrorMessage(
             data,
-            "Impossible de charger l'employe.",
+            "Impossible de charger l'employé.",
           ),
         });
         return;
@@ -225,7 +225,7 @@ export function AdminEmployeesManager({
           tone: 'error',
           message: getClientErrorMessage(
             data,
-            'Impossible de mettre a jour le statut du compte.',
+            'Impossible de mettre à jour le statut du compte.',
           ),
         });
         return;
@@ -241,8 +241,8 @@ export function AdminEmployeesManager({
       setFeedback({
         tone: 'success',
         message: updatedEmployee.isActive
-          ? 'Compte employe reactive.'
-          : 'Compte employe desactive.',
+          ? 'Compte employé réactivé.'
+          : 'Compte employé désactivé.',
       });
 
       if (editingEmployeeId === updatedEmployee.id) {
@@ -262,7 +262,7 @@ export function AdminEmployeesManager({
       if (formMode === 'create' && !formValues.password.trim()) {
         setFeedback({
           tone: 'error',
-          message: 'Le mot de passe est requis pour creer un compte employe.',
+          message: 'Le mot de passe est requis pour créer un compte employé.',
         });
         return;
       }
@@ -270,7 +270,7 @@ export function AdminEmployeesManager({
       if (formMode === 'edit' && !editingEmployeeId) {
         setFeedback({
           tone: 'error',
-          message: 'Aucun employe charge pour la mise a jour.',
+          message: 'Aucun employé chargé pour la mise à jour.',
         });
         return;
       }
@@ -339,8 +339,8 @@ export function AdminEmployeesManager({
           message: getClientErrorMessage(
             data,
             formMode === 'create'
-              ? "Impossible de creer l'employe."
-              : "Impossible de mettre a jour l'employe.",
+              ? "Impossible de créer l'employé."
+              : "Impossible de mettre à jour l'employé.",
           ),
         });
         return;
@@ -355,8 +355,8 @@ export function AdminEmployeesManager({
         tone: 'success',
         message:
           formMode === 'create'
-            ? 'Employe cree avec succes.'
-            : 'Employe mis a jour avec succes.',
+            ? 'Employé créé avec succès.'
+            : 'Employé mis à jour avec succès.',
       });
       resetForm();
     } finally {
@@ -382,7 +382,7 @@ export function AdminEmployeesManager({
     {
       label: 'Admins',
       value: adminAccounts,
-      meta: `${departmentsCount} departement(s)`,
+      meta: `${departmentsCount} département(s)`,
       className:
         'border-primary/15 bg-[linear-gradient(180deg,rgba(16,50,60,0.08),rgba(255,255,255,0.98))]',
     },
@@ -398,9 +398,9 @@ export function AdminEmployeesManager({
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2">
                 <Badge className="bg-accent/15 text-accent" variant="warning">
-                  Employee registry
+                  Registre RH
                 </Badge>
-                <Badge variant="outline">{visibleEmployees} resultat(s)</Badge>
+                <Badge variant="outline">{visibleEmployees} résultat(s)</Badge>
               </div>
               <div className="space-y-1">
                 <CardTitle className="text-xl text-slate-950 sm:text-2xl">
@@ -489,7 +489,7 @@ export function AdminEmployeesManager({
               </label>
 
               <label className="block">
-                <span className={labelClassName}>Acces</span>
+                <span className={labelClassName}>Accès</span>
                 <select
                   className={cn(inputClassName, 'appearance-none')}
                   onChange={(event) =>
@@ -498,8 +498,8 @@ export function AdminEmployeesManager({
                   value={accessFilter}
                 >
                   <option value="all">Tous</option>
-                  <option value="ADMIN">ADMIN</option>
-                  <option value="EMPLOYEE">EMPLOYEE</option>
+                  <option value="ADMIN">Administrateur</option>
+                  <option value="EMPLOYEE">Employé</option>
                 </select>
               </label>
 
@@ -513,7 +513,7 @@ export function AdminEmployeesManager({
                   value={assignmentFilter}
                 >
                   <option value="all">Tous</option>
-                  <option value="assigned">Affectes</option>
+                  <option value="assigned">Affectés</option>
                   <option value="unassigned">Sans planning</option>
                 </select>
               </label>
@@ -554,11 +554,11 @@ export function AdminEmployeesManager({
             <div>
               <p className={labelClassName}>Lecture</p>
               <p className="mt-1.5 text-base font-semibold text-slate-950">
-                {visibleEmployees} compte(s) affiches
+                {visibleEmployees} compte(s) affiché(s)
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Badge variant="outline">{assignedEmployees} affectes</Badge>
+              <Badge variant="outline">{assignedEmployees} affecté(s)</Badge>
               <Badge variant="outline">
                 {unassignedEmployees} sans planning
               </Badge>
@@ -567,11 +567,11 @@ export function AdminEmployeesManager({
 
           {filteredEmployees.length === 0 ? (
             <AdminEmptyState
-              badge={employees.length === 0 ? 'Employes' : 'Filtres actifs'}
+              badge={employees.length === 0 ? 'Employés' : 'Filtres actifs'}
               action={
                 employees.length === 0 ? (
                   <Button className="mx-auto" onClick={resetForm} type="button">
-                    Creer un employe
+                    Créer un employé
                   </Button>
                 ) : (
                   <Button
@@ -591,13 +591,13 @@ export function AdminEmployeesManager({
               }
               detail={
                 employees.length === 0
-                  ? 'La liste se mettra a jour automatiquement.'
-                  : 'Les filtres sont appliques uniquement dans cette vue.'
+                  ? 'La liste se mettra à jour automatiquement.'
+                  : 'Les filtres sont appliqués uniquement dans cette vue.'
               }
               title={
                 employees.length === 0
                   ? 'Aucun collaborateur'
-                  : 'Aucun resultat'
+                  : 'Aucun résultat'
               }
             />
           ) : (
@@ -637,7 +637,7 @@ export function AdminEmployeesManager({
                               className="bg-accent/15 text-accent"
                               variant="warning"
                             >
-                              En edition
+                              En édition
                             </Badge>
                           ) : null}
                         </div>
@@ -662,7 +662,7 @@ export function AdminEmployeesManager({
                           {employee.role}
                         </p>
                         <p className="text-sm text-slate-600">
-                          {employee.department ?? 'Sans departement'}
+                          {employee.department ?? 'Sans département'}
                         </p>
                       </div>
 
@@ -701,9 +701,9 @@ export function AdminEmployeesManager({
                           variant="secondary"
                         >
                           {isUpdatingStatus
-                            ? 'Mise a jour...'
+                            ? 'Mise à jour...'
                             : employee.isActive
-                              ? 'Desactiver'
+                              ? 'Désactiver'
                               : 'Activer'}
                         </Button>
                       </div>
@@ -722,7 +722,7 @@ export function AdminEmployeesManager({
         <CardHeader className="space-y-3 border-b border-slate-200/80 pb-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Badge variant={formMode === 'create' ? 'success' : 'warning'}>
-              {formMode === 'create' ? 'Creation' : 'Edition'}
+              {formMode === 'create' ? 'Création' : 'Édition'}
             </Badge>
             <Badge variant="outline">
               {formMode === 'create' ? 'Nouveau profil' : 'Profil actif'}
@@ -731,15 +731,15 @@ export function AdminEmployeesManager({
 
           <div className="space-y-1">
             <CardTitle className="text-xl text-slate-950">
-              {formMode === 'create' ? 'Compte employe' : 'Modifier le compte'}
+              {formMode === 'create' ? 'Compte employé' : 'Modifier le compte'}
             </CardTitle>
             <p className="text-sm leading-5 text-slate-600">
-              Champs regroupes, logique inchangee.
+              Informations du compte regroupées pour une mise à jour rapide.
             </p>
           </div>
 
           <div className="rounded-[22px] border border-slate-200/80 bg-white/88 p-3.5 shadow-sm">
-            <p className={labelClassName}>Selection</p>
+            <p className={labelClassName}>Sélection</p>
             <p className="mt-1 text-base font-semibold text-slate-950">
               {editingEmployee
                 ? `${editingEmployee.firstName} ${editingEmployee.lastName}`
@@ -748,7 +748,7 @@ export function AdminEmployeesManager({
             <p className="mt-1 text-sm text-slate-600">
               {editingEmployee
                 ? editingEmployee.employeeIdentifier
-                : 'Creation rapide'}
+                : 'Création rapide'}
             </p>
           </div>
         </CardHeader>
@@ -757,7 +757,7 @@ export function AdminEmployeesManager({
           <form className="space-y-3.5" onSubmit={handleSubmit}>
             <section className="space-y-3 rounded-[22px] border border-slate-200/80 bg-white/88 p-4 shadow-sm">
               <div className="space-y-1">
-                <p className={labelClassName}>Identite</p>
+                <p className={labelClassName}>Identité</p>
                 <p className="text-base font-semibold text-slate-950">
                   Profil et connexion
                 </p>
@@ -784,7 +784,7 @@ export function AdminEmployeesManager({
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block">
-                  <span className={labelClassName}>Prenom</span>
+                  <span className={labelClassName}>Prénom</span>
                   <input
                     className={inputClassName}
                     onChange={(event) =>
@@ -825,13 +825,13 @@ export function AdminEmployeesManager({
               <div className="space-y-1">
                 <p className={labelClassName}>Organisation</p>
                 <p className="text-base font-semibold text-slate-950">
-                  Role et rattachement
+                  Rôle et rattachement
                 </p>
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block">
-                  <span className={labelClassName}>Role metier</span>
+                  <span className={labelClassName}>Rôle métier</span>
                   <input
                     className={inputClassName}
                     onChange={(event) =>
@@ -842,7 +842,7 @@ export function AdminEmployeesManager({
                   />
                 </label>
                 <label className="block">
-                  <span className={labelClassName}>Role d acces</span>
+                  <span className={labelClassName}>Rôle d'accès</span>
                   <select
                     className={cn(inputClassName, 'appearance-none')}
                     onChange={(event) =>
@@ -853,20 +853,20 @@ export function AdminEmployeesManager({
                     }
                     value={formValues.accessRole}
                   >
-                    <option value="EMPLOYEE">EMPLOYEE</option>
-                    <option value="ADMIN">ADMIN</option>
+                    <option value="EMPLOYEE">Employé</option>
+                    <option value="ADMIN">Administrateur</option>
                   </select>
                 </label>
               </div>
 
               <label className="block">
-                <span className={labelClassName}>Departement</span>
+                <span className={labelClassName}>Département</span>
                 <input
                   className={inputClassName}
                   onChange={(event) =>
                     updateFormValue('department', event.target.value)
                   }
-                  placeholder="Ex: Operations"
+                  placeholder="Ex: Opérations"
                   value={formValues.department}
                 />
               </label>
@@ -900,7 +900,7 @@ export function AdminEmployeesManager({
               </label>
 
               <div className="rounded-[20px] border border-slate-200 bg-slate-50/90 p-3">
-                <p className={labelClassName}>Resume</p>
+                <p className={labelClassName}>Résumé</p>
                 <p className="mt-1 text-sm font-semibold text-slate-950">
                   {selectedSchedule
                     ? `${selectedSchedule.name} ${selectedSchedule.startTime} - ${selectedSchedule.endTime}`
@@ -922,7 +922,7 @@ export function AdminEmployeesManager({
                     Compte actif
                   </span>
                   <span className="mt-1 block text-sm text-slate-600">
-                    Meme statut que l action rapide de la liste.
+                    Même statut que l'action rapide de la liste.
                   </span>
                 </span>
               </label>
@@ -930,7 +930,7 @@ export function AdminEmployeesManager({
 
             <section className="space-y-3 rounded-[22px] border border-slate-200/80 bg-white/88 p-4 shadow-sm">
               <div className="space-y-1">
-                <p className={labelClassName}>Securite</p>
+                <p className={labelClassName}>Sécurité</p>
                 <p className="text-base font-semibold text-slate-950">
                   Mot de passe
                 </p>
@@ -950,7 +950,7 @@ export function AdminEmployeesManager({
                   }
                   placeholder={
                     formMode === 'create'
-                      ? 'Minimum 8 caracteres'
+                      ? 'Minimum 8 caractères'
                       : 'Laisser vide pour conserver'
                   }
                   type="password"
@@ -967,10 +967,10 @@ export function AdminEmployeesManager({
               >
                 {isSubmitting
                   ? formMode === 'create'
-                    ? 'Creation...'
-                    : 'Mise a jour...'
+                    ? 'Création...'
+                    : 'Mise à jour...'
                   : formMode === 'create'
-                    ? 'Creer le compte'
+                    ? 'Créer le compte'
                     : 'Enregistrer'}
               </Button>
               <Button
@@ -980,7 +980,7 @@ export function AdminEmployeesManager({
                 type="button"
                 variant="secondary"
               >
-                Reinitialiser
+                Réinitialiser
               </Button>
             </div>
           </form>

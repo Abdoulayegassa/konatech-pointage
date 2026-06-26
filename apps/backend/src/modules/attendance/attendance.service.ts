@@ -34,48 +34,60 @@ import {
 import { CheckInDto } from './dto/check-in.dto';
 import { CheckInSecurityProofDto } from './dto/check-in-security.dto';
 import { CheckOutDto } from './dto/check-out.dto';
+import { CalendarService } from '../calendar/calendar.service';
 
 @Injectable()
+/**
+ * SOURCE OF TRUTH
+ * Attendance engine.
+ *
+ * Check-in, check-out, lateness, early departure, overtime, non-working-day
+ * work status, and attendance history rules live here. Do not duplicate these
+ * rules in frontend components or report renderers.
+ */
 export class AttendanceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly attendanceSecurityService: AttendanceSecurityService,
+    private readonly calendarService: CalendarService,
   ) {}
 
   async getTodaySummary(referenceDate: Date = new Date()) {
     const today = normalizeAttendanceDate(referenceDate);
 
-    const [attendances, scheduledEmployees] = await Promise.all([
-      this.prisma.attendance.findMany({
-        where: {
-          date: today,
-        },
-        select: {
-          employeeId: true,
-          clockInAt: true,
-          clockOutAt: true,
-          minutesLate: true,
-          status: true,
-        },
-      }),
-      this.prisma.employee.findMany({
-        where: {
-          isActive: true,
-          scheduleId: {
-            not: null,
+    const [attendances, scheduledEmployees, isNonWorkingDay] =
+      await Promise.all([
+        this.prisma.attendance.findMany({
+          where: {
+            date: today,
           },
-        },
-        select: {
-          id: true,
-          schedule: {
-            select: {
-              isActive: true,
-              workDays: true,
+          select: {
+            employeeId: true,
+            clockInAt: true,
+            clockOutAt: true,
+            minutesLate: true,
+            status: true,
+          },
+        }),
+        this.prisma.employee.findMany({
+          where: {
+            isActive: true,
+            scheduleId: {
+              not: null,
             },
           },
-        },
-      }),
-    ]);
+          select: {
+            id: true,
+            schedule: {
+              select: {
+                isActive: true,
+                workDays: true,
+              },
+            },
+          },
+        }),
+        this.calendarService.isNonWorkingDay(today),
+      ]);
 
     const attendanceByEmployeeId = new Map(
       attendances.map((attendance) => [attendance.employeeId, attendance]),
@@ -83,6 +95,7 @@ export class AttendanceService {
 
     const expectedEmployees = scheduledEmployees.filter(
       (employee) =>
+        !isNonWorkingDay &&
         employee.schedule &&
         employee.schedule.isActive &&
         isScheduledOnDate(employee.schedule.workDays, referenceDate),
@@ -155,9 +168,16 @@ export class AttendanceService {
       },
       select: attendanceWithEmployeeSelect,
     });
+    const monthlyAbsenceCount = await this.getMonthlyAbsenceCount(
+      employee.id,
+      employee.schedule,
+      referenceDate,
+      attendance?.clockInAt ? today : undefined,
+    );
 
     const expectedToday = employee.schedule
       ? employee.schedule.isActive &&
+        !(await this.calendarService.isNonWorkingDay(today)) &&
         isScheduledOnDate(employee.schedule.workDays, referenceDate)
       : false;
 
@@ -166,6 +186,7 @@ export class AttendanceService {
       expectedToday,
       canCheckIn: !attendance?.clockInAt,
       canCheckOut: Boolean(attendance?.clockInAt && !attendance.clockOutAt),
+      monthlyAbsenceCount,
       securityPolicy: this.attendanceSecurityService.getPolicy(),
       attendance,
       employee,
@@ -205,6 +226,7 @@ export class AttendanceService {
     employeeId: string,
     payload: {
       occurredAt?: string;
+      notes?: string;
       security?: CheckInSecurityProofDto;
     },
   ) {
@@ -265,10 +287,12 @@ export class AttendanceService {
     const { minutesLate, status } = this.getCheckInOutcome(
       employee.schedule,
       occurredAt,
+      await this.calendarService.isNonWorkingDay(date),
     );
     const scheduledExitTime = this.getScheduledExitTime(
       employee.schedule,
       occurredAt,
+      status === AttendanceStatus.NON_WORKING_DAY_WORK,
     );
     const scheduleSnapshot = buildAttendanceScheduleSnapshot(
       employee.schedule,
@@ -296,6 +320,9 @@ export class AttendanceService {
     const securityMetadata =
       await this.attendanceSecurityService.evaluateCheckIn(payload.security, {
         ...options,
+        employeeId: employee.id,
+        occurredAt,
+        notes: payload.notes,
       });
 
     if (existingAttendance) {
@@ -369,6 +396,7 @@ export class AttendanceService {
     employeeId: string,
     payload: {
       occurredAt?: string;
+      notes?: string;
       security?: CheckInSecurityProofDto;
     },
     options: {
@@ -429,17 +457,24 @@ export class AttendanceService {
     const securityMetadata =
       await this.attendanceSecurityService.evaluateCheckOut(payload.security, {
         ...options,
+        employeeId,
+        occurredAt,
+        notes: payload.notes,
       });
     const resolvedSchedule = resolveAttendanceSchedule(
       attendance,
       attendance.employee.schedule,
     );
+    const isNonWorkingDay = await this.calendarService.isNonWorkingDay(date);
     const isOutsideScheduleWork =
       Boolean(attendance.clockInAt) &&
-      !isScheduledOnResolvedAttendanceDate(resolvedSchedule, date);
+      (isNonWorkingDay ||
+        !isScheduledOnResolvedAttendanceDate(resolvedSchedule, date));
     const scheduledExitTime =
-      attendance.scheduledExitTime ??
-      getResolvedAttendanceScheduledExitTime(resolvedSchedule, occurredAt);
+      isNonWorkingDay
+        ? null
+        : attendance.scheduledExitTime ??
+          getResolvedAttendanceScheduledExitTime(resolvedSchedule, occurredAt);
     const exitOutcome = isOutsideScheduleWork
       ? getOutsideScheduleAttendanceOutcome(attendance.clockInAt, occurredAt)
       : getAttendanceCheckOutOutcome(scheduledExitTime, occurredAt);
@@ -468,9 +503,12 @@ export class AttendanceService {
         overtimeHours: exitOutcome.overtimeHours,
         overtimeMinutes: exitOutcome.overtimeMinutes,
         absenceCount,
-        status: isOutsideScheduleWork
-          ? AttendanceStatus.PRESENT
-          : this.getCompletedStatus(attendance.minutesLate),
+        notes: payload.notes ?? undefined,
+        status: isNonWorkingDay
+          ? AttendanceStatus.NON_WORKING_DAY_WORK
+          : isOutsideScheduleWork
+            ? AttendanceStatus.PRESENT
+            : this.getCompletedStatus(attendance.minutesLate),
         ...securityMetadata,
       },
     });
@@ -529,6 +567,10 @@ export class AttendanceService {
       );
     }
 
+    if (occurredAt.getTime() > Date.now()) {
+      throw new BadRequestException('occurredAt cannot be in the future.');
+    }
+
     return occurredAt;
   }
 
@@ -559,7 +601,15 @@ export class AttendanceService {
       workDays: Prisma.JsonValue;
     } | null,
     occurredAt: Date,
+    isNonWorkingDay: boolean,
   ) {
+    if (isNonWorkingDay) {
+      return {
+        minutesLate: 0,
+        status: AttendanceStatus.NON_WORKING_DAY_WORK,
+      };
+    }
+
     if (
       !schedule ||
       !schedule.isActive ||
@@ -601,7 +651,12 @@ export class AttendanceService {
       workDays: Prisma.JsonValue;
     } | null,
     occurredAt: Date,
+    isNonWorkingDay = false,
   ) {
+    if (isNonWorkingDay) {
+      return null;
+    }
+
     if (
       !schedule ||
       !schedule.isActive ||
@@ -668,6 +723,10 @@ export class AttendanceService {
 
     const cursor = new Date(start);
     const endOfCountingWindow = this.getAbsenceCountingEnd(end, referenceDate);
+    const nonWorkingDateKeys = await this.calendarService.getNonWorkingDateKeys(
+      start,
+      endOfCountingWindow,
+    );
     let absenceCount = 0;
 
     while (cursor < endOfCountingWindow) {
@@ -675,6 +734,7 @@ export class AttendanceService {
 
       if (
         isScheduledOnDate(schedule.workDays, currentDate) &&
+        !nonWorkingDateKeys.has(currentDate.getTime()) &&
         !workedDateKeys.has(currentDate.getTime())
       ) {
         absenceCount += 1;

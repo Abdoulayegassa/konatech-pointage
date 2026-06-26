@@ -3,7 +3,6 @@ import { Injectable } from '@nestjs/common';
 import { scheduleSelect } from '../../../common/prisma/selects';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import {
-  addAttendanceDays,
   getAttendanceMonthRange,
   isScheduledOnDate,
   normalizeAttendanceDate,
@@ -15,15 +14,25 @@ import {
 import { AttendanceSecurityPolicyService } from '../attendance-security-policy.service';
 import { MonthlyAttendanceExportQueryDto } from '../dto/monthly-attendance-export-query.dto';
 import {
+  SanctionResult,
+  SanctionRuleType,
+  SanctionStatus,
+} from '../../sanctions/sanction-engine.types';
+import { SanctionsService } from '../../sanctions/sanctions.service';
+import {
   MonthlyAttendanceDailyReportRow,
   MonthlyAttendanceEmployeeReport,
   MonthlyAttendanceExportReport,
   MonthlyAttendanceExportRow,
+  MonthlyAttendanceSanctionSummary,
 } from './monthly-attendance-export.types';
+import { CalendarService } from '../../calendar/calendar.service';
+import { AppClockService } from '../../../common/time/app-clock.service';
 
 type ScheduleWorkDays = Parameters<typeof isScheduledOnDate>[0];
 
 type ExportAttendanceRecord = {
+  id: string;
   date: Date;
   status: AttendanceStatus;
   clockInAt: Date | null;
@@ -75,6 +84,14 @@ type EmployeeExportPayload = {
 };
 
 @Injectable()
+/**
+ * SOURCE OF TRUTH
+ * Monthly attendance report data assembly.
+ *
+ * Calendar-aware absences, non-working-day work, sanction summaries, and
+ * monthly export rows are prepared here. Renderers must display this data
+ * without recalculating attendance, sanctions, or calendar rules.
+ */
 export class MonthlyAttendanceExportService {
   private readonly frenchMonthLabels = [
     'janvier',
@@ -122,6 +139,9 @@ export class MonthlyAttendanceExportService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly attendanceSecurityPolicyService: AttendanceSecurityPolicyService,
+    private readonly sanctionsService: SanctionsService,
+    private readonly calendarService: CalendarService,
+    private readonly clock: AppClockService,
   ) {}
 
   async buildMonthlyReport(
@@ -134,7 +154,7 @@ export class MonthlyAttendanceExportService {
     const absenceCountingEnd = this.getAbsenceCountingEnd(
       startOfMonth,
       endOfMonth,
-      new Date(),
+      this.clock.now(),
     );
 
     const employees = await this.prisma.employee.findMany({
@@ -164,6 +184,7 @@ export class MonthlyAttendanceExportService {
             date: 'asc',
           },
           select: {
+            id: true,
             date: true,
             status: true,
             clockInAt: true,
@@ -191,9 +212,20 @@ export class MonthlyAttendanceExportService {
       },
     });
 
+    const monthlySanctions = await this.sanctionsService.getMonthlySanctions(
+      `${query.year}-${String(query.month).padStart(2, '0')}`,
+      query.employeeId,
+    );
+    const sanctionsByAttendanceId = new Map(
+      monthlySanctions.map((sanction) => [sanction.attendanceId, sanction]),
+    );
     const securityPolicy = this.attendanceSecurityPolicyService.getPolicy();
     const allowedRadiusMeters = securityPolicy.allowedRadiusMeters;
-    const generatedAt = new Date().toISOString();
+    const generatedAt = this.clock.now().toISOString();
+    const nonWorkingDateKeys = await this.calendarService.getNonWorkingDateKeys(
+      startOfMonth,
+      absenceCountingEnd,
+    );
     const employeeExports = employees.map((employee) =>
       this.buildEmployeeExport(
         employee,
@@ -202,7 +234,9 @@ export class MonthlyAttendanceExportService {
         generatedAt,
         startOfMonth,
         absenceCountingEnd,
+        nonWorkingDateKeys,
         allowedRadiusMeters,
+        sanctionsByAttendanceId,
       ),
     );
 
@@ -230,7 +264,9 @@ export class MonthlyAttendanceExportService {
     generatedAt: string,
     startOfMonth: Date,
     absenceCountingEnd: Date,
+    nonWorkingDateKeys: Set<number>,
     allowedRadiusMeters: number | null,
+    sanctionsByAttendanceId: Map<string, SanctionResult>,
   ): EmployeeExportPayload {
     const dailyRows: MonthlyAttendanceDailyReportRow[] = [];
     let totalWorkedDays = 0;
@@ -257,6 +293,7 @@ export class MonthlyAttendanceExportService {
     let gpsValidatedPointages = 0;
     let insideZonePointages = 0;
     let normalExitCount = 0;
+    const sanctionSummary = this.buildEmptySanctionSummary();
     const assignedScheduleSummary = this.getMonthlyAssignedScheduleSummary(
       employee.schedule,
       employee.attendances,
@@ -308,7 +345,10 @@ export class MonthlyAttendanceExportService {
         totalWorkedDays += 1;
         totalPointages += 1;
 
-        if (isOutsideScheduleWork) {
+        if (
+          isOutsideScheduleWork ||
+          attendance.status === AttendanceStatus.NON_WORKING_DAY_WORK
+        ) {
           outsideScheduleWorkDays += 1;
         } else {
           scheduledPresenceDays += 1;
@@ -377,14 +417,22 @@ export class MonthlyAttendanceExportService {
         }
       }
 
-      dailyRows.push(this.buildDailyReportRow(attendance, allowedRadiusMeters));
+      const sanction = sanctionsByAttendanceId.get(attendance.id) ?? null;
+
+      this.addSanctionToSummary(sanctionSummary, sanction);
+      dailyRows.push(
+        this.buildDailyReportRow(attendance, allowedRadiusMeters, sanction),
+      );
     }
+
+    this.finalizeSanctionSummary(sanctionSummary);
 
     const { absentDays, workingDays } = this.getScheduleCoverage(
       employee.schedule,
       employee.attendances,
       startOfMonth,
       absenceCountingEnd,
+      nonWorkingDateKeys,
     );
     const presenceDays =
       workingDays > 0 ? scheduledPresenceDays : totalWorkedDays;
@@ -479,6 +527,7 @@ export class MonthlyAttendanceExportService {
           outsideZoneAttempts: null,
           modeLabel: 'GPS obligatoire',
         },
+        sanctionSummary,
         dailyRows,
       },
     };
@@ -487,6 +536,7 @@ export class MonthlyAttendanceExportService {
   private buildDailyReportRow(
     attendance: ExportAttendanceRecord,
     allowedRadiusMeters: number | null,
+    sanction: SanctionResult | null,
   ): MonthlyAttendanceDailyReportRow {
     const hasClockIn = attendance.clockInAt !== null;
     const hasClockOut = attendance.clockOutAt !== null;
@@ -536,14 +586,18 @@ export class MonthlyAttendanceExportService {
           ? `${attendance.earlyExitMinutes} min`
           : '-',
       workTypeLabel: attendance.outsideScheduleWork
-        ? 'Travail hors planning / Outside schedule work'
+        ? attendance.status === AttendanceStatus.NON_WORKING_DAY_WORK
+          ? 'Travail jour non ouvré'
+          : 'Travail jour non ouvré'
         : attendance.overtimeHours > 0
-          ? 'Heures supplementaires apres service'
+          ? 'Heures supplémentaires après service'
           : '-',
       overtimeLabel:
         attendance.overtimeHours > 0
           ? attendance.outsideScheduleWork
-            ? `Travail hors planning / Outside schedule work - ${this.formatHoursLabel(attendance.overtimeHours)}`
+            ? attendance.status === AttendanceStatus.NON_WORKING_DAY_WORK
+              ? `Travail jour non ouvré - ${this.formatHoursLabel(attendance.overtimeHours)}`
+              : `Travail jour non ouvré - ${this.formatHoursLabel(attendance.overtimeHours)}`
             : this.formatHoursLabel(attendance.overtimeHours)
           : '-',
       gpsVerificationLabel: this.getGpsVerificationLabel({
@@ -554,7 +608,76 @@ export class MonthlyAttendanceExportService {
           this.isOutsideZoneReason(attendance.checkInVerificationReason) ||
           this.isOutsideZoneReason(attendance.checkOutVerificationReason),
       }),
+      sanctionLabel: this.getDailySanctionLabel(sanction),
     };
+  }
+
+  private buildEmptySanctionSummary(): MonthlyAttendanceSanctionSummary {
+    return {
+      minorLatenessCount: 0,
+      majorLatenessCount: 0,
+      toleratedCount: 0,
+      appliedCount: 0,
+      totalAmount: 0,
+      totalAmountLabel: this.formatMoney(0),
+      recommendation: 'Aucune sanction financière appliquée ce mois-ci.',
+    };
+  }
+
+  private addSanctionToSummary(
+    summary: MonthlyAttendanceSanctionSummary,
+    sanction: SanctionResult | null,
+  ) {
+    if (!sanction || sanction.status === SanctionStatus.NOT_APPLICABLE) {
+      return;
+    }
+
+    if (sanction.ruleType === SanctionRuleType.MINOR_LATENESS) {
+      summary.minorLatenessCount += 1;
+    }
+
+    if (sanction.ruleType === SanctionRuleType.MAJOR_LATENESS) {
+      summary.majorLatenessCount += 1;
+    }
+
+    if (sanction.status === SanctionStatus.TOLERATED) {
+      summary.toleratedCount += 1;
+      return;
+    }
+
+    if (sanction.status === SanctionStatus.APPLIED) {
+      summary.appliedCount += 1;
+      summary.totalAmount += sanction.amount;
+    }
+  }
+
+  private finalizeSanctionSummary(summary: MonthlyAttendanceSanctionSummary) {
+    summary.totalAmountLabel = this.formatMoney(summary.totalAmount);
+
+    if (summary.appliedCount > 0) {
+      summary.recommendation =
+        'Sanctions financières à prendre en compte dans le suivi RH.';
+      return;
+    }
+
+    if (summary.toleratedCount > 0) {
+      summary.recommendation = 'Tolérance appliquée selon les règles RH.';
+      return;
+    }
+
+    summary.recommendation = 'Aucune sanction financière appliquée ce mois-ci.';
+  }
+
+  private getDailySanctionLabel(sanction: SanctionResult | null) {
+    if (!sanction || sanction.status === SanctionStatus.NOT_APPLICABLE) {
+      return '-';
+    }
+
+    if (sanction.status === SanctionStatus.TOLERATED) {
+      return 'Tolérance';
+    }
+
+    return this.formatMoney(sanction.amount);
   }
 
   private getScheduleCoverage(
@@ -562,6 +685,7 @@ export class MonthlyAttendanceExportService {
     attendances: ExportAttendanceRecord[],
     startOfMonth: Date,
     endOfMonth: Date,
+    nonWorkingDateKeys: Set<number>,
   ) {
     if (!schedule?.isActive && attendances.length === 0) {
       return {
@@ -588,7 +712,10 @@ export class MonthlyAttendanceExportService {
         schedule,
       );
 
-      if (this.isScheduledDay(resolvedSchedule, currentDate)) {
+      if (
+        this.isScheduledDay(resolvedSchedule, currentDate) &&
+        !nonWorkingDateKeys.has(currentDate.getTime())
+      ) {
         workingDays += 1;
 
         if (!attendance?.clockInAt) {
@@ -727,6 +854,8 @@ export class MonthlyAttendanceExportService {
         return 'Pointage incomplet';
       case AttendanceStatus.ABSENT:
         return 'Absence';
+      case AttendanceStatus.NON_WORKING_DAY_WORK:
+        return 'Travail jour non ouvré';
       default:
         return 'Présent';
     }
@@ -839,6 +968,10 @@ export class MonthlyAttendanceExportService {
     return `${value.toFixed(2).replace('.', ',')} h`;
   }
 
+  private formatMoney(value: number) {
+    return `${new Intl.NumberFormat('fr-FR').format(value)} FCFA`;
+  }
+
   private formatMonthLabel(month: number, year: number) {
     return `${this.capitalize(this.frenchMonthLabels[month - 1] ?? '')} ${year}`;
   }
@@ -924,11 +1057,8 @@ export class MonthlyAttendanceExportService {
       return endOfMonth;
     }
 
-    const referenceDayEnd = addAttendanceDays(
-      normalizeAttendanceDate(referenceDate),
-      1,
-    );
+    const completedDayEnd = normalizeAttendanceDate(referenceDate);
 
-    return referenceDayEnd < endOfMonth ? referenceDayEnd : endOfMonth;
+    return completedDayEnd < endOfMonth ? completedDayEnd : endOfMonth;
   }
 }

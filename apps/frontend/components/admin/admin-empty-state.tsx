@@ -21,7 +21,7 @@ export function AdminEmptyState({
       <div className="mx-auto flex w-fit items-center gap-3 rounded-full border border-accent/15 bg-white/85 px-3 py-2 shadow-sm">
         <span className="h-2.5 w-2.5 rounded-full bg-accent" />
         <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">
-          Etat vide premium
+          Aucune donnée
         </span>
       </div>
 

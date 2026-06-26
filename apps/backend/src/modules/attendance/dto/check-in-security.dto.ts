@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsNumber,
   IsOptional,
@@ -33,9 +33,14 @@ export class CheckInSecurityProofDto {
   accuracyMeters?: number;
 
   @IsOptional()
+  @Transform(({ value }) =>
+    typeof value === 'string' && value.trim() === '' ? undefined : value,
+  )
   @IsString()
   @MaxLength(1000000)
-  @Matches(/^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/)
+  @Matches(/^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/, {
+    message: 'Selfie requis pour valider le pointage.',
+  })
   verificationPhotoDataUrl?: string;
 }
 

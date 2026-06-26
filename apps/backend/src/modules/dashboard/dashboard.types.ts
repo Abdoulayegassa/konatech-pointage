@@ -7,6 +7,8 @@ import {
 export type DashboardSummary = {
   totalEmployees: number;
   presentToday: number;
+  scheduledPresentToday: number;
+  nonWorkingDayWorkToday: number;
   lateEmployeesToday: number;
   absentEmployeesToday: number;
   earlyExitToday: number;

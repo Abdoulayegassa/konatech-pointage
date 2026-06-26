@@ -9,6 +9,8 @@ type AttendanceEntrySessionButtonProps = {
   className?: string;
   label?: string;
   onLoggedOut?: () => void;
+  pendingLabel?: string;
+  redirectTo?: string;
   size?: 'default' | 'sm' | 'lg';
   variant?: 'default' | 'secondary' | 'ghost';
 };
@@ -17,6 +19,8 @@ export function AttendanceEntrySessionButton({
   className,
   label = 'Se déconnecter',
   onLoggedOut,
+  pendingLabel = 'Traitement...',
+  redirectTo = '/attendance-entry',
   size = 'default',
   variant = 'secondary',
 }: AttendanceEntrySessionButtonProps) {
@@ -39,7 +43,7 @@ export function AttendanceEntrySessionButton({
       }
 
       onLoggedOut?.();
-      router.replace('/attendance-entry');
+      router.replace(redirectTo);
       router.refresh();
     } catch {
       setError('Impossible de fermer cette session PIN.');
@@ -57,7 +61,7 @@ export function AttendanceEntrySessionButton({
         type="button"
         variant={variant}
       >
-        {isPending ? 'Deconnexion...' : label}
+        {isPending ? pendingLabel : label}
       </Button>
       {error ? (
         <p className="text-sm font-medium text-rose-700">{error}</p>

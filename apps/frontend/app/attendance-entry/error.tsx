@@ -29,8 +29,8 @@ export default function AttendanceEntryErrorPage({
               La page de pointage QR n&apos;a pas pu se charger correctement
             </CardTitle>
             <p className="max-w-2xl text-sm leading-6 text-slate-600">
-              Une erreur inattendue a interrompu le chargement de votre entree
-              de presence. Aucun pointage n&apos;a ete modifie.
+              Une erreur inattendue a interrompu le chargement de votre entrée
+              de présence. Aucun pointage n&apos;a été modifié.
             </p>
           </CardHeader>
           <CardContent className="space-y-5 pt-5 text-sm leading-6 text-slate-600">
@@ -38,7 +38,7 @@ export default function AttendanceEntryErrorPage({
               {error.message}
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
-              <Button onClick={reset}>Reessayer</Button>
+              <Button onClick={reset}>Réessayer</Button>
               <Button
                 onClick={() => window.location.assign('/attendance-entry')}
                 variant="secondary"

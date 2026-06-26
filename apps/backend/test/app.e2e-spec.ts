@@ -30,6 +30,8 @@ describe('AppController (e2e)', () => {
     'ATTENDANCE_ALLOWED_RADIUS_METERS',
     'ATTENDANCE_MAX_ACCURACY_METERS',
   ];
+  const testSelfieDataUrl =
+    'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2w==';
 
   function enableAttendanceSecurityForTest(
     overrides: Partial<
@@ -72,6 +74,28 @@ describe('AppController (e2e)', () => {
           process.env[key] = previousValue;
         }
       }
+    };
+  }
+
+  function terminalSelfieProof() {
+    return {
+      verificationPhotoDataUrl: testSelfieDataUrl,
+    };
+  }
+
+  function terminalSecurityProof(
+    overrides: Partial<{
+      latitude: number;
+      longitude: number;
+      accuracyMeters: number;
+    }> = {},
+  ) {
+    return {
+      latitude: 5.359952,
+      longitude: -4.008256,
+      accuracyMeters: 8,
+      verificationPhotoDataUrl: testSelfieDataUrl,
+      ...overrides,
     };
   }
 
@@ -1121,6 +1145,87 @@ describe('AppController (e2e)', () => {
     );
   });
 
+  it('/api/v1/attendance/me/check-in (POST) rejects future occurredAt values', async () => {
+    const session = await login(
+      'aminata.keita@konatech.local',
+      'KonatechEmployee123!',
+    );
+
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/attendance/me/check-in')
+      .set('Authorization', `Bearer ${session.accessToken}`)
+      .send({
+        occurredAt: new Date(Date.now() + 60_000).toISOString(),
+      })
+      .expect(400);
+
+    expect(response.body.message).toBe('occurredAt cannot be in the future.');
+  });
+
+  it('/api/v1/attendance/me/check-out (POST) rejects future occurredAt values', async () => {
+    const session = await login(
+      'aminata.keita@konatech.local',
+      'KonatechEmployee123!',
+    );
+
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/attendance/me/check-out')
+      .set('Authorization', `Bearer ${session.accessToken}`)
+      .send({
+        occurredAt: new Date(Date.now() + 60_000).toISOString(),
+      })
+      .expect(400);
+
+    expect(response.body.message).toBe('occurredAt cannot be in the future.');
+  });
+
+  it('/api/v1/attendance/me/check-in (POST) rejects missing selfie proof', async () => {
+    const session = await login(
+      'fatoumata.konate@konatech.local',
+      'KonatechEmployee123!',
+    );
+
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/attendance/me/check-in')
+      .set('Authorization', `Bearer ${session.accessToken}`)
+      .send({
+        occurredAt: '2026-05-02T09:00:00.000Z',
+      })
+      .expect(400);
+
+    expect(response.body.message).toBe(
+      'Selfie requis pour valider le pointage.',
+    );
+  });
+
+  it('/api/v1/attendance/me/check-out (POST) rejects missing selfie proof', async () => {
+    const session = await login(
+      'fatoumata.konate@konatech.local',
+      'KonatechEmployee123!',
+    );
+
+    await request(app.getHttpServer())
+      .post('/api/v1/attendance/me/check-in')
+      .set('Authorization', `Bearer ${session.accessToken}`)
+      .send({
+        occurredAt: '2026-05-03T09:00:00.000Z',
+        security: terminalSelfieProof(),
+      })
+      .expect(201);
+
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/attendance/me/check-out')
+      .set('Authorization', `Bearer ${session.accessToken}`)
+      .send({
+        occurredAt: '2026-05-03T18:00:00.000Z',
+      })
+      .expect(400);
+
+    expect(response.body.message).toBe(
+      'Selfie requis pour valider le pointage.',
+    );
+  });
+
   it('/api/v1/attendance/me/check-in (POST) records an incomplete attendance', async () => {
     const session = await login(
       'aminata.keita@konatech.local',
@@ -1133,6 +1238,7 @@ describe('AppController (e2e)', () => {
       .send({
         occurredAt: '2026-04-14T08:00:00.000Z',
         notes: 'Opened finance follow-up.',
+        security: terminalSelfieProof(),
       })
       .expect(201);
 
@@ -1178,6 +1284,7 @@ describe('AppController (e2e)', () => {
       .set('Authorization', `Bearer ${session.accessToken}`)
       .send({
         occurredAt: '2026-04-14T17:10:00.000Z',
+        security: terminalSelfieProof(),
       })
       .expect(201);
 
@@ -1220,7 +1327,8 @@ describe('AppController (e2e)', () => {
       .post('/api/v1/attendance/me/check-in')
       .set('Authorization', `Bearer ${session.accessToken}`)
       .send({
-        occurredAt: '2026-04-18T09:19:00.000Z',
+        occurredAt: '2026-04-17T09:19:00.000Z',
+        security: terminalSelfieProof(),
       })
       .expect(201);
 
@@ -1229,7 +1337,7 @@ describe('AppController (e2e)', () => {
         status: 'LATE',
         minutesLate: 9,
         clockOutAt: null,
-        scheduledExitTime: '2026-04-18T18:00:00.000Z',
+        scheduledExitTime: '2026-04-17T18:00:00.000Z',
         earlyExit: false,
         earlyExitMinutes: 0,
         lateExit: false,
@@ -1240,7 +1348,7 @@ describe('AppController (e2e)', () => {
     );
   });
 
-  it('/api/v1/attendance/me/check-out (POST) blocks checkout when GPS is unavailable', async () => {
+  it('/api/v1/attendance/me/check-out (POST) rejects checkout when GPS is required but unavailable', async () => {
     const restoreEnv = enableAttendanceSecurityForTest();
 
     try {
@@ -1249,16 +1357,17 @@ describe('AppController (e2e)', () => {
         'KonatechEmployee123!',
       );
 
-      const rejectedResponse = await request(app.getHttpServer())
+      const response = await request(app.getHttpServer())
         .post('/api/v1/attendance/me/check-out')
         .set('Authorization', `Bearer ${session.accessToken}`)
         .send({
-          occurredAt: '2026-04-18T17:00:00.000Z',
+          occurredAt: '2026-04-17T17:00:00.000Z',
+          security: terminalSelfieProof(),
         })
         .expect(400);
 
-      expect(rejectedResponse.body.message).toBe(
-        'La geolocalisation est obligatoire pour pointer.',
+      expect(response.body.message).toBe(
+        'Géolocalisation requise pour valider le pointage.',
       );
     } finally {
       restoreEnv();
@@ -1276,6 +1385,7 @@ describe('AppController (e2e)', () => {
       .set('Authorization', `Bearer ${session.accessToken}`)
       .send({
         occurredAt: '2026-04-21T09:00:00.000Z',
+        security: terminalSelfieProof(),
       })
       .expect(201);
 
@@ -1292,6 +1402,7 @@ describe('AppController (e2e)', () => {
       .set('Authorization', `Bearer ${session.accessToken}`)
       .send({
         occurredAt: '2026-04-21T19:30:00.000Z',
+        security: terminalSelfieProof(),
       })
       .expect(201);
 
@@ -1310,7 +1421,7 @@ describe('AppController (e2e)', () => {
     );
   });
 
-  it('/api/v1/attendance/me/check-in (POST) keeps outside scheduled workdays allowed while GPS remains mandatory', async () => {
+  it('/api/v1/attendance/me/check-in (POST) rejects check-in when GPS is required but unavailable', async () => {
     const restoreEnv = enableAttendanceSecurityForTest();
 
     try {
@@ -1332,17 +1443,27 @@ describe('AppController (e2e)', () => {
         'KonatechEmployee123!',
       );
 
-      const rejectedResponse = await request(app.getHttpServer())
+      const response = await request(app.getHttpServer())
         .post('/api/v1/attendance/me/check-in')
         .set('Authorization', `Bearer ${session.accessToken}`)
         .send({
           occurredAt: '2026-04-19T09:00:00.000Z',
+          security: terminalSelfieProof(),
         })
         .expect(400);
 
-      expect(rejectedResponse.body.message).toBe(
-        'La geolocalisation est obligatoire pour pointer.',
+      expect(response.body.message).toBe(
+        'Géolocalisation requise pour valider le pointage.',
       );
+
+      await request(app.getHttpServer())
+        .post('/api/v1/attendance/me/check-in')
+        .set('Authorization', `Bearer ${session.accessToken}`)
+        .send({
+          occurredAt: '2026-04-19T09:00:00.000Z',
+          security: terminalSecurityProof(),
+        })
+        .expect(201);
     } finally {
       restoreEnv();
     }
@@ -1379,6 +1500,7 @@ describe('AppController (e2e)', () => {
             latitude: 5.36005,
             longitude: -4.0082,
             accuracyMeters: 8,
+            verificationPhotoDataUrl: testSelfieDataUrl,
           },
         })
         .expect(201);
@@ -1389,10 +1511,10 @@ describe('AppController (e2e)', () => {
           outsideScheduleWork: false,
           scheduledExitTime: null,
           minutesLate: 0,
-          status: 'INCOMPLETE',
-          checkInVerificationMethod: 'GPS',
+          status: 'NON_WORKING_DAY_WORK',
+          checkInVerificationMethod: 'PHOTO',
           checkInVerificationLevel: 'OK',
-          checkInVerificationReason: 'WITHIN_ALLOWED_RADIUS',
+          checkInVerificationReason: 'SELFIE_AND_LOCATION_RECORDED',
         }),
       );
 
@@ -1401,11 +1523,11 @@ describe('AppController (e2e)', () => {
         .set('Authorization', `Bearer ${session.accessToken}`)
         .send({
           occurredAt: '2026-04-18T14:00:00.000Z',
-          security: {
+          security: terminalSecurityProof({
             latitude: 5.36005,
             longitude: -4.0082,
             accuracyMeters: 9,
-          },
+          }),
         })
         .expect(201);
 
@@ -1420,10 +1542,10 @@ describe('AppController (e2e)', () => {
           overtimeHours: 5,
           overtimeMinutes: 300,
           minutesLate: 0,
-          status: 'PRESENT',
-          checkOutVerificationMethod: 'GPS',
+          status: 'NON_WORKING_DAY_WORK',
+          checkOutVerificationMethod: 'PHOTO',
           checkOutVerificationLevel: 'OK',
-          checkOutVerificationReason: 'WITHIN_ALLOWED_RADIUS',
+          checkOutVerificationReason: 'SELFIE_AND_LOCATION_RECORDED',
         }),
       );
     } finally {
@@ -1441,7 +1563,8 @@ describe('AppController (e2e)', () => {
       .post('/api/v1/attendance/me/check-in')
       .set('Authorization', `Bearer ${session.accessToken}`)
       .send({
-        occurredAt: '2026-04-25T09:00:00.000Z',
+        occurredAt: '2026-04-15T09:00:00.000Z',
+        security: terminalSelfieProof(),
       })
       .expect(201);
 
@@ -1449,15 +1572,16 @@ describe('AppController (e2e)', () => {
       .post('/api/v1/attendance/me/check-out')
       .set('Authorization', `Bearer ${session.accessToken}`)
       .send({
-        occurredAt: '2026-04-25T17:30:00.000Z',
+        occurredAt: '2026-04-15T17:30:00.000Z',
+        security: terminalSelfieProof(),
       })
       .expect(201);
 
     expect(response.body).toEqual(
       expect.objectContaining({
-        clockOutAt: '2026-04-25T17:30:00.000Z',
+        clockOutAt: '2026-04-15T17:30:00.000Z',
         outsideScheduleWork: false,
-        scheduledExitTime: '2026-04-25T18:00:00.000Z',
+        scheduledExitTime: '2026-04-15T18:00:00.000Z',
         earlyExit: true,
         earlyExitMinutes: 30,
         lateExit: false,
@@ -1477,7 +1601,8 @@ describe('AppController (e2e)', () => {
       .post('/api/v1/attendance/me/check-in')
       .set('Authorization', `Bearer ${session.accessToken}`)
       .send({
-        occurredAt: '2026-04-26T09:00:00.000Z',
+        occurredAt: '2026-04-16T09:00:00.000Z',
+        security: terminalSelfieProof(),
       })
       .expect(201);
 
@@ -1485,15 +1610,16 @@ describe('AppController (e2e)', () => {
       .post('/api/v1/attendance/me/check-out')
       .set('Authorization', `Bearer ${session.accessToken}`)
       .send({
-        occurredAt: '2026-04-26T18:00:00.000Z',
+        occurredAt: '2026-04-16T18:00:00.000Z',
+        security: terminalSelfieProof(),
       })
       .expect(201);
 
     expect(response.body).toEqual(
       expect.objectContaining({
-        clockOutAt: '2026-04-26T18:00:00.000Z',
+        clockOutAt: '2026-04-16T18:00:00.000Z',
         outsideScheduleWork: false,
-        scheduledExitTime: '2026-04-26T18:00:00.000Z',
+        scheduledExitTime: '2026-04-16T18:00:00.000Z',
         earlyExit: false,
         earlyExitMinutes: 0,
         lateExit: false,
@@ -1503,7 +1629,7 @@ describe('AppController (e2e)', () => {
     );
   });
 
-  it('/api/v1/attendance/me/check-in (POST) stores GPS metadata when inside the allowed radius', async () => {
+  it('/api/v1/attendance/me/check-in (POST) stores GPS metadata when available', async () => {
     const restoreEnv = enableAttendanceSecurityForTest();
 
     try {
@@ -1521,6 +1647,7 @@ describe('AppController (e2e)', () => {
             latitude: 5.36005,
             longitude: -4.0082,
             accuracyMeters: 9,
+            verificationPhotoDataUrl: testSelfieDataUrl,
           },
         })
         .expect(201);
@@ -1531,9 +1658,9 @@ describe('AppController (e2e)', () => {
           checkInLatitude: 5.36005,
           checkInLongitude: -4.0082,
           checkInAccuracyMeters: 9,
-          checkInVerificationMethod: 'GPS',
+          checkInVerificationMethod: 'PHOTO',
           checkInVerificationLevel: 'OK',
-          checkInVerificationReason: 'WITHIN_ALLOWED_RADIUS',
+          checkInVerificationReason: 'SELFIE_AND_LOCATION_RECORDED',
         }),
       );
       expect(response.body.checkInDistanceMeters).toBeLessThanOrEqual(100);
@@ -1547,6 +1674,7 @@ describe('AppController (e2e)', () => {
             latitude: 5.36005,
             longitude: -4.0082,
             accuracyMeters: 10,
+            verificationPhotoDataUrl: testSelfieDataUrl,
           },
         })
         .expect(201);
@@ -1562,9 +1690,9 @@ describe('AppController (e2e)', () => {
           checkOutLatitude: 5.36005,
           checkOutLongitude: -4.0082,
           checkOutAccuracyMeters: 10,
-          checkOutVerificationMethod: 'GPS',
+          checkOutVerificationMethod: 'PHOTO',
           checkOutVerificationLevel: 'OK',
-          checkOutVerificationReason: 'WITHIN_ALLOWED_RADIUS',
+          checkOutVerificationReason: 'SELFIE_AND_LOCATION_RECORDED',
         }),
       );
       expect(checkOutResponse.body.checkOutDistanceMeters).toBeLessThanOrEqual(
@@ -1575,7 +1703,7 @@ describe('AppController (e2e)', () => {
     }
   });
 
-  it('/api/v1/attendance/me/check-in (POST) uses ATTENDANCE_ALLOWED_RADIUS_METERS as the blocking GPS radius when no warning radius is configured', async () => {
+  it('/api/v1/attendance/me/check-in (POST) accepts inside-radius GPS without comment and requires comment outside radius', async () => {
     const restoreEnv = enableAttendanceSecurityForTest({
       ATTENDANCE_TRUSTED_RADIUS_METERS: null,
       ATTENDANCE_WARNING_RADIUS_METERS: null,
@@ -1597,20 +1725,21 @@ describe('AppController (e2e)', () => {
             latitude: 5.359952,
             longitude: -4.008256,
             accuracyMeters: 4,
+            verificationPhotoDataUrl: testSelfieDataUrl,
           },
         })
         .expect(201);
 
       expect(acceptedResponse.body).toEqual(
         expect.objectContaining({
-          checkInVerificationMethod: 'GPS',
+          checkInVerificationMethod: 'PHOTO',
           checkInVerificationLevel: 'OK',
-          checkInVerificationReason: 'WITHIN_ALLOWED_RADIUS',
+          checkInVerificationReason: 'SELFIE_AND_LOCATION_RECORDED',
         }),
       );
       expect(acceptedResponse.body.checkInDistanceMeters).toBe(0);
 
-      const rejectedResponse = await request(app.getHttpServer())
+      const outsideRadiusResponse = await request(app.getHttpServer())
         .post('/api/v1/attendance/me/check-in')
         .set('Authorization', `Bearer ${session.accessToken}`)
         .send({
@@ -1619,19 +1748,47 @@ describe('AppController (e2e)', () => {
             latitude: 5.3602,
             longitude: -4.008256,
             accuracyMeters: 8,
+            verificationPhotoDataUrl: testSelfieDataUrl,
           },
         })
         .expect(400);
 
-      expect(rejectedResponse.body.message).toBe(
-        'Vous devez etre dans la zone autorisee pour pointer.',
+      expect(outsideRadiusResponse.body.message).toBe(
+        'Ajoutez un commentaire pour justifier ce pointage hors bureau.',
       );
+
+      const justifiedOffsiteResponse = await request(app.getHttpServer())
+        .post('/api/v1/attendance/me/check-in')
+        .set('Authorization', `Bearer ${session.accessToken}`)
+        .send({
+          occurredAt: '2026-04-28T09:00:00.000Z',
+          notes: 'Mission externe chez un client.',
+          security: {
+            latitude: 5.3602,
+            longitude: -4.008256,
+            accuracyMeters: 8,
+            verificationPhotoDataUrl: testSelfieDataUrl,
+          },
+        })
+        .expect(201);
+
+      expect(justifiedOffsiteResponse.body).toEqual(
+        expect.objectContaining({
+          notes: 'Mission externe chez un client.',
+          checkInVerificationMethod: 'PHOTO',
+          checkInVerificationLevel: 'OK',
+          checkInVerificationReason: 'OFFSITE_LOCATION_JUSTIFIED',
+        }),
+      );
+      expect(
+        justifiedOffsiteResponse.body.checkInDistanceMeters,
+      ).toBeGreaterThan(10);
     } finally {
       restoreEnv();
     }
   });
 
-  it('/api/v1/attendance/me/check-out (POST) blocks checkout outside the allowed radius', async () => {
+  it('/api/v1/attendance/me/check-out (POST) requires comment for checkout GPS outside the allowed radius', async () => {
     const restoreEnv = enableAttendanceSecurityForTest();
 
     try {
@@ -1649,6 +1806,7 @@ describe('AppController (e2e)', () => {
             latitude: 5.36005,
             longitude: -4.0082,
             accuracyMeters: 9,
+            verificationPhotoDataUrl: testSelfieDataUrl,
           },
         })
         .expect(201);
@@ -1656,14 +1814,14 @@ describe('AppController (e2e)', () => {
       expect(response.body).toEqual(
         expect.objectContaining({
           clockInAt: '2026-04-23T09:00:00.000Z',
-          checkInVerificationMethod: 'GPS',
+          checkInVerificationMethod: 'PHOTO',
           checkInVerificationLevel: 'OK',
-          checkInVerificationReason: 'WITHIN_ALLOWED_RADIUS',
+          checkInVerificationReason: 'SELFIE_AND_LOCATION_RECORDED',
         }),
       );
       expect(response.body.checkInDistanceMeters).toBeLessThanOrEqual(100);
 
-      const rejectedCheckOutResponse = await request(app.getHttpServer())
+      const checkOutResponse = await request(app.getHttpServer())
         .post('/api/v1/attendance/me/check-out')
         .set('Authorization', `Bearer ${session.accessToken}`)
         .send({
@@ -1672,19 +1830,48 @@ describe('AppController (e2e)', () => {
             latitude: 5.5,
             longitude: -4.3,
             accuracyMeters: 14,
+            verificationPhotoDataUrl: testSelfieDataUrl,
           },
         })
         .expect(400);
 
-      expect(rejectedCheckOutResponse.body.message).toBe(
-        'Vous devez etre dans la zone autorisee pour pointer.',
+      expect(checkOutResponse.body.message).toBe(
+        'Ajoutez un commentaire pour justifier ce pointage hors bureau.',
       );
+
+      const justifiedCheckOutResponse = await request(app.getHttpServer())
+        .post('/api/v1/attendance/me/check-out')
+        .set('Authorization', `Bearer ${session.accessToken}`)
+        .send({
+          occurredAt: '2026-04-23T17:00:00.000Z',
+          notes: 'Retour direct depuis un rendez-vous client.',
+          security: {
+            latitude: 5.5,
+            longitude: -4.3,
+            accuracyMeters: 14,
+            verificationPhotoDataUrl: testSelfieDataUrl,
+          },
+        })
+        .expect(201);
+
+      expect(justifiedCheckOutResponse.body).toEqual(
+        expect.objectContaining({
+          clockOutAt: '2026-04-23T17:00:00.000Z',
+          notes: 'Retour direct depuis un rendez-vous client.',
+          checkOutVerificationMethod: 'PHOTO',
+          checkOutVerificationLevel: 'OK',
+          checkOutVerificationReason: 'OFFSITE_LOCATION_JUSTIFIED',
+        }),
+      );
+      expect(
+        justifiedCheckOutResponse.body.checkOutDistanceMeters,
+      ).toBeGreaterThan(300);
     } finally {
       restoreEnv();
     }
   });
 
-  it('/api/v1/attendance/me/check-in (POST) blocks low-accuracy GPS coordinates even inside the allowed radius', async () => {
+  it('/api/v1/attendance/me/check-in (POST) rejects low-accuracy GPS coordinates', async () => {
     const restoreEnv = enableAttendanceSecurityForTest({
       ATTENDANCE_MAX_ACCURACY_METERS: '30',
     });
@@ -1695,7 +1882,7 @@ describe('AppController (e2e)', () => {
         'KonatechEmployee123!',
       );
 
-      const rejectedResponse = await request(app.getHttpServer())
+      const response = await request(app.getHttpServer())
         .post('/api/v1/attendance/me/check-in')
         .set('Authorization', `Bearer ${session.accessToken}`)
         .send({
@@ -1704,19 +1891,18 @@ describe('AppController (e2e)', () => {
             latitude: 5.359952,
             longitude: -4.008256,
             accuracyMeters: 120,
+            verificationPhotoDataUrl: testSelfieDataUrl,
           },
         })
         .expect(400);
 
-      expect(rejectedResponse.body.message).toBe(
-        'La precision GPS est insuffisante pour valider ce pointage.',
-      );
+      expect(response.body.message).toBe('Précision GPS insuffisante.');
     } finally {
       restoreEnv();
     }
   });
 
-  it('/api/v1/attendance/me/check-in (POST) blocks check-in when GPS is unavailable', async () => {
+  it('/api/v1/attendance/me/check-in (POST) rejects check-in when GPS is unavailable', async () => {
     const restoreEnv = enableAttendanceSecurityForTest();
 
     try {
@@ -1725,23 +1911,24 @@ describe('AppController (e2e)', () => {
         'KonatechEmployee123!',
       );
 
-      const rejectedResponse = await request(app.getHttpServer())
+      const response = await request(app.getHttpServer())
         .post('/api/v1/attendance/me/check-in')
         .set('Authorization', `Bearer ${session.accessToken}`)
         .send({
           occurredAt: '2026-04-22T09:00:00.000Z',
+          security: terminalSelfieProof(),
         })
         .expect(400);
 
-      expect(rejectedResponse.body.message).toBe(
-        'La geolocalisation est obligatoire pour pointer.',
+      expect(response.body.message).toBe(
+        'Géolocalisation requise pour valider le pointage.',
       );
     } finally {
       restoreEnv();
     }
   });
 
-  it('/api/v1/attendance/me/check-in (POST) blocks check-in outside the allowed radius', async () => {
+  it('/api/v1/attendance/me/check-in (POST) accepts check-in outside the allowed radius with comment', async () => {
     const restoreEnv = enableAttendanceSecurityForTest();
 
     try {
@@ -1750,22 +1937,30 @@ describe('AppController (e2e)', () => {
         'KonatechEmployee123!',
       );
 
-      const rejectedResponse = await request(app.getHttpServer())
+      const response = await request(app.getHttpServer())
         .post('/api/v1/attendance/me/check-in')
         .set('Authorization', `Bearer ${session.accessToken}`)
         .send({
-          occurredAt: '2026-04-22T09:00:00.000Z',
+          occurredAt: '2026-05-06T09:00:00.000Z',
+          notes: 'Visite terrain.',
           security: {
             latitude: 5.5,
             longitude: -4.3,
             accuracyMeters: 15,
+            verificationPhotoDataUrl: testSelfieDataUrl,
           },
         })
-        .expect(400);
+        .expect(201);
 
-      expect(rejectedResponse.body.message).toBe(
-        'Vous devez etre dans la zone autorisee pour pointer.',
+      expect(response.body).toEqual(
+        expect.objectContaining({
+          notes: 'Visite terrain.',
+          checkInVerificationMethod: 'PHOTO',
+          checkInVerificationLevel: 'OK',
+          checkInVerificationReason: 'OFFSITE_LOCATION_JUSTIFIED',
+        }),
       );
+      expect(response.body.checkInDistanceMeters).toBeGreaterThan(300);
     } finally {
       restoreEnv();
     }
@@ -1806,6 +2001,7 @@ describe('AppController (e2e)', () => {
       .set('Authorization', `Bearer ${session.accessToken}`)
       .send({
         occurredAt: '2026-04-30T23:30:00.000Z',
+        security: terminalSelfieProof(),
       })
       .expect(201);
 
@@ -1857,6 +2053,7 @@ describe('AppController (e2e)', () => {
       .set('Authorization', `Bearer ${employeeSession.accessToken}`)
       .send({
         occurredAt: '2026-04-29T08:05:00.000Z',
+        security: terminalSelfieProof(),
       })
       .expect(201);
 
@@ -1961,6 +2158,7 @@ describe('AppController (e2e)', () => {
       .set('Authorization', `Bearer ${employeeSession.accessToken}`)
       .send({
         occurredAt: '2026-04-29T17:30:00.000Z',
+        security: terminalSelfieProof(),
       })
       .expect(201);
 
@@ -2053,6 +2251,7 @@ describe('AppController (e2e)', () => {
       .set('Authorization', `Bearer ${employeeSession.accessToken}`)
       .send({
         occurredAt: '2026-05-01T18:00:00.000Z',
+        security: terminalSelfieProof(),
       })
       .expect(201);
 
@@ -2136,12 +2335,11 @@ describe('AppController (e2e)', () => {
       earlyExitMinutes: 0,
       lateExit: false,
       minutesLate: 0,
-      status: 'PRESENT',
+      status: 'NON_WORKING_DAY_WORK',
     });
     expect(report.employeeReport).toEqual(
       expect.objectContaining({
-        presenceDays: 1,
-        outsideScheduleWorkDays: 1,
+        outsideScheduleWorkDays: 2,
         scheduledOvertimeHours: '0,50 h',
         outsideScheduleOvertimeHours: '5,00 h',
         overtimeHours: '5,50 h',
@@ -2228,15 +2426,16 @@ describe('AppController (e2e)', () => {
     expect(after).toEqual(before);
   });
 
-  it('dashboard presence rate excludes outside-schedule workdays and tracks them separately', async () => {
+  it('dashboard presence rate excludes non-working days and tracks outside-schedule work separately', async () => {
     const dashboardService = app.get(DashboardService);
     const overview = await dashboardService.getOverview(
       new Date('2026-04-18T12:00:00.000Z'),
     );
 
-    expect(overview.summary.presentToday).toBe(2);
-    expect(overview.analytics.attendanceRate).toBe(50);
-    expect(overview.analytics.absenceRate).toBe(50);
+    expect(overview.summary.presentToday).toBe(1);
+    expect(overview.summary.absentEmployeesToday).toBe(0);
+    expect(overview.analytics.attendanceRate).toBe(0);
+    expect(overview.analytics.absenceRate).toBe(0);
     expect(overview.analytics.outsideScheduleWorkDays).toBeGreaterThanOrEqual(
       1,
     );

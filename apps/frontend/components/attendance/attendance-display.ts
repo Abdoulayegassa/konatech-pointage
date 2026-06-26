@@ -34,11 +34,13 @@ export type AttendanceVerificationSource = {
 };
 
 const reasonLabels: Record<string, string> = {
-  WITHIN_ALLOWED_RADIUS: 'Zone autorisee',
+  WITHIN_ALLOWED_RADIUS: 'Zone autorisée',
   NEAR_SITE_WARNING: 'GPS proche du site (historique)',
-  OUTSIDE_ALLOWED_RADIUS: 'Pointage bloque hors zone',
-  LOCATION_UNAVAILABLE: 'Geolocalisation obligatoire',
-  PASSIVE_LOCATION_RECORDED: 'Position enregistree',
+  OUTSIDE_ALLOWED_RADIUS: 'Pointage bloqué hors zone',
+  LOCATION_UNAVAILABLE: 'Géolocalisation obligatoire',
+  PASSIVE_LOCATION_RECORDED: 'Position enregistrée',
+  SELFIE_RECORDED: 'Selfie enregistré',
+  SELFIE_AND_LOCATION_RECORDED: 'Selfie et position enregistrés',
 };
 
 export function formatAttendanceTime(value: string | null) {
@@ -173,7 +175,7 @@ export function getAttendanceExitMessage(
   }
 
   if (earlyExitMinutes > 0) {
-    return `Depart anticipe de ${earlyExitMinutes} min.`;
+    return `Départ anticipé de ${earlyExitMinutes} min.`;
   }
 
   if (overtimeMinutes > 0) {
@@ -184,7 +186,7 @@ export function getAttendanceExitMessage(
     const overtimeMinutesDetail =
       attendance.overtimeHours > 0 ? ` (${overtimeMinutes} min)` : '';
 
-    return `Heures supplementaires : ${overtimeLabel}${overtimeMinutesDetail}.`;
+    return `Heures supplémentaires : ${overtimeLabel}${overtimeMinutesDetail}.`;
   }
 
   if (attendance.scheduledExitTime) {
@@ -200,7 +202,19 @@ export function getAttendanceExitMessage(
     }
   }
 
-  return 'Sortie enregistree.';
+  return 'Sortie enregistrée.';
+}
+
+export function getAttendanceEntryMessage(attendance: {
+  minutesLate?: number;
+} | null) {
+  const minutesLate = Math.max(0, attendance?.minutesLate ?? 0);
+
+  if (minutesLate > 0) {
+    return `Entrée enregistrée. Retard : ${minutesLate} min.`;
+  }
+
+  return "Entrée enregistrée à l'heure.";
 }
 
 export function getMonthlyAbsenceCount(
@@ -260,35 +274,42 @@ export function getMonthlyAbsenceCount(
 
 export function getAttendanceStatusMeta(status: AttendanceStatus | null) {
   switch (status) {
+    case 'NON_WORKING_DAY_WORK':
+      return {
+        label: 'Travail jour non ouvré',
+        variant: 'secondary' as const,
+        description:
+          'Présence exceptionnelle enregistrée sur un jour non ouvré.',
+      };
     case 'LATE':
       return {
         label: 'Retard',
         variant: 'warning' as const,
-        description: 'Entree apres l heure de debut du planning.',
+        description: "Entrée après l'heure de début du planning.",
       };
     case 'INCOMPLETE':
       return {
         label: 'Incomplet',
         variant: 'outline' as const,
-        description: 'Entree enregistree, sortie encore attendue.',
+        description: 'Entrée enregistrée, sortie encore attendue.',
       };
     case 'ABSENT':
       return {
         label: 'Absent',
         variant: 'outline' as const,
-        description: 'Aucune presence validee sur la journee.',
+        description: 'Aucune présence validée sur la journée.',
       };
     case 'PRESENT':
       return {
-        label: 'Present',
+        label: 'Présent',
         variant: 'success' as const,
-        description: 'Journee complete enregistree.',
+        description: 'Journée complète enregistrée.',
       };
     default:
       return {
         label: 'Aucune action',
         variant: 'outline' as const,
-        description: 'Aucune presence enregistree pour le moment.',
+        description: 'Aucune présence enregistrée pour le moment.',
       };
   }
 }
@@ -313,12 +334,12 @@ export function getAttendanceVerificationMeta(
   const level = isCheckOut
     ? item.checkOutVerificationLevel
     : item.checkInVerificationLevel;
-  const prefix = isCheckOut ? 'Sortie' : 'Entree';
+  const prefix = isCheckOut ? 'Sortie' : 'Entrée';
   const reason = reasonValue
     ? (reasonLabels[reasonValue] ?? reasonValue)
     : method === 'GPS'
       ? 'GPS valide'
-      : 'Validation enregistree';
+      : 'Validation enregistrée';
   const distance =
     distanceValue !== null ? `${distanceValue} m` : 'Distance non disponible';
   const isBlocked =
@@ -332,7 +353,7 @@ export function getAttendanceVerificationMeta(
 
   if (isBlocked) {
     return {
-      label: `${prefix} bloque`,
+      label: `${prefix} bloquée`,
       description: `${prefix}: ${reason}.`,
       severity: 'STRICT' as const,
       badgeClass: 'border-red-200 bg-red-50 text-red-700',
@@ -341,8 +362,8 @@ export function getAttendanceVerificationMeta(
 
   if (isLegacyPhoto) {
     return {
-      label: `${prefix} photo historique`,
-      description: `${prefix}: ancienne verification photo - ${reason} - ${distance}`,
+      label: `${prefix} selfie`,
+      description: `${prefix}: selfie enregistré - ${reason} - ${distance}`,
       severity: level,
       badgeClass:
         level === 'STRICT'
@@ -363,7 +384,7 @@ export function getAttendanceVerificationMeta(
   if (isLegacyGps) {
     return {
       label: `${prefix} GPS historique`,
-      description: `${prefix}: ancien controle GPS - ${reason} - ${distance}`,
+      description: `${prefix}: ancien contrôle GPS - ${reason} - ${distance}`,
       severity: level,
       badgeClass:
         level === 'STRICT'
@@ -374,7 +395,7 @@ export function getAttendanceVerificationMeta(
 
   return {
     label: `${prefix} validation`,
-    description: `${prefix}: validation enregistree - ${reason} - ${distance}`,
+    description: `${prefix}: validation enregistrée - ${reason} - ${distance}`,
     severity: level,
     badgeClass: 'border-slate-200 bg-slate-50 text-slate-700',
   };

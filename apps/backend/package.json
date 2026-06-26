@@ -8,6 +8,7 @@
     "start": "node dist/main.js",
     "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit --incremental false -p tsconfig.json",
     "test": "node ./node_modules/jest/bin/jest.js --runInBand --config ./test/jest-e2e.json",
+    "admin:create": "node -r ts-node/register/transpile-only ./scripts/create-initial-admin.ts",
     "pins:backfill": "node -r ts-node/register ./scripts/backfill-employee-pin-code-hashes.ts",
     "snapshots:backfill": "node -r ts-node/register ./scripts/backfill-attendance-schedule-snapshots.ts",
     "prisma:generate": "node ./node_modules/prisma/build/index.js generate",

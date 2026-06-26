@@ -2,6 +2,7 @@ export type AttendanceAction = 'check-in' | 'check-out';
 
 export type AttendanceFlowState =
   | 'idle'
+  | 'capturing-proof'
   | 'saving'
   | 'checking-location'
   | 'blocked'
@@ -30,18 +31,18 @@ export function getFriendlyAttendanceError(message: string | undefined) {
     message.includes('zone autorisee') ||
     message.includes('allowed site radius')
   ) {
-    return 'Vous devez etre dans la zone autorisee pour pointer.';
+    return 'Position enregistrée sans contrôle de distance.';
   }
 
   if (
     message.includes('geolocalisation est obligatoire') ||
     message.includes('location could not be verified')
   ) {
-    return 'La geolocalisation est obligatoire pour pointer.';
+    return 'La position GPS est indisponible, mais le pointage peut continuer avec le selfie.';
   }
 
   if (message.includes('precision GPS est insuffisante')) {
-    return 'La precision GPS est insuffisante pour pointer. Rapprochez-vous et reessayez.';
+    return 'La précision GPS est faible, mais le pointage peut continuer avec le selfie.';
   }
 
   return message;
@@ -58,50 +59,57 @@ export function getAttendanceFlowMeta(
       return {
         label: 'En cours',
         title: 'Enregistrement du pointage',
+        description: 'Les justificatifs sont en cours de synchronisation.',
+        tone: 'primary',
+      };
+    case 'capturing-proof':
+      return {
+        label: 'Photo',
+        title: 'Selfie obligatoire',
         description:
-          'La validation GPS est en cours. Gardez cette page ouverte quelques instants.',
+          'Prenez une photo claire avant de valider votre pointage.',
         tone: 'primary',
       };
     case 'checking-location':
       return {
         label: 'GPS',
-        title: 'Geolocalisation obligatoire',
-        description: `Votre position est verifiee avant ${actionLabel} pour autoriser le pointage uniquement dans la zone prevue.`,
+        title: 'Position en cours',
+        description: `Votre position est enregistrée si elle est disponible avant ${actionLabel}.`,
         tone: 'primary',
       };
     case 'blocked':
       return {
-        label: 'Bloque',
-        title: 'Pointage bloque hors zone',
+        label: 'Bloqué',
+        title: 'Pointage non finalisé',
         description:
-          'Activez la geolocalisation et assurez-vous d etre dans la zone autorisee avant de reessayer.',
+          'La photo est obligatoire pour valider ce pointage.',
         tone: 'danger',
       };
     case 'success':
       return {
         label: 'Valide',
         title:
-          action === 'check-out' ? 'Sortie enregistree' : 'Pointage enregistre',
+          action === 'check-out' ? 'Sortie enregistrée' : 'Pointage enregistré',
         description:
           action === 'check-out'
-            ? 'Votre heure de depart securisee a bien ete enregistree.'
-            : 'Votre presence a bien ete mise a jour et synchronisee.',
+            ? 'Votre heure de départ sécurisée a bien été enregistrée.'
+            : 'Votre présence a bien été mise à jour et synchronisée.',
         tone: 'success',
       };
     case 'error':
       return {
         label: 'Erreur',
-        title: 'Action non finalisee',
+        title: 'Action non finalisée',
         description:
-          "Le pointage n'a pas pu etre termine. Verifiez le message ci-dessous.",
+          "Le pointage n'a pas pu être terminé. Vérifiez le message ci-dessous.",
         tone: 'danger',
       };
     default:
       return {
-        label: 'Pret',
-        title: 'Pointage pret',
+        label: 'Prêt',
+        title: 'Pointage prêt',
         description:
-          'Utilisez le bouton disponible pour enregistrer votre presence rapidement avec la securite GPS si elle est active.',
+          'Utilisez le bouton disponible pour enregistrer votre présence avec selfie obligatoire.',
         tone: 'neutral',
       };
   }

@@ -1,0 +1,1 @@
+ALTER TYPE "AttendanceStatus" ADD VALUE 'NON_WORKING_DAY_WORK';

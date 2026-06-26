@@ -23,14 +23,14 @@ export default function MyAttendanceErrorPage({
           <CardHeader className="space-y-4 border-b border-slate-200/80 pb-5">
             <div className="flex flex-wrap items-center gap-3">
               <Badge variant="warning">Erreur de rendu</Badge>
-              <Badge variant="outline">My attendance</Badge>
+              <Badge variant="outline">Mon pointage</Badge>
             </div>
             <CardTitle className="text-2xl text-slate-950">
-              Votre cockpit de pointage n&apos;a pas pu se charger correctement
+              Votre page de pointage n&apos;a pas pu se charger correctement
             </CardTitle>
             <p className="max-w-2xl text-sm leading-6 text-slate-600">
-              Une erreur inattendue a interrompu le chargement de vos donnees
-              personnelles de presence. Aucun pointage n&apos;a ete modifie.
+              Une erreur inattendue a interrompu le chargement de vos données
+              personnelles de présence. Aucun pointage n&apos;a été modifié.
             </p>
           </CardHeader>
           <CardContent className="space-y-5 pt-5 text-sm leading-6 text-slate-600">
@@ -38,7 +38,7 @@ export default function MyAttendanceErrorPage({
               {error.message}
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
-              <Button onClick={reset}>Reessayer</Button>
+              <Button onClick={reset}>Réessayer</Button>
               <Button
                 onClick={() => window.location.assign('/my-attendance')}
                 variant="secondary"

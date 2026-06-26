@@ -21,6 +21,13 @@ type TeamReportSummary = {
 };
 
 @Injectable()
+/**
+ * SOURCE OF TRUTH
+ * Premium Monthly Attendance PDF renderer.
+ *
+ * Any visual monthly HR PDF report change must be made here.
+ * The legacy renderer must not be used unless explicitly configured.
+ */
 export class MonthlyAttendancePuppeteerPdfRendererService {
   private readonly renderTimeoutMs = 60_000;
   private readonly employeeRowsPerPage = 21;
@@ -187,7 +194,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         --radius-lg: 22px;
         --radius-md: 16px;
         --radius-sm: 999px;
-        --shadow-soft: 0 18px 42px rgba(15, 23, 42, 0.08);
+        --shadow-soft: 0 8px 18px rgba(15, 23, 42, 0.06);
       }
 
       * {
@@ -221,9 +228,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         width: 210mm;
         height: 297mm;
         padding: 14mm 14mm 22mm;
-        background:
-          radial-gradient(circle at top right, rgba(249, 115, 22, 0.10), transparent 24%),
-          linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        background: #FFFFFF;
         position: relative;
         break-after: page;
         page-break-after: always;
@@ -265,7 +270,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         gap: 8px;
         padding: 7px 12px;
         border-radius: var(--radius-sm);
-        background: rgba(249, 115, 22, 0.12);
+        background: #FFF7ED;
         color: var(--orange);
         font-size: 10px;
         font-weight: 700;
@@ -314,7 +319,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
 
       .meta-card,
       .card {
-        background: rgba(255, 255, 255, 0.96);
+        background: #FFFFFF;
         border: 1px solid var(--border);
         border-radius: var(--radius-lg);
         box-shadow: var(--shadow-soft);
@@ -327,7 +332,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         display: flex;
         flex-direction: column;
         justify-content: space-between;
-        background: linear-gradient(180deg, rgba(255, 247, 237, 0.84) 0%, rgba(255, 255, 255, 0.98) 100%);
+        background: #FFF7ED;
       }
 
       .meta-label,
@@ -359,7 +364,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
 
       .card {
         padding: 16px 18px;
-        box-shadow: 0 16px 34px rgba(15, 23, 42, 0.065);
+        box-shadow: 0 5px 12px rgba(15, 23, 42, 0.04);
       }
 
       .section-header {
@@ -395,7 +400,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       .info-item {
         border: 1px solid var(--border);
         border-radius: var(--radius-md);
-        background: var(--surface-soft);
+        background: #FFFFFF;
         padding: 12px 14px;
       }
 
@@ -418,25 +423,15 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
 
       .score-card {
         padding: 25px 28px;
-        border-color: rgba(15, 23, 42, 0.085);
-        background:
-          radial-gradient(circle at 88% 16%, rgba(249, 115, 22, 0.105), transparent 30%),
-          radial-gradient(circle at 14% 88%, rgba(37, 99, 235, 0.055), transparent 28%),
-          linear-gradient(180deg, rgba(255, 255, 255, 0.995) 0%, rgba(248, 250, 252, 0.985) 100%);
-        box-shadow:
-          0 22px 46px rgba(15, 23, 42, 0.088),
-          0 4px 14px rgba(15, 23, 42, 0.035);
+        border-color: #E2E8F0;
+        background: #FFFFFF;
+        box-shadow: 0 6px 14px rgba(15, 23, 42, 0.05);
       }
 
       .score-card--danger {
-        border-color: rgba(220, 38, 38, 0.145);
-        background:
-          radial-gradient(circle at 86% 15%, rgba(220, 38, 38, 0.105), transparent 30%),
-          radial-gradient(circle at 12% 86%, rgba(249, 115, 22, 0.06), transparent 28%),
-          linear-gradient(180deg, rgba(255, 255, 255, 0.995) 0%, rgba(255, 248, 248, 0.99) 100%);
-        box-shadow:
-          0 22px 46px rgba(127, 29, 29, 0.105),
-          0 4px 14px rgba(15, 23, 42, 0.032);
+        border-color: #FECACA;
+        background: #FFF7F7;
+        box-shadow: 0 6px 14px rgba(127, 29, 29, 0.055);
       }
 
       .score-layout {
@@ -453,12 +448,12 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         display: grid;
         place-items: center;
         background:
-          conic-gradient(var(--score-color) var(--score-deg), rgba(226, 232, 240, 0.86) 0deg),
-          linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+          conic-gradient(var(--score-color) var(--score-deg), #E2E8F0 0deg),
+          #FFFFFF;
         box-shadow:
           inset 0 0 0 1px rgba(15, 23, 42, 0.06),
-          inset 0 0 0 10px rgba(255, 255, 255, 0.72),
-          0 18px 38px rgba(15, 23, 42, 0.105);
+          inset 0 0 0 10px #FFFFFF,
+          0 8px 18px rgba(15, 23, 42, 0.08);
       }
 
       .score-pill {
@@ -467,10 +462,10 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         border-radius: 999px;
         display: grid;
         place-items: center;
-        background: rgba(255, 255, 255, 0.98);
+        background: #FFFFFF;
         box-shadow:
           inset 0 0 0 1px rgba(226, 232, 240, 0.92),
-          0 10px 22px rgba(15, 23, 42, 0.065);
+          0 6px 14px rgba(15, 23, 42, 0.05);
         color: var(--indigo);
       }
 
@@ -493,13 +488,12 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       .score-ring--danger {
         --score-color: var(--danger);
         background:
-          conic-gradient(var(--score-color) var(--score-deg), rgba(254, 226, 226, 0.96) 0deg),
-          radial-gradient(circle at center, rgba(220, 38, 38, 0.08), transparent 60%),
-          linear-gradient(180deg, #ffffff 0%, #fff7f7 100%);
+          conic-gradient(var(--score-color) var(--score-deg), #FEE2E2 0deg),
+          #FFFFFF;
         box-shadow:
           inset 0 0 0 1px rgba(220, 38, 38, 0.12),
-          inset 0 0 0 10px rgba(255, 255, 255, 0.76),
-          0 20px 42px rgba(220, 38, 38, 0.135);
+          inset 0 0 0 10px #FFFFFF,
+          0 8px 18px rgba(220, 38, 38, 0.09);
       }
 
       .score-ring--danger .score-pill {
@@ -541,7 +535,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         width: 100%;
         height: 8px;
         border-radius: 999px;
-        background: rgba(226, 232, 240, 0.95);
+        background: #E2E8F0;
         overflow: hidden;
       }
 
@@ -585,10 +579,9 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       .score-analytics-item {
         border: 1px solid rgba(226, 232, 240, 0.78);
         border-radius: 14px;
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(248, 250, 252, 0.72));
+        background: #FFFFFF;
         padding: 10px 11px;
-        box-shadow: 0 7px 16px rgba(15, 23, 42, 0.035);
+        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.03);
       }
 
       .score-analytics-top {
@@ -614,7 +607,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         height: 5px;
         margin-top: 8px;
         border-radius: 999px;
-        background: rgba(226, 232, 240, 0.92);
+        background: #E2E8F0;
         overflow: hidden;
       }
 
@@ -646,39 +639,32 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       .kpi-card {
         border: 1px solid rgba(226, 232, 240, 0.78);
         border-radius: var(--radius-md);
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.88));
+        background: #FFFFFF;
         padding: 13px 15px;
         min-height: 108px;
-        box-shadow:
-          0 12px 24px rgba(15, 23, 42, 0.045),
-          0 1px 0 rgba(255, 255, 255, 0.86) inset;
+        box-shadow: 0 6px 14px rgba(15, 23, 42, 0.035);
         break-inside: avoid;
         page-break-inside: avoid;
       }
 
       .kpi-card--success {
-        border-color: rgba(22, 163, 74, 0.16);
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(240, 253, 244, 0.86));
+        border-color: #BBF7D0;
+        background: #F0FDF4;
       }
 
       .kpi-card--warning {
-        border-color: rgba(245, 158, 11, 0.18);
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 251, 235, 0.88));
+        border-color: #FDE68A;
+        background: #FFFBEB;
       }
 
       .kpi-card--danger {
-        border-color: rgba(220, 38, 38, 0.14);
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(254, 242, 242, 0.88));
+        border-color: #FECACA;
+        background: #FEF2F2;
       }
 
       .kpi-card--info {
-        border-color: rgba(37, 99, 235, 0.15);
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(239, 246, 255, 0.88));
+        border-color: #BFDBFE;
+        background: #EFF6FF;
       }
 
       .kpi-label {
@@ -721,13 +707,10 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       .analytics-card {
         border: 1px solid rgba(226, 232, 240, 0.78);
         border-radius: var(--radius-md);
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 252, 0.86));
+        background: #FFFFFF;
         padding: 13px 14px;
         min-height: 104px;
-        box-shadow:
-          0 12px 26px rgba(15, 23, 42, 0.044),
-          0 1px 0 rgba(255, 255, 255, 0.82) inset;
+        box-shadow: 0 4px 10px rgba(15, 23, 42, 0.028);
       }
 
       .page-analysis {
@@ -780,31 +763,27 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         right: 14px;
         bottom: 0;
         height: 1px;
-        background: linear-gradient(90deg, transparent, rgba(226, 232, 240, 0.92), transparent);
+        background: #E2E8F0;
       }
 
       .analytics-card--success {
-        border-color: rgba(22, 163, 74, 0.18);
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(240, 253, 244, 0.82));
+        border-color: #BBF7D0;
+        background: #F0FDF4;
       }
 
       .analytics-card--warning {
-        border-color: rgba(245, 158, 11, 0.22);
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 251, 235, 0.84));
+        border-color: #FDE68A;
+        background: #FFFBEB;
       }
 
       .analytics-card--danger {
-        border-color: rgba(220, 38, 38, 0.16);
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(254, 242, 242, 0.86));
+        border-color: #FECACA;
+        background: #FEF2F2;
       }
 
       .analytics-card--info {
-        border-color: rgba(37, 99, 235, 0.16);
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(239, 246, 255, 0.84));
+        border-color: #BFDBFE;
+        background: #EFF6FF;
       }
 
       .analytics-label {
@@ -852,7 +831,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         display: grid;
         place-items: center;
         background:
-          conic-gradient(var(--chart-color) var(--chart-deg), rgba(226, 232, 240, 0.88) 0deg),
+          conic-gradient(var(--chart-color) var(--chart-deg), #E2E8F0 0deg),
           #ffffff;
         box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.06);
       }
@@ -894,7 +873,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         justify-content: space-between;
         gap: 12px;
         padding: 9px 0;
-        border-bottom: 1px solid rgba(226, 232, 240, 0.82);
+        border-bottom: 1px solid #E2E8F0;
         color: var(--text-soft);
         font-weight: 700;
       }
@@ -921,7 +900,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       .micro-bar-track {
         height: 6px;
         border-radius: 999px;
-        background: rgba(226, 232, 240, 0.92);
+        background: #E2E8F0;
         overflow: hidden;
       }
 
@@ -998,8 +977,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       }
 
       .analysis-card {
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 250, 252, 0.98) 100%);
+        background: #FFFFFF;
       }
 
       .compact-header {
@@ -1115,33 +1093,33 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       }
 
       .badge--success {
-        background: rgba(22, 163, 74, 0.12);
+        background: #F0FDF4;
         color: var(--success);
-        border-color: rgba(22, 163, 74, 0.18);
+        border-color: #BBF7D0;
       }
 
       .badge--danger {
-        background: rgba(220, 38, 38, 0.10);
+        background: #FEF2F2;
         color: var(--danger);
-        border-color: rgba(220, 38, 38, 0.16);
+        border-color: #FECACA;
       }
 
       .badge--warning {
-        background: rgba(245, 158, 11, 0.14);
+        background: #FFFBEB;
         color: #B45309;
-        border-color: rgba(245, 158, 11, 0.20);
+        border-color: #FDE68A;
       }
 
       .badge--info {
-        background: rgba(37, 99, 235, 0.10);
+        background: #EFF6FF;
         color: var(--blue);
-        border-color: rgba(37, 99, 235, 0.18);
+        border-color: #BFDBFE;
       }
 
       .badge--neutral {
-        background: rgba(100, 116, 139, 0.10);
+        background: #F8FAFC;
         color: var(--text-soft);
-        border-color: rgba(100, 116, 139, 0.18);
+        border-color: #CBD5E1;
       }
 
       .table-card {
@@ -1176,8 +1154,8 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         border: 1px solid var(--border);
         border-radius: 16px;
         overflow: hidden;
-        background: rgba(255, 255, 255, 0.98);
-        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.035);
+        background: #FFFFFF;
+        box-shadow: 0 5px 12px rgba(15, 23, 42, 0.025);
         break-inside: avoid;
         page-break-inside: avoid;
       }
@@ -1199,7 +1177,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       th,
       td {
         padding: 6px 9px;
-        border-bottom: 1px solid rgba(226, 232, 240, 0.84);
+        border-bottom: 1px solid #E2E8F0;
         vertical-align: middle;
         text-align: left;
         word-break: normal;
@@ -1213,7 +1191,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         letter-spacing: 0.08em;
         text-transform: uppercase;
         color: var(--text-soft);
-        background: rgba(248, 250, 252, 0.98);
+        background: #F8FAFC;
         white-space: nowrap;
       }
 
@@ -1227,19 +1205,19 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       }
 
       tbody tr:nth-child(even) td {
-        background: rgba(248, 250, 252, 0.62);
+        background: #F8FAFC;
       }
 
       tbody tr.row--absence td {
-        background: rgba(254, 242, 242, 0.72);
+        background: #FEF2F2;
       }
 
       tbody tr.row--late td {
-        background: rgba(255, 251, 235, 0.66);
+        background: #FFFBEB;
       }
 
       tbody tr.row--present td {
-        background: rgba(240, 253, 244, 0.44);
+        background: #F0FDF4;
       }
 
       tr,
@@ -1314,17 +1292,17 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       }
 
       .page-details .badge--danger {
-        background: rgba(254, 226, 226, 0.92);
+        background: #FEE2E2;
         color: #B91C1C;
       }
 
       .page-details .badge--warning {
-        background: rgba(255, 237, 213, 0.96);
+        background: #FFEDD5;
         color: #C2410C;
       }
 
       .page-details .badge--success {
-        background: rgba(220, 252, 231, 0.94);
+        background: #DCFCE7;
         color: #15803D;
       }
 
@@ -1365,9 +1343,9 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         color: var(--text-soft);
         font-size: 8.4px;
         letter-spacing: 0.055em;
-        opacity: 0.88;
+        opacity: 1;
         padding-top: 9px;
-        border-top: 1px solid rgba(226, 232, 240, 0.82);
+        border-top: 1px solid #E2E8F0;
       }
 
       .footer strong {
@@ -1399,10 +1377,10 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       }
 
       .analysis-conclusion {
-        border: 1px solid rgba(220, 38, 38, 0.14);
+        border: 1px solid #FECACA;
         border-left: 4px solid var(--danger);
         border-radius: var(--radius-md);
-        background: linear-gradient(180deg, rgba(254, 242, 242, 0.96) 0%, rgba(255, 255, 255, 0.98) 100%);
+        background: #FEF2F2;
         padding: 12px 16px;
         break-inside: avoid;
         page-break-inside: avoid;
@@ -1429,9 +1407,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         body {
           width: 100%;
           min-width: 0;
-          background:
-            radial-gradient(circle at top right, rgba(249, 115, 22, 0.12), transparent 28%),
-            linear-gradient(180deg, #f8fafc 0%, #ffffff 36%, #f8fafc 100%);
+          background: #F8FAFC;
         }
 
         body {
@@ -1449,7 +1425,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
           page-break-after: auto;
           overflow: hidden;
           border-radius: 24px;
-          box-shadow: var(--shadow-soft);
+          box-shadow: 0 6px 14px rgba(15, 23, 42, 0.05);
         }
 
         .page:last-child {
@@ -1826,7 +1802,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         ${this.kpiCard(
           'Heures supp.',
           employeeReport.overtimeHours,
-          `${employeeReport.scheduledOvertimeHours} planifiées | ${employeeReport.outsideScheduleOvertimeHours} hors planning`,
+          `${employeeReport.scheduledOvertimeHours} planifiées | ${employeeReport.outsideScheduleOvertimeHours} jours non ouvrés`,
           employeeReport.exitBreakdown.overtimeDayCount > 0
             ? 'info'
             : 'success',
@@ -1895,6 +1871,24 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         ${this.analyticsCard('5 à 15 min', String(employeeReport.lateRangeBreakdown.fiveToFifteenCount), 'Retards légers', 'warning')}
         ${this.analyticsCard('16 à 30 min', String(employeeReport.lateRangeBreakdown.sixteenToThirtyCount), 'Retards modérés', 'warning')}
         ${this.analyticsCard('+30 min', String(employeeReport.lateRangeBreakdown.overThirtyCount), 'Retards critiques', employeeReport.lateRangeBreakdown.overThirtyCount > 0 ? 'danger' : 'success')}
+      </section>
+
+      <section class="card">
+        <div class="section-header">
+          <div>
+            <p class="section-kicker">Discipline RH</p>
+            <h2 class="section-title">Sanctions et tolérances</h2>
+          </div>
+          ${this.renderBadge('Sanctions RH', employeeReport.sanctionSummary.appliedCount > 0 ? 'danger' : employeeReport.sanctionSummary.toleratedCount > 0 ? 'warning' : 'success')}
+        </div>
+        <div class="analytics-grid">
+          ${this.analyticsCard('Retards mineurs', String(employeeReport.sanctionSummary.minorLatenessCount), 'Retard mineur', employeeReport.sanctionSummary.minorLatenessCount > 0 ? 'warning' : 'success')}
+          ${this.analyticsCard('Retards majeurs', String(employeeReport.sanctionSummary.majorLatenessCount), 'Retard majeur', employeeReport.sanctionSummary.majorLatenessCount > 0 ? 'danger' : 'success')}
+          ${this.analyticsCard('Tolérances', String(employeeReport.sanctionSummary.toleratedCount), 'Tolérance accordée', employeeReport.sanctionSummary.toleratedCount > 0 ? 'warning' : 'success')}
+          ${this.analyticsCard('Sanctions appliquées', String(employeeReport.sanctionSummary.appliedCount), 'Sanction appliquée', employeeReport.sanctionSummary.appliedCount > 0 ? 'danger' : 'success')}
+          ${this.analyticsCard('Montant total', employeeReport.sanctionSummary.totalAmountLabel, 'Impact financier RH', employeeReport.sanctionSummary.appliedCount > 0 ? 'danger' : 'success')}
+        </div>
+        <p class="analytics-copy">${this.escapeHtml(employeeReport.sanctionSummary.recommendation)}</p>
       </section>
 
       <section class="advanced-grid">
@@ -2017,11 +2011,12 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
                 <td>${this.renderDailyMetricValue(row.lateLabel)}</td>
                 <td>${this.renderDailyMetricValue(row.earlyExitLabel)}</td>
                 <td>${this.renderDailyMetricValue(row.overtimeLabel)}</td>
+                <td>${this.renderDailyMetricValue(row.sanctionLabel)}</td>
               </tr>`,
             )
             .join('')
         : `<tr>
-            <td colspan="7" class="empty-copy">Aucune ligne journalière disponible pour cette période.</td>
+            <td colspan="8" class="empty-copy">Aucune ligne journalière disponible pour cette période.</td>
           </tr>`;
 
     return `<section class="page page-details">
@@ -2052,13 +2047,14 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
           <table>
             <thead>
               <tr>
-                <th style="width: 24%;">Date</th>
+                <th style="width: 20%;">Date</th>
                 <th style="width: 11%;">Entrée</th>
                 <th style="width: 11%;">Sortie</th>
                 <th style="width: 14%;">Statut</th>
                 <th style="width: 10%;">Retard</th>
-                <th style="width: 15%;">Départs tôt</th>
-                <th style="width: 15%;">Heures supp.</th>
+                <th style="width: 13%;">Départs tôt</th>
+                <th style="width: 13%;">Heures supp.</th>
+                <th style="width: 8%;">Sanction</th>
               </tr>
             </thead>
             <tbody>
@@ -2116,11 +2112,11 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         ${this.kpiCard('Employés actifs', String(summary.totalEmployees), 'collaborateur(s) inclus dans le rapport', 'info')}
         ${this.kpiCard('Jours travaillés', String(summary.totalWorkedDays), 'total cumulé sur la période', 'success')}
         ${this.kpiCard('Présence planifiée', `${summary.totalPresenceDays} / ${summary.totalWorkingDays}`, 'jours inclus dans le taux de présence', 'success')}
-        ${this.kpiCard('Travail hors planning', String(summary.totalOutsideScheduleWorkDays), 'jours hors jours configurés', summary.totalOutsideScheduleWorkDays > 0 ? 'info' : 'success')}
+        ${this.kpiCard('Travail jour non ouvré', String(summary.totalOutsideScheduleWorkDays), 'jours non ouvrés travaillés', summary.totalOutsideScheduleWorkDays > 0 ? 'info' : 'success')}
         ${this.kpiCard('Absences', String(summary.totalAbsences), "jours d'absence consolidés", summary.totalAbsences > 0 ? 'danger' : 'success')}
         ${this.kpiCard('Retards', String(summary.totalLateDays), 'occurrence(s) relevée(s)', summary.totalLateDays > 0 ? 'warning' : 'success')}
         ${this.kpiCard('Heures supp.', this.formatNumber(summary.totalOvertimeHours, 2), 'volume total du mois', summary.totalOvertimeHours > 0 ? 'info' : 'success')}
-        ${this.kpiCard('Weekend overtime', this.formatNumber(summary.totalOutsideScheduleOvertimeHours, 2), 'volume hors planning', summary.totalOutsideScheduleOvertimeHours > 0 ? 'info' : 'success')}
+        ${this.kpiCard('Heures supp. jour non ouvré', this.formatNumber(summary.totalOutsideScheduleOvertimeHours, 2), 'volume lié aux jours non ouvrés', summary.totalOutsideScheduleOvertimeHours > 0 ? 'info' : 'success')}
         ${this.kpiCard('Pointages incomplets', String(summary.totalIncompleteDays), 'jours à régulariser', summary.totalIncompleteDays > 0 ? 'warning' : 'success')}
       </section>
 
@@ -2154,7 +2150,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
           <ul class="note-list">
             <li class="note-item"><span class="note-copy">Le rapport conserve l'endpoint existant et les paramètres de filtre actuels.</span></li>
             <li class="note-item"><span class="note-copy">${this.escapeHtml(report.blockedAttemptsLabel)}</span></li>
-            <li class="note-item"><span class="note-copy">Travail hors planning / Outside schedule work est suivi séparément de la présence planifiée.</span></li>
+            <li class="note-item"><span class="note-copy">Le travail jour non ouvré est suivi séparément de la présence planifiée.</span></li>
             <li class="note-item"><span class="note-copy">Les pages suivantes listent les employés avec leurs principaux indicateurs mensuels.</span></li>
           </ul>
         </article>
@@ -2226,13 +2222,13 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
                 <th>Employé</th>
                 <th>Planning</th>
                 <th>Présence planifiée</th>
-                <th>Hors planning</th>
+                <th>Jour non ouvré</th>
                 <th>Absences</th>
                 <th>Retards</th>
                 <th>Pointages</th>
                 <th>Heures</th>
                 <th>H. supp. planifiées</th>
-                <th>Weekend overtime</th>
+                <th>H. supp. jour non ouvré</th>
               </tr>
             </thead>
             <tbody>
@@ -2354,6 +2350,10 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       return this.renderBadge('ABSENCE', 'danger');
     }
 
+    if (normalized.includes('jour non ouvre')) {
+      return this.renderBadge('TRAVAIL JOUR NON OUVRÉ', 'info');
+    }
+
     if (normalized.includes('retard') || normalized.includes('incomplet')) {
       return this.renderBadge(
         this.normalizeStatusLabel(statusLabel).toUpperCase(),
@@ -2423,7 +2423,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
 
     if (employeeReport.outsideScheduleWorkDays > 0) {
       items.push(
-        `${employeeReport.outsideScheduleWorkDays} jour(s) hors planning.`,
+        `${employeeReport.outsideScheduleWorkDays} jour(s) non ouvré(s) travaillé(s).`,
       );
     }
 
@@ -2452,7 +2452,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
     }
 
     if (employeeReport.outsideScheduleWorkDays > 0) {
-      return 'Présence stable, heures hors planning isolées';
+      return 'Présence stable, travail jour non ouvré isolé';
     }
 
     return 'Mois maîtrisé';
@@ -2515,6 +2515,10 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
 
     if (normalized.includes('retard') || normalized.includes('incomplet')) {
       return 'row--late';
+    }
+
+    if (normalized.includes('jour non ouvre')) {
+      return 'row--present';
     }
 
     return 'row--present';

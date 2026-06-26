@@ -17,6 +17,8 @@ import {
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { EmployeesModule } from './modules/employees/employees.module';
 import { HealthModule } from './modules/health/health.module';
+import { CalendarModule } from './modules/calendar/calendar.module';
+import { SanctionsModule } from './modules/sanctions/sanctions.module';
 import { SchedulesModule } from './modules/schedules/schedules.module';
 
 const nodeEnv = process.env.NODE_ENV;
@@ -239,9 +241,10 @@ function getRequestPath(request: { url?: string }) {
         CLOUDINARY_API_KEY: optionalTrimmedString,
         CLOUDINARY_API_SECRET: optionalTrimmedString,
         ATTENDANCE_PDF_RENDERER: Joi.string()
-          .valid('puppeteer', 'legacy')
-          .default('puppeteer'),
+          .valid('premium', 'puppeteer', 'legacy')
+          .default('premium'),
         ATTENDANCE_PDF_EXECUTABLE_PATH: optionalTrimmedString,
+        ATTENDANCE_PDF_ALLOW_LEGACY_FALLBACK: Joi.boolean().default(false),
         CLOUDINARY_ATTENDANCE_FOLDER: Joi.string()
           .trim()
           .empty('')
@@ -320,7 +323,9 @@ function getRequestPath(request: { url?: string }) {
     HealthModule,
     DashboardModule,
     EmployeesModule,
+    CalendarModule,
     AttendanceModule,
+    SanctionsModule,
     SchedulesModule,
   ],
   providers: [

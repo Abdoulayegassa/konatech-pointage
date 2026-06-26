@@ -8,6 +8,7 @@ export type AttendanceSecurityPayload = {
   latitude?: number;
   longitude?: number;
   accuracyMeters?: number;
+  verificationPhotoDataUrl?: string;
 };
 
 export function getCurrentLocation(): Promise<BrowserLocation> {

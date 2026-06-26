@@ -121,7 +121,7 @@ export function toMinutes(time: string) {
 
 export function getEmployeePreview(schedule: ScheduleRecord) {
   if (schedule.employees.length === 0) {
-    return 'Aucun employe assigne';
+    return 'Aucun employé assigné';
   }
 
   const preview = schedule.employees

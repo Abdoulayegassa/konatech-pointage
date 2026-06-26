@@ -127,6 +127,20 @@ Backend local env: `apps/backend/.env`
 - `CLOUDINARY_UPLOAD_TIMEOUT_MS=10000`
 - `CLOUDINARY_UPLOAD_MAX_RETRIES=2`
 - `CLOUDINARY_UPLOAD_RETRY_DELAY_MS=300`
+- `ATTENDANCE_PDF_RENDERER=premium` for the premium monthly HR PDF renderer
+- `ATTENDANCE_PDF_EXECUTABLE_PATH=...` when Chromium or Chrome is not discoverable automatically
+- `ATTENDANCE_PDF_ALLOW_LEGACY_FALLBACK=false` to fail visibly instead of silently returning the legacy PDF
+
+Monthly HR PDF exports use the premium Puppeteer renderer by default. If
+Chromium is missing, the API returns:
+
+```text
+Premium PDF renderer unavailable. Install Chromium or configure ATTENDANCE_PDF_EXECUTABLE_PATH.
+```
+
+Use `ATTENDANCE_PDF_RENDERER=legacy` only for an explicit rollback. Use
+`ATTENDANCE_PDF_ALLOW_LEGACY_FALLBACK=true` only when a controlled environment
+is allowed to return the legacy low-level PDF if Puppeteer fails.
 
 Frontend local env: `apps/frontend/.env.local`
 
@@ -169,6 +183,43 @@ Public URL rule:
 - `NEXT_PUBLIC_API_BASE_URL` must point to the real backend API origin in production and must not fall back to `localhost`
 - if `API_BASE_URL` is set, it must also point to the real backend API origin and end with `/api/v1`
 
+## First Production Admin
+
+Use this only when the production database is empty and one admin account is
+needed to enter the app. The script is idempotent: if `ADMIN_EMAIL` already
+exists, it logs that the bootstrap was skipped and does not create a duplicate.
+
+Required environment variables:
+
+- `DATABASE_URL`: Render/Neon PostgreSQL connection string
+- `ADMIN_EMAIL`: first admin email
+- `ADMIN_PASSWORD`: first admin password
+
+Optional environment variables:
+
+- `ADMIN_FIRST_NAME`
+- `ADMIN_LAST_NAME`
+- `ADMIN_JOB_TITLE`
+- `ADMIN_DEPARTMENT`
+
+Render shell, with `DATABASE_URL`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` already
+configured as service environment variables:
+
+```bash
+pnpm --dir apps/backend run prisma:migrate:deploy
+pnpm --dir apps/backend run admin:create
+```
+
+Local PowerShell against Neon:
+
+```powershell
+$env:DATABASE_URL = '<neon-database-url>'
+$env:ADMIN_EMAIL = 'abdoulayeseydoukonate14@gmail.com'
+$env:ADMIN_PASSWORD = '<admin-password>'
+pnpm --dir apps/backend run prisma:migrate:deploy
+pnpm --dir apps/backend run admin:create
+```
+
 Backend test env: `apps/backend/.env.test`
 
 - Uses the dedicated database `konatech_attendance_test`
@@ -177,39 +228,40 @@ Backend test env: `apps/backend/.env.test`
 
 ## Workspace Commands
 
-| Command                      | Purpose                                                                      |
-| ---------------------------- | ---------------------------------------------------------------------------- |
-| `pnpm dev`                   | Start frontend and backend together                                          |
-| `pnpm dev:frontend`          | Start only the Next.js app                                                   |
-| `pnpm dev:backend`           | Start only the NestJS API                                                    |
-| `pnpm build`                 | Build both apps                                                              |
-| `pnpm build:frontend`        | Build only the Next.js app                                                   |
-| `pnpm build:backend`         | Build only the NestJS API                                                    |
-| `pnpm typecheck`             | Run TypeScript checks for both apps                                          |
-| `pnpm typecheck:frontend`    | Run TypeScript checks for the frontend only                                  |
-| `pnpm typecheck:backend`     | Run TypeScript checks for the backend only                                   |
-| `pnpm lint`                  | Run ESLint across the workspace                                              |
-| `pnpm lint:fix`              | Run ESLint with autofix enabled                                              |
-| `pnpm format`                | Format supported files with Prettier                                         |
-| `pnpm format:check`          | Check Prettier formatting without writing files                              |
-| `pnpm check`                 | Run lint, typecheck, and build                                               |
-| `pnpm test`                  | Alias for backend e2e tests                                                  |
-| `pnpm test:backend`          | Run backend e2e tests                                                        |
-| `pnpm test:proxy`            | Start backend + frontend on temporary ports and verify Next.js proxy wiring  |
-| `pnpm validate:backend`      | Prisma generate, backend typecheck, backend build, and backend tests         |
-| `pnpm validate:frontend`     | Frontend typecheck, frontend build, and frontend -> backend proxy validation |
-| `pnpm validate`              | Full local validation: format, lint, Prisma generate, builds, tests, proxy   |
-| `pnpm clean:windows`         | Remove common Windows build artifacts safely                                 |
-| `pnpm clean:windows:dev`     | Same cleanup plus stop local frontend/backend dev servers on known ports     |
-| `pnpm clean:windows:prisma`  | Same cleanup plus Prisma client regeneration                                 |
-| `pnpm db:up`                 | Start PostgreSQL with Docker Compose                                         |
-| `pnpm db:status`             | Show Docker Compose status                                                   |
-| `pnpm db:down`               | Stop PostgreSQL                                                              |
-| `pnpm prisma:generate`       | Generate Prisma client                                                       |
-| `pnpm prisma:status`         | Inspect Prisma migration status without modifying the database               |
-| `pnpm prisma:migrate`        | Apply development migrations                                                 |
-| `pnpm prisma:migrate:deploy` | Apply existing migrations without creating new ones                          |
-| `pnpm prisma:seed`           | Seed demo data                                                               |
+| Command                                    | Purpose                                                                      |
+| ------------------------------------------ | ---------------------------------------------------------------------------- |
+| `pnpm dev`                                 | Start frontend and backend together                                          |
+| `pnpm dev:frontend`                        | Start only the Next.js app                                                   |
+| `pnpm dev:backend`                         | Start only the NestJS API                                                    |
+| `pnpm build`                               | Build both apps                                                              |
+| `pnpm build:frontend`                      | Build only the Next.js app                                                   |
+| `pnpm build:backend`                       | Build only the NestJS API                                                    |
+| `pnpm typecheck`                           | Run TypeScript checks for both apps                                          |
+| `pnpm typecheck:frontend`                  | Run TypeScript checks for the frontend only                                  |
+| `pnpm typecheck:backend`                   | Run TypeScript checks for the backend only                                   |
+| `pnpm lint`                                | Run ESLint across the workspace                                              |
+| `pnpm lint:fix`                            | Run ESLint with autofix enabled                                              |
+| `pnpm format`                              | Format supported files with Prettier                                         |
+| `pnpm format:check`                        | Check Prettier formatting without writing files                              |
+| `pnpm check`                               | Run lint, typecheck, and build                                               |
+| `pnpm test`                                | Alias for backend e2e tests                                                  |
+| `pnpm test:backend`                        | Run backend e2e tests                                                        |
+| `pnpm test:proxy`                          | Start backend + frontend on temporary ports and verify Next.js proxy wiring  |
+| `pnpm validate:backend`                    | Prisma generate, backend typecheck, backend build, and backend tests         |
+| `pnpm validate:frontend`                   | Frontend typecheck, frontend build, and frontend -> backend proxy validation |
+| `pnpm validate`                            | Full local validation: format, lint, Prisma generate, builds, tests, proxy   |
+| `pnpm clean:windows`                       | Remove common Windows build artifacts safely                                 |
+| `pnpm clean:windows:dev`                   | Same cleanup plus stop local frontend/backend dev servers on known ports     |
+| `pnpm clean:windows:prisma`                | Same cleanup plus Prisma client regeneration                                 |
+| `pnpm db:up`                               | Start PostgreSQL with Docker Compose                                         |
+| `pnpm db:status`                           | Show Docker Compose status                                                   |
+| `pnpm db:down`                             | Stop PostgreSQL                                                              |
+| `pnpm prisma:generate`                     | Generate Prisma client                                                       |
+| `pnpm prisma:status`                       | Inspect Prisma migration status without modifying the database               |
+| `pnpm prisma:migrate`                      | Apply development migrations                                                 |
+| `pnpm prisma:migrate:deploy`               | Apply existing migrations without creating new ones                          |
+| `pnpm prisma:seed`                         | Seed demo data                                                               |
+| `pnpm --dir apps/backend run admin:create` | Create the first production admin if the email does not already exist        |
 
 ## Running Tests
 
@@ -254,7 +306,7 @@ The Compose setup now separates local DB usage from production-style app orchest
 - backend waits for a healthy database before starting
 - frontend waits for a healthy backend before starting
 - backend runs `prisma migrate deploy` on container startup
-- backend sets `ATTENDANCE_PDF_EXECUTABLE_PATH=/usr/bin/chromium` for Puppeteer PDF rendering inside the container
+- backend sets `ATTENDANCE_PDF_RENDERER=premium` and `ATTENDANCE_PDF_EXECUTABLE_PATH=/usr/bin/chromium` for Puppeteer PDF rendering inside the container
 
 ## Production Deployment with Docker Compose
 

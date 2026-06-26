@@ -21,6 +21,7 @@ import {
   DashboardTopOvertimeEmployee,
   DashboardTopSuspiciousEmployee,
 } from './dashboard.types';
+import { CalendarService } from '../calendar/calendar.service';
 
 type DashboardEmployeeSummary = {
   id: string;
@@ -32,8 +33,18 @@ type DashboardEmployeeSummary = {
 };
 
 @Injectable()
+/**
+ * SOURCE OF TRUTH
+ * Dashboard metrics aggregation.
+ *
+ * This service aggregates attendance, calendar, and security data for admin
+ * dashboards. It must not redefine attendance, sanctions, or calendar rules.
+ */
 export class DashboardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly calendarService: CalendarService,
+  ) {}
 
   async getOverview(
     referenceDate: Date = new Date(),
@@ -45,6 +56,7 @@ export class DashboardService {
       totalEmployees,
       scheduledEmployees,
       presentToday,
+      nonWorkingDayWorkToday,
       lateEmployeesToday,
       earlyExitToday,
       overtimeTodayAggregate,
@@ -58,6 +70,7 @@ export class DashboardService {
       legacySensitiveCheckOutCount,
       legacyPhotoCheckOutCount,
       recentAttendanceRecords,
+      isNonWorkingDay,
     ] = await Promise.all([
       this.prisma.employee.count({
         where: {
@@ -87,6 +100,18 @@ export class DashboardService {
             gte: startOfDay,
             lt: endOfDay,
           },
+          clockInAt: {
+            not: null,
+          },
+        },
+      }),
+      this.prisma.attendance.count({
+        where: {
+          date: {
+            gte: startOfDay,
+            lt: endOfDay,
+          },
+          status: AttendanceStatus.NON_WORKING_DAY_WORK,
           clockInAt: {
             not: null,
           },
@@ -282,11 +307,13 @@ export class DashboardService {
           },
         },
       }),
+      this.calendarService.isNonWorkingDay(startOfDay),
     ]);
 
     const scheduledEmployeeIds = scheduledEmployees
       .filter(
         (employee) =>
+          !isNonWorkingDay &&
           employee.schedule &&
           employee.schedule.isActive &&
           isScheduledOnDate(employee.schedule.workDays, referenceDate),
@@ -387,6 +414,8 @@ export class DashboardService {
       summary: {
         totalEmployees,
         presentToday,
+        scheduledPresentToday,
+        nonWorkingDayWorkToday,
         lateEmployeesToday,
         absentEmployeesToday,
         earlyExitToday,
@@ -679,6 +708,10 @@ export class DashboardService {
         date: true,
       },
     });
+    const nonWorkingDateKeys = await this.calendarService.getNonWorkingDateKeys(
+      startOfMonth,
+      countingEnd,
+    );
     const workedDateKeysByEmployee = new Map<string, Set<number>>();
 
     for (const attendance of workedAttendances) {
@@ -705,6 +738,7 @@ export class DashboardService {
 
         if (
           isScheduledOnDate(employee.schedule.workDays, currentDate) &&
+          !nonWorkingDateKeys.has(currentDate.getTime()) &&
           !workedDateKeys.has(currentDate.getTime())
         ) {
           absenceCount += 1;

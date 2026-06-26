@@ -1,4 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import {
   AttendanceExportFile,
   MonthlyAttendanceDailyReportRow,
@@ -61,8 +65,20 @@ type RenderKpiGridOptions = {
   gapX: number;
   gapY: number;
 };
+type AttendancePdfRendererMode = 'premium' | 'legacy';
+
+const PREMIUM_RENDERER_UNAVAILABLE_MESSAGE =
+  'Premium PDF renderer unavailable. Install Chromium or configure ATTENDANCE_PDF_EXECUTABLE_PATH.';
 
 @Injectable()
+/**
+ * PDF EXPORT COORDINATOR
+ *
+ * Routes monthly report data to the premium Puppeteer renderer by default.
+ * LEGACY FALLBACK ONLY: buildLegacyPdf is not the production source of truth
+ * and must only be used when ATTENDANCE_PDF_RENDERER=legacy or
+ * ATTENDANCE_PDF_ALLOW_LEGACY_FALLBACK=true.
+ */
 export class MonthlyAttendancePdfExporterService {
   private readonly logger = new Logger(
     MonthlyAttendancePdfExporterService.name,
@@ -213,22 +229,32 @@ export class MonthlyAttendancePdfExporterService {
         `Puppeteer renderer failed for monthly attendance export: ${message}`,
         stack,
       );
-      this.logger.warn(
-        `Puppeteer renderer failed, falling back to legacy PDF renderer (reportType=${reportType}, fileName=${fileName}).`,
-      );
-      const fallbackStartedAt = Date.now();
-      const pdf = this.buildLegacyPdf(report);
-      const fallbackDurationMs = Date.now() - fallbackStartedAt;
+      if (this.isLegacyFallbackAllowed()) {
+        this.logger.warn(
+          `Puppeteer renderer failed, falling back to legacy PDF renderer because ATTENDANCE_PDF_ALLOW_LEGACY_FALLBACK=true (reportType=${reportType}, fileName=${fileName}).`,
+        );
+        const fallbackStartedAt = Date.now();
+        const pdf = this.buildLegacyPdf(report);
+        const fallbackDurationMs = Date.now() - fallbackStartedAt;
 
-      this.logger.log(
-        `Monthly attendance PDF export completed (renderer=legacy-fallback, reportType=${reportType}, durationMs=${fallbackDurationMs}, pdfBytes=${pdf.length}, fileName=${fileName}).`,
+        this.logger.log(
+          `Monthly attendance PDF export completed (renderer=legacy-fallback, reportType=${reportType}, durationMs=${fallbackDurationMs}, pdfBytes=${pdf.length}, fileName=${fileName}).`,
+        );
+
+        return {
+          fileName,
+          mimeType: 'application/pdf',
+          content: pdf,
+        };
+      }
+
+      this.logger.error(
+        `${PREMIUM_RENDERER_UNAVAILABLE_MESSAGE} Legacy fallback is disabled. Set ATTENDANCE_PDF_RENDERER=legacy or ATTENDANCE_PDF_ALLOW_LEGACY_FALLBACK=true to allow the legacy PDF renderer.`,
       );
 
-      return {
-        fileName,
-        mimeType: 'application/pdf',
-        content: pdf,
-      };
+      throw new InternalServerErrorException(
+        PREMIUM_RENDERER_UNAVAILABLE_MESSAGE,
+      );
     }
   }
 
@@ -302,10 +328,14 @@ export class MonthlyAttendancePdfExporterService {
     }
   }
 
-  private getRendererMode() {
+  private getRendererMode(): AttendancePdfRendererMode {
     return process.env.ATTENDANCE_PDF_RENDERER === 'legacy'
       ? 'legacy'
-      : 'puppeteer';
+      : 'premium';
+  }
+
+  private isLegacyFallbackAllowed() {
+    return process.env.ATTENDANCE_PDF_ALLOW_LEGACY_FALLBACK === 'true';
   }
 
   private getReportType(report: MonthlyAttendanceExportReport) {
@@ -1541,15 +1571,16 @@ export class MonthlyAttendancePdfExporterService {
     const innerLeft = x + 14;
     const columnGap = 4;
     const columns = [
-      { label: 'DATE', width: 56 },
-      { label: 'JOUR', width: 36 },
-      { label: 'ENTR\u00c9E', width: 44 },
-      { label: 'SORTIE', width: 44 },
-      { label: 'STATUT', width: 70 },
-      { label: 'RETARD', width: 42 },
-      { label: 'D\u00c9PART T\u00d4T', width: 50 },
-      { label: 'H. SUPP.', width: 48 },
-      { label: 'GPS', width: 65 },
+      { label: 'DATE', width: 50 },
+      { label: 'JOUR', width: 30 },
+      { label: 'ENTR\u00c9E', width: 38 },
+      { label: 'SORTIE', width: 38 },
+      { label: 'STATUT', width: 58 },
+      { label: 'RETARD', width: 38 },
+      { label: 'D\u00c9PART', width: 42 },
+      { label: 'H. SUPP.', width: 42 },
+      { label: 'GPS', width: 50 },
+      { label: 'SANCTION', width: 50 },
     ].map((column, index, source) => {
       const columnX =
         index === 0
@@ -1698,6 +1729,13 @@ export class MonthlyAttendancePdfExporterService {
               6.8,
             )
           : '',
+        this.renderTableCellValue(
+          columns[9].x,
+          rowTop + 18,
+          columns[9].width,
+          row.sanctionLabel,
+          this.COLORS.text,
+        ),
         this.horizontalLine(x, rowY, x + width, this.COLORS.border, 0.55),
       );
     });
@@ -1960,7 +1998,7 @@ export class MonthlyAttendancePdfExporterService {
           {
             label: 'HEURES SUPPL\u00c9MENTAIRES',
             value: employeeReport.overtimeHours,
-            description: `${employeeReport.scheduledOvertimeHours} planifi\u00e9es | ${employeeReport.outsideScheduleOvertimeHours} hors planning`,
+            description: `${employeeReport.scheduledOvertimeHours} planifi\u00e9es | ${employeeReport.outsideScheduleOvertimeHours} jours non ouvr\u00e9s`,
             variant: 'neutral',
             accentColor: this.indigo,
             labelFontSize: 7.2,
@@ -3377,6 +3415,7 @@ export class MonthlyAttendancePdfExporterService {
   private statusTone(statusLabel: string): MetricTone {
     switch (statusLabel) {
       case 'Présent':
+      case 'Travail jour non ouvré':
         return 'positive';
       case 'Retard':
       case 'Pointage incomplet':

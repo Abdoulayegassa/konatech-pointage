@@ -23,15 +23,15 @@ export default function EmployeesErrorPage({
           <CardHeader className="space-y-4 border-b border-slate-200/80 pb-5">
             <div className="flex flex-wrap items-center gap-3">
               <Badge variant="warning">Erreur de rendu</Badge>
-              <Badge variant="outline">Employees</Badge>
+              <Badge variant="outline">Employés</Badge>
             </div>
             <CardTitle className="text-2xl text-slate-950">
-              La gestion des employes n&apos;a pas pu s&apos;afficher
+              La gestion des employés n&apos;a pas pu s&apos;afficher
               correctement
             </CardTitle>
             <p className="max-w-2xl text-sm leading-6 text-slate-600">
-              Une erreur inattendue a interrompu le chargement des donnees
-              employes. Aucune action n&apos;a ete appliquee.
+              Une erreur inattendue a interrompu le chargement des données des
+              employés. Aucune action n&apos;a été appliquée.
             </p>
           </CardHeader>
           <CardContent className="space-y-5 pt-5 text-sm leading-6 text-slate-600">
@@ -39,7 +39,7 @@ export default function EmployeesErrorPage({
               {error.message}
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
-              <Button onClick={reset}>Reessayer</Button>
+              <Button onClick={reset}>Réessayer</Button>
               <Button
                 onClick={() => window.location.assign('/employees')}
                 variant="secondary"

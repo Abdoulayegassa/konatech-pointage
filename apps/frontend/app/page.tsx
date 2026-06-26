@@ -1,14 +1,14 @@
 import { redirect } from 'next/navigation';
 import { AdminNav } from '@/components/admin/admin-nav';
 import { LogoutForm } from '@/components/auth/logout-form';
-import { AttendanceEntryQrCard } from '@/components/dashboard/attendance-entry-qr-card';
+import { DailyAlertsCard } from '@/components/dashboard/daily-alerts-card';
 import { DashboardAnalyticsSection } from '@/components/dashboard/dashboard-analytics-section';
 import { MetricCard } from '@/components/dashboard/metric-card';
-import { MonthlyAttendanceExportCard } from '@/components/dashboard/monthly-attendance-export-card';
+import { QuickActionsSection } from '@/components/dashboard/quick-actions-section';
 import { RecentActivityList } from '@/components/dashboard/recent-activity-list';
 import { PageShell } from '@/components/layout/page-shell';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { getDashboardData, getPublicAppUrl } from '@/lib/api';
 import { getSessionToken, requireCurrentUser } from '@/lib/auth';
 
@@ -30,13 +30,6 @@ function formatLongDate(value: string) {
     month: 'long',
     year: 'numeric',
   });
-}
-
-function formatHours(value: number) {
-  return `${value.toLocaleString('fr-FR', {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
-  })}h`;
 }
 
 async function getAttendanceEntryUrl() {
@@ -66,78 +59,39 @@ export default async function HomePage() {
   const attendanceEntryUrl = await getAttendanceEntryUrl();
   const primaryMetrics = [
     {
-      label: "Presents aujourd'hui",
-      value: dashboard.summary.presentToday,
-      hint: 'Pointages valides.',
+      label: 'Présents planifiés',
+      value: dashboard.summary.scheduledPresentToday,
+      hint: 'Présences sur jours ouvrés.',
+      periodLabel: 'Situation RH',
       tone: 'success' as const,
     },
     {
-      label: 'Retards',
-      value: dashboard.summary.lateEmployeesToday,
-      hint: 'Priorite.',
-      tone: 'warning' as const,
-    },
-    {
-      label: 'Absences',
-      value: dashboard.summary.absentEmployeesToday,
-      hint: 'Sans pointage.',
+      label: 'Travail jour non ouvré',
+      value: dashboard.summary.nonWorkingDayWorkToday,
+      hint: 'Présences exceptionnelles.',
+      periodLabel: 'Situation RH',
       tone: 'outline' as const,
     },
     {
-      label: 'GPS valides',
-      value: dashboard.analytics.insideZoneAttendanceCount,
-      hint: 'Zone autorisee.',
-      tone: 'success' as const,
+      label: "Retards aujourd'hui",
+      value: dashboard.summary.lateEmployeesToday,
+      hint: 'Priorité.',
+      periodLabel: 'Situation RH',
+      tone: 'warning' as const,
     },
-  ];
-  const secondaryMetrics = [
     {
-      label: 'Departs anticipes',
+      label: "Absences aujourd'hui",
+      value: dashboard.summary.absentEmployeesToday,
+      hint: 'Sans pointage.',
+      periodLabel: 'Situation RH',
+      tone: 'danger' as const,
+    },
+    {
+      label: "Départs anticipés aujourd'hui",
       value: dashboard.summary.earlyExitToday,
       hint: 'Sorties avant horaire.',
-      tone: 'warning' as const,
-    },
-    {
-      label: 'Heures supplementaires',
-      value: formatHours(dashboard.summary.overtimeHoursToday),
-      hint: 'Cumul du jour.',
-      tone: 'success' as const,
-    },
-    {
-      label: 'Employes actifs',
-      value: dashboard.summary.totalEmployees,
-      hint: 'Base suivie.',
-      tone: 'default' as const,
-    },
-  ];
-  const attentionItems = [
-    {
-      label: 'Retards importants',
-      value: dashboard.summary.lateEmployeesToday,
-      tone: 'warning' as const,
-      detail:
-        dashboard.summary.lateEmployeesToday > 0
-          ? 'A traiter en priorite.'
-          : 'Aucun retard critique.',
-    },
-    {
-      label: 'Absences a traiter',
-      value: dashboard.summary.absentEmployeesToday,
-      tone: 'danger' as const,
-      detail:
-        dashboard.summary.absentEmployeesToday > 0
-          ? 'Verifier les justificatifs.'
-          : 'Couverture saine.',
-    },
-    {
-      label: 'GPS a verifier',
-      value: dashboard.analytics.blockedAttendanceAttemptCount ?? 0,
-      tone: 'success' as const,
-      detail:
-        dashboard.analytics.blockedAttendanceAttemptCount &&
-        dashboard.analytics.blockedAttendanceAttemptCount > 0
-          ? 'Refus hors zone detectes.'
-          : 'Aucun blocage GPS actif.',
+      periodLabel: 'Situation RH',
+      tone: 'purple' as const,
     },
   ];
 
@@ -190,57 +144,24 @@ export default async function HomePage() {
         </div>
       </header>
 
-      <section className="admin-reveal admin-reveal-delay-1 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="admin-reveal admin-reveal-delay-1 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {primaryMetrics.map((metric) => (
           <MetricCard key={metric.label} {...metric} />
         ))}
       </section>
 
-      <section className="admin-reveal admin-reveal-delay-2 grid gap-4 xl:grid-cols-[0.92fr_1.08fr]">
-        <AttendanceEntryQrCard
+      <section className="admin-reveal admin-reveal-delay-2">
+        <DailyAlertsCard
+          activity={dashboard.recentActivity}
+          dashboardDate={dashboard.date}
+        />
+      </section>
+
+      <section className="admin-reveal admin-reveal-delay-3">
+        <QuickActionsSection
           attendanceEntryPath="/attendance-entry"
           initialAttendanceEntryUrl={attendanceEntryUrl}
         />
-        <MonthlyAttendanceExportCard />
-      </section>
-
-      <section className="admin-reveal admin-reveal-delay-2 grid gap-4 xl:grid-cols-[0.88fr_1.12fr]">
-        <Card className="rounded-[28px] border-slate-200/80 bg-white/95">
-          <CardHeader className="pb-3">
-            <Badge variant="warning">Operations</Badge>
-            <CardTitle className="mt-2 text-xl">Points d attention</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2.5">
-            {attentionItems.map((item) => (
-              <div
-                key={item.label}
-                className="flex items-center justify-between gap-3 rounded-[20px] border border-slate-200 bg-slate-50/80 px-4 py-3"
-              >
-                <div>
-                  <p className="text-sm font-bold text-slate-950">
-                    {item.label}
-                  </p>
-                  <p className="mt-0.5 text-sm text-slate-600">{item.detail}</p>
-                </div>
-                <span
-                  className={
-                    item.value > 0
-                      ? 'rounded-full border border-accent/15 bg-accent/10 px-3 py-1 text-sm font-bold text-accent'
-                      : 'rounded-full border border-success/15 bg-success/10 px-3 py-1 text-sm font-bold text-success'
-                  }
-                >
-                  {item.value}
-                </span>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        <section className="grid gap-3 sm:grid-cols-3">
-          {secondaryMetrics.map((metric) => (
-            <MetricCard key={metric.label} {...metric} />
-          ))}
-        </section>
       </section>
 
       <section className="admin-reveal admin-reveal-delay-3">

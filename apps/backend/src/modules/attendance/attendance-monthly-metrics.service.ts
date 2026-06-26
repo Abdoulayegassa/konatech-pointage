@@ -18,6 +18,7 @@ import {
   isScheduledOnResolvedAttendanceDate,
   resolveAttendanceSchedule,
 } from '../../common/utils/attendance-schedule-snapshot.util';
+import { CalendarService } from '../calendar/calendar.service';
 
 type EmployeeForMonthlyMetrics = {
   id: string;
@@ -37,7 +38,10 @@ export class AttendanceMonthlyMetricsService
 {
   private timer?: NodeJS.Timeout;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly calendarService: CalendarService,
+  ) {}
 
   onModuleInit() {
     this.timer = setInterval(
@@ -109,31 +113,41 @@ export class AttendanceMonthlyMetricsService
 
     await this.createMissingAbsenceRecords(employee, range);
 
-    const attendances = await this.prisma.attendance.findMany({
-      where: {
-        employeeId: employee.id,
-        date: {
-          gte: range.startOfMonth,
-          lt: range.endOfMonth,
+    const [attendances, nonWorkingDateKeys] = await Promise.all([
+      this.prisma.attendance.findMany({
+        where: {
+          employeeId: employee.id,
+          date: {
+            gte: range.startOfMonth,
+            lt: range.endOfMonth,
+          },
         },
-      },
-      select: {
-        id: true,
-        date: true,
-        clockInAt: true,
-        clockOutAt: true,
-        minutesLate: true,
-        scheduleIdSnapshot: true,
-        scheduleNameSnapshot: true,
-        scheduleStartTimeSnapshot: true,
-        scheduleEndTimeSnapshot: true,
-        scheduleWorkDaysSnapshot: true,
-        scheduleLatenessMarginSnapshot: true,
-        scheduleCapturedAt: true,
-      },
-    });
+        select: {
+          id: true,
+          date: true,
+          clockInAt: true,
+          clockOutAt: true,
+          minutesLate: true,
+          scheduleIdSnapshot: true,
+          scheduleNameSnapshot: true,
+          scheduleStartTimeSnapshot: true,
+          scheduleEndTimeSnapshot: true,
+          scheduleWorkDaysSnapshot: true,
+          scheduleLatenessMarginSnapshot: true,
+          scheduleCapturedAt: true,
+        },
+      }),
+      this.calendarService.getNonWorkingDateKeys(
+        range.startOfMonth,
+        range.endOfMonth,
+      ),
+    ]);
     const absenceCount = attendances.filter(
-      (attendance) => !attendance.clockInAt,
+      (attendance) =>
+        !attendance.clockInAt &&
+        !nonWorkingDateKeys.has(
+          normalizeAttendanceDate(attendance.date).getTime(),
+        ),
     ).length;
 
     for (const attendance of attendances) {
@@ -141,9 +155,16 @@ export class AttendanceMonthlyMetricsService
         attendance,
         employee.schedule,
       );
+      const isNonWorkingDay = nonWorkingDateKeys.has(
+        normalizeAttendanceDate(attendance.date).getTime(),
+      );
       const isOutsideScheduleWork =
         Boolean(attendance.clockInAt) &&
-        !isScheduledOnResolvedAttendanceDate(resolvedSchedule, attendance.date);
+        (isNonWorkingDay ||
+          !isScheduledOnResolvedAttendanceDate(
+            resolvedSchedule,
+            attendance.date,
+          ));
       const scheduledExitTime = isOutsideScheduleWork
         ? null
         : getResolvedAttendanceScheduledExitTime(
@@ -172,12 +193,17 @@ export class AttendanceMonthlyMetricsService
           lateExit: exitOutcome.lateExit,
           overtimeHours: exitOutcome.overtimeHours,
           overtimeMinutes: exitOutcome.overtimeMinutes,
+          minutesLate: isNonWorkingDay ? 0 : attendance.minutesLate,
           absenceCount,
           status: attendance.clockInAt
-            ? isOutsideScheduleWork && attendance.clockOutAt
-              ? AttendanceStatus.PRESENT
-              : undefined
-            : AttendanceStatus.ABSENT,
+            ? isNonWorkingDay
+              ? AttendanceStatus.NON_WORKING_DAY_WORK
+              : isOutsideScheduleWork && attendance.clockOutAt
+                ? AttendanceStatus.PRESENT
+                : undefined
+            : isNonWorkingDay
+              ? undefined
+              : AttendanceStatus.ABSENT,
         },
       });
     }
@@ -209,12 +235,17 @@ export class AttendanceMonthlyMetricsService
       ),
     );
     const cursor = new Date(range.startOfMonth);
+    const nonWorkingDateKeys = await this.calendarService.getNonWorkingDateKeys(
+      range.startOfMonth,
+      range.endOfMonth,
+    );
 
     while (cursor < range.endOfMonth) {
       const date = normalizeAttendanceDate(cursor);
 
       if (
         isScheduledOnDate(employee.schedule.workDays, date) &&
+        !nonWorkingDateKeys.has(date.getTime()) &&
         !existingDateKeys.has(date.getTime())
       ) {
         await this.prisma.attendance.create({

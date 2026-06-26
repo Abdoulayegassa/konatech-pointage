@@ -5,6 +5,13 @@ import {
 } from './monthly-attendance-export.types';
 
 @Injectable()
+/**
+ * SOURCE OF TRUTH
+ * Monthly attendance CSV export.
+ *
+ * This flat export is separate from the premium PDF renderer and must not be
+ * used as the source for PDF layout or PDF business copy.
+ */
 export class MonthlyAttendanceCsvExporterService {
   export(report: MonthlyAttendanceExportReport): AttendanceExportFile {
     const rows = report.rows.map((row) =>

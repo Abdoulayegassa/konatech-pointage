@@ -6,7 +6,6 @@ import {
   formatAttendanceTime,
   formatHoursValue,
   getAttendanceVerificationMeta,
-  getMonthlyAbsenceCount,
   getMonthlyWorkedHours,
 } from '@/components/attendance/attendance-display';
 import { EmployeeAttendanceActions } from '@/components/attendance/employee-attendance-actions';
@@ -42,12 +41,7 @@ export default async function MyAttendancePage() {
     token,
     selectedMonth,
   );
-  const monthAbsenceCount = getMonthlyAbsenceCount(
-    today.employee.schedule,
-    history,
-    selectedMonth,
-    new Date(today.date),
-  );
+  const monthAbsenceCount = today.monthlyAbsenceCount;
   const monthWorkedHours = getMonthlyWorkedHours(history);
   const monthEarlyExitCount = history.filter(
     (item) => item.earlyExit && item.earlyExitMinutes > 0,

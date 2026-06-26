@@ -1,4 +1,10 @@
-import { AccessRole, AttendanceStatus, PrismaClient } from '@prisma/client';
+import {
+  AccessRole,
+  AttendanceStatus,
+  PrismaClient,
+  SanctionPeriod,
+  SanctionRuleType,
+} from '@prisma/client';
 import { getAttendanceCheckOutOutcome } from '../src/common/utils/attendance-checkout.util';
 import {
   findPreviousScheduledDate,
@@ -15,6 +21,44 @@ import {
 } from '../src/common/security/password.util';
 import { buildAttendanceScheduleSnapshot } from '../src/common/utils/attendance-schedule-snapshot.util';
 
+const defaultSanctionRules = [
+  {
+    id: '6cb80c4d-b5d5-4e17-a74d-3f47b65a0001',
+    type: SanctionRuleType.MINOR_LATENESS,
+    name: 'Retard mineur',
+    description: null,
+    active: true,
+    latenessMinMinutes: 0,
+    latenessMinInclusive: false,
+    latenessMaxMinutes: 15,
+    latenessMaxInclusive: false,
+    monthlyTolerance: 1,
+    amountFcfa: 2_000,
+    period: SanctionPeriod.MONTHLY,
+    priority: 10,
+    appliedReason: 'Tolérance mensuelle déjà utilisée.',
+    toleratedReason: 'Premier retard mineur du mois : tolérance accordée.',
+  },
+  {
+    id: '0cf3b2be-fc1d-4b3d-8b8b-3f47b65a0002',
+    type: SanctionRuleType.MAJOR_LATENESS,
+    name: 'Retard majeur',
+    description: null,
+    active: true,
+    latenessMinMinutes: 15,
+    latenessMinInclusive: true,
+    latenessMaxMinutes: null,
+    latenessMaxInclusive: false,
+    monthlyTolerance: 0,
+    amountFcfa: 5_000,
+    period: SanctionPeriod.MONTHLY,
+    priority: 20,
+    appliedReason:
+      'Retard majeur (15 min ou plus) : sanction appliquée sans tolérance.',
+    toleratedReason: null,
+  },
+] as const;
+
 export async function seedDatabase(
   prisma: PrismaClient,
   referenceDate = new Date(),
@@ -23,6 +67,8 @@ export async function seedDatabase(
   const employeePasswordHash = await hashPassword('KonatechEmployee123!');
   const fatoumataPinCodeHash = await hashPinCode('4103');
   const ibrahimPinCodeHash = await hashPinCode('4104');
+
+  await ensureDefaultSanctionRules(prisma);
 
   const officeSchedule = await prisma.schedule.upsert({
     where: {
@@ -177,7 +223,7 @@ export async function seedDatabase(
       },
       update: {
         employeeIdentifier: employeeIdentifiers.ibrahim,
-        pinCode: null,
+        pinCode: '0000',
         pinCodeHash: ibrahimPinCodeHash,
         firstName: 'Ibrahim',
         lastName: 'Coulibaly',
@@ -190,7 +236,7 @@ export async function seedDatabase(
       },
       create: {
         employeeIdentifier: employeeIdentifiers.ibrahim,
-        pinCode: null,
+        pinCode: '0000',
         pinCodeHash: ibrahimPinCodeHash,
         firstName: 'Ibrahim',
         lastName: 'Coulibaly',
@@ -408,6 +454,34 @@ export async function seedDatabase(
     schedules: 2,
     attendanceRecords: attendanceEntries.length,
   };
+}
+
+async function ensureDefaultSanctionRules(prisma: PrismaClient) {
+  for (const rule of defaultSanctionRules) {
+    const existingRule = await prisma.sanctionRule.findFirst({
+      where: {
+        type: rule.type,
+        priority: rule.priority,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (existingRule) {
+      await prisma.sanctionRule.update({
+        where: {
+          id: existingRule.id,
+        },
+        data: rule,
+      });
+      continue;
+    }
+
+    await prisma.sanctionRule.create({
+      data: rule,
+    });
+  }
 }
 
 function getSeedAbsenceCount(

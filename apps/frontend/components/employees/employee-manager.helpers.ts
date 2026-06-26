@@ -87,18 +87,18 @@ export function getAccountStatusMeta(isActive: boolean) {
 
 export function getAccessRoleMeta(accessRole: AccessRole) {
   return accessRole === 'ADMIN'
-    ? { label: 'ADMIN', variant: 'warning' as const }
-    : { label: 'EMPLOYEE', variant: 'outline' as const };
+    ? { label: 'Administrateur', variant: 'warning' as const }
+    : { label: 'Employé', variant: 'outline' as const };
 }
 
 export function getScheduleAssignmentMeta(employee: EmployeeRecord) {
   return employee.schedule
-    ? { label: 'Affecte', variant: 'success' as const }
-    : { label: 'Non assigne', variant: 'outline' as const };
+    ? { label: 'Affecté', variant: 'success' as const }
+    : { label: 'Non assigné', variant: 'outline' as const };
 }
 
 export function getPinStatusMeta(employee: EmployeeRecord) {
   return employee.pinConfigured
-    ? { label: 'PIN defini', variant: 'success' as const }
+    ? { label: 'PIN défini', variant: 'success' as const }
     : { label: 'PIN manquant', variant: 'warning' as const };
 }

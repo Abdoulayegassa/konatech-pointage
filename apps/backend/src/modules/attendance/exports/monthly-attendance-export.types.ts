@@ -21,6 +21,16 @@ export type MonthlyAttendanceExportRow = {
   overtimeHours: string;
 };
 
+export type MonthlyAttendanceSanctionSummary = {
+  minorLatenessCount: number;
+  majorLatenessCount: number;
+  toleratedCount: number;
+  appliedCount: number;
+  totalAmount: number;
+  totalAmountLabel: string;
+  recommendation: string;
+};
+
 export type MonthlyAttendanceDailyReportRow = {
   date: string;
   dayLabel: string;
@@ -32,6 +42,7 @@ export type MonthlyAttendanceDailyReportRow = {
   workTypeLabel: string;
   overtimeLabel: string;
   gpsVerificationLabel: string;
+  sanctionLabel: string;
 };
 
 export type MonthlyAttendanceEmployeeLateBreakdown = {
@@ -88,6 +99,7 @@ export type MonthlyAttendanceEmployeeReport = {
   lateRangeBreakdown: MonthlyAttendanceEmployeeLateRangeBreakdown;
   exitBreakdown: MonthlyAttendanceEmployeeExitBreakdown;
   gpsBreakdown: MonthlyAttendanceEmployeeGpsBreakdown;
+  sanctionSummary: MonthlyAttendanceSanctionSummary;
   dailyRows: MonthlyAttendanceDailyReportRow[];
 };
 

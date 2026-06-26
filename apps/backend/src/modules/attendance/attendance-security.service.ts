@@ -1,13 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import {
   AttendanceVerificationLevel,
   AttendanceVerificationMethod,
 } from '@prisma/client';
-import {
-  AttendanceSecurityAccuracyTooLowException,
-  AttendanceSecurityLocationRequiredException,
-  AttendanceSecurityOutsideZoneException,
-} from './attendance-security.exception';
+import { AttendancePhotoStorageService } from './attendance-photo-storage.service';
 import {
   AttendanceSecurityPolicyService,
   SecurityLocation,
@@ -51,9 +47,17 @@ type AttendanceSecurityEvaluation = {
 };
 
 @Injectable()
+/**
+ * SOURCE OF TRUTH
+ * GPS/selfie attendance security evaluation.
+ *
+ * Frontend capture helpers collect proof only. Backend validation and upload
+ * handling remain authoritative and must not silently downgrade security.
+ */
 export class AttendanceSecurityService {
   constructor(
     private readonly policyService: AttendanceSecurityPolicyService,
+    private readonly photoStorageService: AttendancePhotoStorageService,
   ) {}
 
   getPolicy() {
@@ -64,9 +68,18 @@ export class AttendanceSecurityService {
     input: CheckInSecurityProofDto | undefined,
     options: {
       enforceSecurity: boolean;
+      employeeId: string;
+      occurredAt: Date;
+      notes?: string;
     },
   ): Promise<AttendanceSecurityMetadata> {
-    const evaluation = this.evaluateSecurity(input, options);
+    const evaluation = await this.evaluateSecurity(input, {
+      enforceSecurity: options.enforceSecurity,
+      employeeId: options.employeeId,
+      occurredAt: options.occurredAt,
+      notes: options.notes,
+      reason: 'CHECK_IN',
+    });
 
     return this.buildCheckInMetadata(evaluation);
   }
@@ -75,73 +88,135 @@ export class AttendanceSecurityService {
     input: CheckInSecurityProofDto | undefined,
     options: {
       enforceSecurity: boolean;
+      employeeId: string;
+      occurredAt: Date;
+      notes?: string;
     },
   ): Promise<AttendanceCheckOutSecurityMetadata> {
-    const evaluation = this.evaluateSecurity(input, options);
+    const evaluation = await this.evaluateSecurity(input, {
+      enforceSecurity: options.enforceSecurity,
+      employeeId: options.employeeId,
+      occurredAt: options.occurredAt,
+      notes: options.notes,
+      reason: 'CHECK_OUT',
+    });
 
     return this.buildCheckOutMetadata(evaluation);
   }
 
-  private evaluateSecurity(
+  private async evaluateSecurity(
     input: CheckInSecurityProofDto | undefined,
-    options: {
+    context: {
       enforceSecurity: boolean;
+      employeeId: string;
+      occurredAt: Date;
+      notes?: string;
+      reason: 'CHECK_IN' | 'CHECK_OUT';
     },
-  ): AttendanceSecurityEvaluation {
+  ): Promise<AttendanceSecurityEvaluation> {
     const policy = this.getPolicy();
     const location = this.extractLocation(input);
     const distanceMeters = this.policyService.getDistanceMeters(
       policy,
       location,
     );
-    const allowedRadiusMeters =
-      policy.allowedRadiusMeters ??
-      policy.warningRadiusMeters ??
-      policy.trustedRadiusMeters;
 
-    const metadata = this.buildEvaluation({
+    this.assertSecurityRequirements({
+      input,
       location,
       distanceMeters,
-      method: location
-        ? AttendanceVerificationMethod.GPS
-        : AttendanceVerificationMethod.NONE,
-      level: AttendanceVerificationLevel.OK,
-      reason: location ? 'PASSIVE_LOCATION_RECORDED' : null,
-      photo: null,
+      policy,
+      enforceSecurity: context.enforceSecurity,
+      notes: context.notes,
     });
+    const isOffsiteJustified =
+      context.enforceSecurity &&
+      policy.enabled &&
+      policy.allowedRadiusMeters !== null &&
+      distanceMeters !== null &&
+      distanceMeters > policy.allowedRadiusMeters &&
+      Boolean(context.notes?.trim());
 
-    if (!options.enforceSecurity || !policy.enabled) {
-      return metadata;
-    }
-
-    if (!location) {
-      throw new AttendanceSecurityLocationRequiredException();
-    }
-
-    if (
-      location.accuracyMeters !== null &&
-      policy.maxAccuracyMeters !== null &&
-      location.accuracyMeters > policy.maxAccuracyMeters
-    ) {
-      throw new AttendanceSecurityAccuracyTooLowException();
-    }
-
-    if (
-      distanceMeters === null ||
-      allowedRadiusMeters === null ||
-      distanceMeters > allowedRadiusMeters
-    ) {
-      throw new AttendanceSecurityOutsideZoneException();
-    }
+    const photo = input?.verificationPhotoDataUrl
+      ? await this.photoStorageService.uploadVerificationPhoto(
+          input.verificationPhotoDataUrl,
+          {
+            employeeId: context.employeeId,
+            occurredAt: context.occurredAt,
+            reason: context.reason,
+          },
+        )
+      : null;
 
     return this.buildEvaluation({
       location,
       distanceMeters,
-      method: AttendanceVerificationMethod.GPS,
+      method: photo
+        ? AttendanceVerificationMethod.PHOTO
+        : location
+          ? AttendanceVerificationMethod.GPS
+          : AttendanceVerificationMethod.NONE,
       level: AttendanceVerificationLevel.OK,
-      reason: 'WITHIN_ALLOWED_RADIUS',
-      photo: null,
+      reason: photo
+        ? location
+          ? isOffsiteJustified
+            ? 'OFFSITE_LOCATION_JUSTIFIED'
+            : 'SELFIE_AND_LOCATION_RECORDED'
+          : 'SELFIE_RECORDED'
+        : location
+          ? isOffsiteJustified
+            ? 'OFFSITE_LOCATION_JUSTIFIED'
+            : 'PASSIVE_LOCATION_RECORDED'
+          : null,
+      photo,
     });
+  }
+
+  private assertSecurityRequirements(input: {
+    input: CheckInSecurityProofDto | undefined;
+    location: SecurityLocation | null;
+    distanceMeters: number | null;
+    policy: ReturnType<AttendanceSecurityPolicyService['getPolicy']>;
+    enforceSecurity: boolean;
+    notes?: string;
+  }) {
+    if (!input.enforceSecurity) {
+      return;
+    }
+
+    if (!input.input?.verificationPhotoDataUrl?.trim()) {
+      throw new BadRequestException('Selfie requis pour valider le pointage.');
+    }
+
+    if (!input.policy.enabled) {
+      return;
+    }
+
+    if (!input.location) {
+      throw new BadRequestException(
+        'Géolocalisation requise pour valider le pointage.',
+      );
+    }
+
+    if (
+      input.policy.maxAccuracyMeters !== null &&
+      (input.location.accuracyMeters === null ||
+        input.location.accuracyMeters > input.policy.maxAccuracyMeters)
+    ) {
+      throw new BadRequestException('Précision GPS insuffisante.');
+    }
+
+    if (
+      input.policy.allowedRadiusMeters !== null &&
+      input.distanceMeters !== null &&
+      input.distanceMeters > input.policy.allowedRadiusMeters
+    ) {
+      if (!input.notes?.trim()) {
+        throw new BadRequestException(
+          'Ajoutez un commentaire pour justifier ce pointage hors bureau.',
+        );
+      }
+    }
   }
 
   private extractLocation(

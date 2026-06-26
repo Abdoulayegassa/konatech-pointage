@@ -98,13 +98,20 @@ export type LoginResponse = {
   user: AuthenticatedUser;
 };
 
+export type AttendanceRecordStatus =
+  | 'PRESENT'
+  | 'LATE'
+  | 'INCOMPLETE'
+  | 'ABSENT'
+  | 'NON_WORKING_DAY_WORK';
+
 export type DashboardActivityItem = {
   id: string;
   employeeId: string;
   employeeIdentifier: string;
   employeeName: string;
   department: string | null;
-  status: 'PRESENT' | 'LATE' | 'INCOMPLETE' | 'ABSENT';
+  status: AttendanceRecordStatus;
   date: string;
   clockInAt: string | null;
   clockOutAt: string | null;
@@ -216,6 +223,8 @@ export type DashboardOverview = {
   summary: {
     totalEmployees: number;
     presentToday: number;
+    scheduledPresentToday: number;
+    nonWorkingDayWorkToday: number;
     lateEmployeesToday: number;
     absentEmployeesToday: number;
     earlyExitToday: number;
@@ -261,10 +270,18 @@ export type AttendanceRecord = {
   earlyExitMinutes: number;
   overtimeHours: number;
   overtimeMinutes: number;
+  lateExit?: boolean;
   absenceCount: number;
-  status: 'PRESENT' | 'LATE' | 'INCOMPLETE' | 'ABSENT';
+  status: AttendanceRecordStatus;
   minutesLate: number;
   notes: string | null;
+  scheduleIdSnapshot?: string | null;
+  scheduleNameSnapshot?: string | null;
+  scheduleStartTimeSnapshot?: string | null;
+  scheduleEndTimeSnapshot?: string | null;
+  scheduleWorkDaysSnapshot?: unknown;
+  scheduleLatenessMarginSnapshot?: number | null;
+  scheduleCapturedAt?: string | null;
   checkInLatitude: number | null;
   checkInLongitude: number | null;
   checkInAccuracyMeters: number | null;
@@ -283,6 +300,9 @@ export type AttendanceRecord = {
   checkOutVerificationReason: string | null;
   checkOutVerificationPhoto: string | null;
   checkOutVerificationPhotoPublicId: string | null;
+  gpsValidated?: boolean | null;
+  distanceFromOffice?: number | null;
+  securityFlags?: string[] | null;
   createdAt?: string;
   updatedAt?: string;
   employee: AuthenticatedUser;
@@ -293,10 +313,127 @@ export type EmployeeTodayAttendance = {
   expectedToday: boolean;
   canCheckIn: boolean;
   canCheckOut: boolean;
+  monthlyAbsenceCount: number;
   securityPolicy?: AttendanceSecurityPolicy;
   attendance: AttendanceRecord | null;
   employee: AuthenticatedEmployee;
 };
+
+export type SanctionStatus = 'TOLERATED' | 'APPLIED' | 'NOT_APPLICABLE';
+export type SanctionRuleType =
+  | 'MINOR_LATENESS'
+  | 'MAJOR_LATENESS'
+  | 'EARLY_DEPARTURE'
+  | 'UNJUSTIFIED_ABSENCE'
+  | 'JUSTIFIED_ABSENCE'
+  | 'LEAVE'
+  | 'EXTERNAL_MISSION';
+
+export type SanctionResult = {
+  employeeId: string;
+  employeeIdentifier?: string | null;
+  employeeName?: string | null;
+  department?: string | null;
+  attendanceId: string;
+  date: string;
+  ruleType: SanctionRuleType | null;
+  reason: string;
+  amount: number;
+  status: SanctionStatus;
+};
+
+export type SanctionRuleConfig = {
+  id?: string;
+  type: SanctionRuleType;
+  name?: string;
+  description?: string | null;
+  active: boolean;
+  conditions: Array<{
+    field: string;
+    operator: string;
+    value: number;
+  }>;
+  latenessMinMinutes?: number | null;
+  latenessMinInclusive?: boolean;
+  latenessMaxMinutes?: number | null;
+  latenessMaxInclusive?: boolean;
+  monthlyTolerance: number;
+  amount: number;
+  reason: string;
+  toleratedReason?: string | null;
+  priority?: number;
+};
+
+export type UpdateSanctionRulePayload = {
+  active?: boolean;
+  name?: string;
+  description?: string | null;
+  latenessMinMinutes?: number | null;
+  latenessMaxMinutes?: number | null;
+  monthlyTolerance?: number;
+  amountFcfa?: number;
+  priority?: number;
+};
+
+export type CalendarDayType =
+  | 'WORKING_DAY'
+  | 'PUBLIC_HOLIDAY'
+  | 'COMPANY_HOLIDAY'
+  | 'WEEKEND'
+  | 'LEAVE'
+  | 'EXTERNAL_MISSION';
+
+export type CalendarEntryType =
+  | 'PUBLIC_HOLIDAY'
+  | 'COMPANY_HOLIDAY'
+  | 'LEAVE'
+  | 'EXTERNAL_MISSION';
+
+export type CalendarEntryRecord = {
+  id: string;
+  name: string;
+  description: string | null;
+  date: string;
+  type: CalendarEntryType;
+  employeeId: string | null;
+  employeeIdentifier: string | null;
+  employeeName: string | null;
+  department: string | null;
+  isActive: boolean;
+};
+
+export type CalendarDayRecord = {
+  date: string;
+  dayLabel: string;
+  isoWeekLabel: string;
+  type: CalendarDayType;
+  label: string;
+  description: string | null;
+  isNonWorkingDay: boolean;
+  entries: CalendarEntryRecord[];
+};
+
+export type CalendarMonthResponse = {
+  month: string;
+  monthLabel: string;
+  summary: {
+    workingDays: number;
+    weekends: number;
+    publicHolidays: number;
+    companyHolidays: number;
+  };
+  days: CalendarDayRecord[];
+  entries: CalendarEntryRecord[];
+};
+
+export type CreateCalendarEntryPayload = {
+  name: string;
+  date: string;
+  description?: string | null;
+  type: Extract<CalendarEntryType, 'PUBLIC_HOLIDAY' | 'COMPANY_HOLIDAY'>;
+};
+
+export type UpdateCalendarEntryPayload = Partial<CreateCalendarEntryPayload>;
 
 export class ApiRequestError extends Error {
   constructor(
@@ -530,6 +667,13 @@ export async function getEmployeeAttendanceData(token: string, month: string) {
   };
 }
 
+export async function getAttendanceHistoryData(token: string, month: string) {
+  return requestApi<AttendanceRecord[]>(
+    `/attendance/history?month=${encodeURIComponent(month)}`,
+    { token },
+  );
+}
+
 export async function getEmployeesData(token: string) {
   const [employees, schedules] = await Promise.all([
     requestApi<EmployeeRecord[]>('/employees', { token }),
@@ -544,4 +688,22 @@ export async function getEmployeesData(token: string) {
 
 export async function getSchedulesData(token: string) {
   return requestApi<ScheduleRecord[]>('/schedules', { token });
+}
+
+export async function getMonthlySanctionsData(token: string, month: string) {
+  return requestApi<SanctionResult[]>(
+    `/sanctions/monthly?month=${encodeURIComponent(month)}`,
+    { token },
+  );
+}
+
+export async function getSanctionRulesData(token: string) {
+  return requestApi<SanctionRuleConfig[]>('/sanctions/rules', { token });
+}
+
+export async function getCalendarMonthData(token: string, month: string) {
+  return requestApi<CalendarMonthResponse>(
+    `/calendar/month?month=${encodeURIComponent(month)}`,
+    { token },
+  );
 }
