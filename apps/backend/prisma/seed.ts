@@ -24,6 +24,7 @@ import { buildAttendanceScheduleSnapshot } from '../src/common/utils/attendance-
 const defaultSanctionRules = [
   {
     id: '6cb80c4d-b5d5-4e17-a74d-3f47b65a0001',
+    legacyId: 'default-minor-lateness',
     type: SanctionRuleType.MINOR_LATENESS,
     name: 'Retard mineur',
     description: null,
@@ -41,6 +42,7 @@ const defaultSanctionRules = [
   },
   {
     id: '0cf3b2be-fc1d-4b3d-8b8b-3f47b65a0002',
+    legacyId: 'default-major-lateness',
     type: SanctionRuleType.MAJOR_LATENESS,
     name: 'Retard majeur',
     description: null,
@@ -457,29 +459,71 @@ export async function seedDatabase(
 }
 
 async function ensureDefaultSanctionRules(prisma: PrismaClient) {
-  for (const rule of defaultSanctionRules) {
-    const existingRule = await prisma.sanctionRule.findFirst({
-      where: {
-        type: rule.type,
-        priority: rule.priority,
-      },
-      select: {
-        id: true,
-      },
-    });
+  for (const ruleConfig of defaultSanctionRules) {
+    const { legacyId, ...rule } = ruleConfig;
 
-    if (existingRule) {
-      await prisma.sanctionRule.update({
+    await prisma.$transaction(async (transaction) => {
+      const currentRule = await transaction.sanctionRule.findUnique({
         where: {
-          id: existingRule.id,
+          id: rule.id,
         },
+        select: {
+          id: true,
+        },
+      });
+
+      const legacyRule = await transaction.sanctionRule.findUnique({
+        where: {
+          id: legacyId,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (legacyRule && !currentRule) {
+        await transaction.sanctionRule.update({
+          where: {
+            id: legacyRule.id,
+          },
+          data: rule,
+        });
+        return;
+      }
+
+      if (legacyRule && currentRule) {
+        await transaction.sanctionRule.delete({
+          where: {
+            id: legacyRule.id,
+          },
+        });
+      }
+
+      const existingRule = currentRule
+        ? currentRule
+        : await transaction.sanctionRule.findFirst({
+            where: {
+              type: rule.type,
+              priority: rule.priority,
+            },
+            select: {
+              id: true,
+            },
+          });
+
+      if (existingRule) {
+        await transaction.sanctionRule.update({
+          where: {
+            id: existingRule.id,
+          },
+          data: rule,
+        });
+        return;
+      }
+
+      await transaction.sanctionRule.create({
         data: rule,
       });
-      continue;
-    }
-
-    await prisma.sanctionRule.create({
-      data: rule,
     });
   }
 }
