@@ -487,6 +487,10 @@ function isPrivateNetworkUrl(value: string) {
   );
 }
 
+function isInternalDockerBackendUrl(value: string) {
+  return value === 'http://backend:4000/api/v1';
+}
+
 function resolveConfiguredUrl(
   envName: 'API_BASE_URL' | 'NEXT_PUBLIC_API_BASE_URL' | 'NEXT_PUBLIC_APP_URL',
   options: {
@@ -552,6 +556,12 @@ export function getApiBaseUrl() {
 
 export function getServerApiBaseUrl() {
   if (process.env.API_BASE_URL?.trim()) {
+    const configuredValue = process.env.API_BASE_URL.trim();
+
+    if (isInternalDockerBackendUrl(configuredValue)) {
+      return configuredValue;
+    }
+
     return resolveConfiguredUrl('API_BASE_URL', {
       developmentFallback: 'http://localhost:4000/api/v1',
       requiredInProduction: true,
