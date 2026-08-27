@@ -2110,7 +2110,7 @@ export class MonthlyAttendancePdfExporterService {
       this.text(
         this.margin,
         484,
-        `Synth\u00e8se \u00e9quipe  |  ${this.formatPeriod(report.month, report.year)}  |  ${this.formatGeneratedAt(report.generatedAt)}`,
+        `Synth\u00e8se \u00e9quipe  |  ${report.periodLabel}  |  ${this.formatGeneratedAt(report.generatedAt)}`,
         10,
         'F1',
         this.slate700,
@@ -2426,7 +2426,7 @@ export class MonthlyAttendancePdfExporterService {
       this.text(
         this.margin,
         489,
-        `Vue \u00e9quipe  |  ${this.formatPeriod(report.month, report.year)}`,
+        `Vue \u00e9quipe  |  ${report.periodLabel}`,
         12,
         'F2',
         this.slate700,
@@ -3816,6 +3816,11 @@ export class MonthlyAttendancePdfExporterService {
 
   private buildFileName(report: MonthlyAttendanceExportReport) {
     const scopeLabel = report.employeeReport?.fullName ?? '\u00e9quipe';
+
+    if (report.reportingMode === 'custom') {
+      return `rapport-presence-${this.slugify(scopeLabel)}-${this.slugify(report.periodLabel)}.pdf`;
+    }
+
     const monthLabel =
       this.frenchMonthLabels[report.month - 1] ?? String(report.month);
 

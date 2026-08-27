@@ -150,8 +150,16 @@ export class SanctionsService {
   }
 
   async getMonthlySanctions(month?: string, employeeId?: string) {
-    const rules = await this.getActiveRules();
     const { start, end } = this.getMonthRange(month);
+    return this.getSanctionsForDateRange(start, end, employeeId);
+  }
+
+  async getSanctionsForDateRange(
+    start: Date,
+    end: Date,
+    employeeId?: string,
+  ) {
+    const rules = await this.getActiveRules();
     const attendances = await this.prisma.attendance.findMany({
       where: {
         date: {

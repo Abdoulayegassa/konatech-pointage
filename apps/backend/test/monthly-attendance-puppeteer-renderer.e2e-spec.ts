@@ -24,6 +24,8 @@ describe('MonthlyAttendancePuppeteerPdfRendererService', () => {
           ? 'Travail jour non ouvré - 05:00'
           : '',
       gpsVerificationLabel: '',
+      commentLabel:
+        index === 1 ? 'Commentaire : Arrivée tardive en raison d\'un déplacement professionnel.' : null,
       sanctionLabel:
         index === 0
           ? 'Tolérance'
@@ -36,76 +38,87 @@ describe('MonthlyAttendancePuppeteerPdfRendererService', () => {
 
   const buildReport = (
     dailyRows: MonthlyAttendanceDailyReportRow[],
-  ): MonthlyAttendanceExportReport => ({
-    month: 4,
-    year: 2026,
-    generatedAt: '2026-04-29T12:00:00.000Z',
-    currentVerificationModelLabel:
-      'Mode de vérification actif : sécurité GPS pour le flux de pointage employé',
-    legacyVerificationLabel:
-      'Les photos historiques restent archivées sans être actives dans ce rapport',
-    blockedAttemptsLabel:
-      'Les tentatives hors zone peuvent être bloquées en temps réel mais ne sont pas historisées dans cet export',
-    rows: [],
-    employeeReport: {
-      fullName: 'Awa Traoré',
-      employeeIdentifier: 'EMP-2026-005',
-      departmentLabel: 'Finance',
-      assignedScheduleLabel: 'Matin (08:00 - 17:00 | Lun, Mar, Mer, Jeu, Ven)',
-      monthLabel: 'Avril 2026',
-      generationDateLabel: '29 avril 2026 à 12:00',
-      workingDays: 21,
-      presenceDays: 18,
-      presenceRate: 85.71,
-      absenceCount: 3,
-      outsideScheduleWorkDays: 1,
-      entryCount: 18,
-      exitCount: 18,
-      totalWorkedHours: '151 h 40',
-      scheduledOvertimeHours: '0 h',
-      outsideScheduleOvertimeHours: '5,00 h',
-      overtimeHours: '4 h 15',
-      earlyExitCount: 4,
-      lateCount: 5,
-      performanceScore: 68,
-      lateBreakdown: {
-        minorCount: 3,
-        moderateCount: 1,
-        criticalCount: 1,
-      },
-      lateRangeBreakdown: {
-        fiveToFifteenCount: 3,
-        sixteenToThirtyCount: 1,
-        overThirtyCount: 1,
-      },
-      exitBreakdown: {
-        normalExitCount: 14,
-        earlyExitCount: 4,
-        overtimeDayCount: 6,
-        overtimeHours: '4 h 15',
+    overrides: Partial<MonthlyAttendanceExportReport> = {},
+  ): MonthlyAttendanceExportReport => {
+    const periodLabel = overrides.periodLabel ?? 'Avril 2026';
+    const reportingMode = overrides.reportingMode ?? 'monthly';
+
+    return {
+      reportingMode,
+      periodLabel,
+      month: overrides.month ?? 4,
+      year: overrides.year ?? 2026,
+      generatedAt: overrides.generatedAt ?? '2026-04-29T12:00:00.000Z',
+      currentVerificationModelLabel:
+        overrides.currentVerificationModelLabel ??
+        'Mode de vérification actif : sécurité GPS pour le flux de pointage employé',
+      legacyVerificationLabel:
+        overrides.legacyVerificationLabel ??
+        'Les photos historiques restent archivées sans être actives dans ce rapport',
+      blockedAttemptsLabel:
+        overrides.blockedAttemptsLabel ??
+        'Les tentatives hors zone peuvent être bloquées en temps réel mais ne sont pas historisées dans cet export',
+      rows: overrides.rows ?? [],
+      employeeReport: {
+        fullName: 'Awa Traoré',
+        employeeIdentifier: 'EMP-2026-005',
+        departmentLabel: 'Finance',
+        assignedScheduleLabel: 'Matin (08:00 - 17:00 | Lun, Mar, Mer, Jeu, Ven)',
+        monthLabel: periodLabel,
+        generationDateLabel: '29 avril 2026 à 12:00',
+        workingDays: 21,
+        presenceDays: 18,
+        presenceRate: 85.71,
+        absenceCount: 3,
         outsideScheduleWorkDays: 1,
+        entryCount: 18,
+        exitCount: 18,
+        totalWorkedHours: '151 h 40',
+        scheduledOvertimeHours: '0 h',
         outsideScheduleOvertimeHours: '5,00 h',
+        overtimeHours: '4 h 15',
+        earlyExitCount: 4,
+        lateCount: 5,
+        performanceScore: 68,
+        lateBreakdown: {
+          minorCount: 3,
+          moderateCount: 1,
+          criticalCount: 1,
+        },
+        lateRangeBreakdown: {
+          fiveToFifteenCount: 3,
+          sixteenToThirtyCount: 1,
+          overThirtyCount: 1,
+        },
+        exitBreakdown: {
+          normalExitCount: 14,
+          earlyExitCount: 4,
+          overtimeDayCount: 6,
+          overtimeHours: '4 h 15',
+          outsideScheduleWorkDays: 1,
+          outsideScheduleOvertimeHours: '5,00 h',
+        },
+        gpsBreakdown: {
+          gpsValidatedPointages: 31,
+          nonGpsPointages: 5,
+          insideZonePointages: 29,
+          outsideZoneAttempts: null,
+          modeLabel: 'GPS obligatoire',
+        },
+        sanctionSummary: {
+          minorLatenessCount: 2,
+          majorLatenessCount: 1,
+          toleratedCount: 1,
+          appliedCount: 2,
+          totalAmount: 7000,
+          totalAmountLabel: '7 000 FCFA',
+          recommendation:
+            'Sanctions financières à prendre en compte dans le suivi RH.',
+        },
+        dailyRows,
       },
-      gpsBreakdown: {
-        gpsValidatedPointages: 31,
-        nonGpsPointages: 5,
-        insideZonePointages: 29,
-        outsideZoneAttempts: null,
-        modeLabel: 'GPS obligatoire',
-      },
-      sanctionSummary: {
-        minorLatenessCount: 2,
-        majorLatenessCount: 1,
-        toleratedCount: 1,
-        appliedCount: 2,
-        totalAmount: 7000,
-        totalAmountLabel: '7 000 FCFA',
-        recommendation:
-          'Sanctions financières à prendre en compte dans le suivi RH.',
-      },
-      dailyRows,
-    },
-  });
+    };
+  };
 
   const buildDocument = (report: MonthlyAttendanceExportReport) =>
     (
@@ -147,6 +160,7 @@ describe('MonthlyAttendancePuppeteerPdfRendererService', () => {
     expect(html).toContain('mini-donut');
     expect(html).toContain('micro-bars');
     expect(html).toContain('Validation GPS active');
+    expect(html).toContain('Commentaire :');
     expect(html).toContain('Sanctions RH');
     expect(html).toContain('Discipline RH');
     expect(html).toContain('Sanctions et tolérances');
@@ -168,6 +182,18 @@ describe('MonthlyAttendancePuppeteerPdfRendererService', () => {
     expect(html).not.toContain('Rendu PDF unifié');
     expect(html).not.toContain('planifi?');
     expect(html).not.toContain('t?t');
+  });
+
+  it('renders the custom-period title and period label', () => {
+    const html = buildDocument(
+      buildReport(buildDailyRows(2), {
+        reportingMode: 'custom',
+        periodLabel: 'Du 10 août 2026 au 10 septembre 2026',
+      }),
+    );
+
+    expect(html).toContain('Synthèse RH — Période personnalisée');
+    expect(html).toContain('Du 10 août 2026 au 10 septembre 2026');
   });
 
   it('keeps very low scores visually readable without changing the score', () => {
@@ -207,6 +233,28 @@ describe('MonthlyAttendancePuppeteerPdfRendererService', () => {
         21,
       ),
     ).toEqual([Array.from({ length: 20 }, (_, index) => index), [20, 21]]);
+  });
+
+  it('preserves monthly filenames and uses a distinct custom-period filename', async () => {
+    const exporter = new MonthlyAttendancePdfExporterService({
+      render: async () => Buffer.from('%PDF-test'),
+    } as unknown as MonthlyAttendancePuppeteerPdfRendererService);
+
+    const monthlyFile = await exporter.export(buildReport(buildDailyRows(1)));
+    const customFile = await exporter.export(
+      buildReport(buildDailyRows(1), {
+        reportingMode: 'custom',
+        periodLabel: 'Du 10 août 2026 au 10 septembre 2026',
+      }),
+    );
+
+    expect(monthlyFile.fileName).toBe(
+      'rapport-presence-awa-traore-avril-2026.pdf',
+    );
+    expect(customFile.fileName).toBe(
+      'rapport-presence-awa-traore-du-10-aout-2026-au-10-septembre-2026.pdf',
+    );
+    expect(customFile.fileName).not.toBe(monthlyFile.fileName);
   });
 
   it('does not silently fallback to the legacy PDF renderer in premium mode', async () => {

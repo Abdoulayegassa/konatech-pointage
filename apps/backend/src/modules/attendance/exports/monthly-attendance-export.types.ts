@@ -21,6 +21,14 @@ export type MonthlyAttendanceExportRow = {
   overtimeHours: string;
 };
 
+export type MonthlyAttendanceReportMode = 'monthly' | 'custom';
+
+export type MonthlyAttendanceReportPeriod = {
+  mode: MonthlyAttendanceReportMode;
+  title: string;
+  label: string;
+};
+
 export type MonthlyAttendanceSanctionSummary = {
   minorLatenessCount: number;
   majorLatenessCount: number;
@@ -37,6 +45,7 @@ export type MonthlyAttendanceDailyReportRow = {
   clockInTime: string;
   clockOutTime: string;
   statusLabel: string;
+  commentLabel: string | null;
   lateLabel: string;
   earlyExitLabel: string;
   workTypeLabel: string;
@@ -104,6 +113,8 @@ export type MonthlyAttendanceEmployeeReport = {
 };
 
 export type MonthlyAttendanceExportReport = {
+  reportingMode: MonthlyAttendanceReportMode;
+  periodLabel: string;
   month: number;
   year: number;
   generatedAt: string;

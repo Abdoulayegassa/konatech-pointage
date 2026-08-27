@@ -88,8 +88,11 @@ export class AttendanceController {
       action: 'attendance.monthly_export',
       resource: 'attendance_export',
       metadata: {
+        mode: query.mode ?? 'monthly',
         month: query.month,
         year: query.year,
+        startDate: query.startDate,
+        endDate: query.endDate,
         format: query.format ?? 'csv',
         employeeId: query.employeeId,
         fileName: file.fileName,

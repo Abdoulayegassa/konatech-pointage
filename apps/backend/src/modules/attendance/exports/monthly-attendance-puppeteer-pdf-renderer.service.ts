@@ -1320,6 +1320,21 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
         text-transform: uppercase;
       }
 
+      .table-status {
+        display: grid;
+        gap: 4px;
+      }
+
+      .table-comment {
+        color: var(--text-soft);
+        font-size: 7.9px;
+        line-height: 1.25;
+      }
+
+      .table-comment strong {
+        color: var(--text);
+      }
+
       .team-summary-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1690,7 +1705,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       <section class="hero">
         <div>
           <span class="eyebrow">KONATECH POINTAGE</span>
-          <h1 class="hero-title">Synthèse RH mensuelle</h1>
+          <h1 class="hero-title">${this.escapeHtml(this.buildReportTitle(report))}</h1>
           <p class="hero-subtitle">${this.escapeHtml(employeeReport.monthLabel)}</p>
           <p class="hero-copy">Indicateurs clés, présence et signaux de suivi.</p>
         </div>
@@ -2005,9 +2020,9 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
                     <span>${this.escapeHtml(row.dayLabel)}</span>
                   </div>
                 </td>
-                <td>${this.renderDailyTimeValue(row.clockInTime, row)}</td>
-                <td>${this.renderDailyTimeValue(row.clockOutTime, row)}</td>
-                <td>${this.renderStatusBadge(row.statusLabel)}</td>
+                <td>${this.renderDailyTimeValue(row.clockInTime)}</td>
+                <td>${this.renderDailyTimeValue(row.clockOutTime)}</td>
+                <td>${this.renderDailyStatusCell(row)}</td>
                 <td>${this.renderDailyMetricValue(row.lateLabel)}</td>
                 <td>${this.renderDailyMetricValue(row.earlyExitLabel)}</td>
                 <td>${this.renderDailyMetricValue(row.overtimeLabel)}</td>
@@ -2095,8 +2110,8 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       <section class="hero">
         <div>
           <span class="eyebrow">KONATECH POINTAGE</span>
-          <h1 class="hero-title">Synthèse équipe</h1>
-          <p class="hero-subtitle">${this.escapeHtml(this.formatPeriod(report.month, report.year))}</p>
+          <h1 class="hero-title">${this.escapeHtml(this.buildReportTitle(report))}</h1>
+          <p class="hero-subtitle">${this.escapeHtml(report.periodLabel)}</p>
           <p class="hero-copy">Vue consolidée des présences, absences et heures.</p>
         </div>
         <aside class="meta-card">
@@ -2198,8 +2213,8 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
       <section class="compact-header">
         <div>
           <span class="eyebrow">KONATECH POINTAGE</span>
-          <h1 class="compact-title">Synthèse équipe</h1>
-          <p class="hero-copy">${this.escapeHtml(this.formatPeriod(report.month, report.year))} | tableau consolidé par employé</p>
+          <h1 class="compact-title">${this.escapeHtml(this.buildReportTitle(report))}</h1>
+          <p class="hero-copy">${this.escapeHtml(report.periodLabel)} | tableau consolidé par employé</p>
         </div>
         <div class="compact-meta">
           ${this.renderBadge(`Employés: ${report.rows.length}`, 'info')}
@@ -2243,11 +2258,15 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
   }
 
   private buildDocumentTitle(report: MonthlyAttendanceExportReport) {
-    const monthLabel =
-      this.frenchMonthLabels[report.month - 1] ?? String(report.month);
     const scope = report.employeeReport?.fullName ?? 'équipe';
 
-    return `Rapport mensuel de présence ${scope} ${monthLabel} ${report.year}`;
+    return `${this.buildReportTitle(report)} - ${scope} - ${report.periodLabel}`;
+  }
+
+  private buildReportTitle(report: MonthlyAttendanceExportReport) {
+    return report.reportingMode === 'custom'
+      ? 'Synthèse RH — Période personnalisée'
+      : 'Synthèse RH mensuelle';
   }
 
   private footer(
@@ -2476,17 +2495,11 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
 
   private renderDailyTimeValue(
     value: string,
-    row: MonthlyAttendanceDailyReportRow,
   ) {
-    const fallback = '';
-    const displayValue = this.readableValue(value, fallback);
+    const displayValue = this.readableValue(value, '');
 
     if (displayValue === '') {
-      if (this.isAbsenceStatus(row.statusLabel)) {
-        return '<span class="table-value-absence">Absence</span>';
-      }
-
-      return '<span class="table-value-empty"></span>';
+      return '<span class="table-value-empty">-</span>';
     }
 
     return this.escapeHtml(displayValue);
@@ -2496,10 +2509,23 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
     const displayValue = this.readableValue(value, '');
 
     if (displayValue === '') {
-      return '<span class="table-value-empty"></span>';
+      return '<span class="table-value-empty">-</span>';
     }
 
     return this.escapeHtml(displayValue);
+  }
+
+  private renderDailyStatusCell(row: MonthlyAttendanceDailyReportRow) {
+    const statusBadge = this.renderStatusBadge(row.statusLabel);
+
+    if (!row.commentLabel?.trim()) {
+      return statusBadge;
+    }
+
+    return `<div class="table-status">
+      ${statusBadge}
+      <div class="table-comment"><strong>Commentaire :</strong> ${this.escapeHtml(row.commentLabel)}</div>
+    </div>`;
   }
 
   private isAbsenceStatus(statusLabel: string) {

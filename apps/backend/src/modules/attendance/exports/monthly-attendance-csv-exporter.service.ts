@@ -42,7 +42,10 @@ export class MonthlyAttendanceCsvExporterService {
     );
 
     return {
-      fileName: `attendance-export-${report.year}-${String(report.month).padStart(2, '0')}.csv`,
+      fileName:
+        report.reportingMode === 'custom'
+          ? `attendance-export-${this.slugify(report.employeeReport?.fullName ?? 'équipe')}-${this.slugify(report.periodLabel)}.csv`
+          : `attendance-export-${report.year}-${String(report.month).padStart(2, '0')}.csv`,
       mimeType: 'text/csv; charset=utf-8',
       content: [
         '\uFEFFFull Name,Employee Identifier,Department,Assigned Schedule,Working Days,Scheduled Presence Days,Total Worked Days,Outside Schedule Work Days,Entries,Exits,Late Days,Absent Days,Absence Count,Incomplete Attendance Days,Total Worked Hours,Depart anticipe (jours),Depart anticipe (min),Scheduled Overtime Hours,Outside Schedule Overtime Hours,Heures supplementaires',
@@ -59,5 +62,16 @@ export class MonthlyAttendanceCsvExporterService {
     }
 
     return normalizedValue;
+  }
+
+  private slugify(value: string) {
+    const normalized = value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+    return normalized || 'rapport';
   }
 }

@@ -1,8 +1,9 @@
 import { AttendanceStatus, AttendanceVerificationMethod } from '@prisma/client';
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { scheduleSelect } from '../../../common/prisma/selects';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import {
+  addAttendanceDays,
   getAttendanceMonthRange,
   isScheduledOnDate,
   normalizeAttendanceDate,
@@ -31,12 +32,25 @@ import { AppClockService } from '../../../common/time/app-clock.service';
 
 type ScheduleWorkDays = Parameters<typeof isScheduledOnDate>[0];
 
+type ReportPeriodMode = 'monthly' | 'custom';
+
+type ResolvedReportPeriod = {
+  mode: ReportPeriodMode;
+  month: number;
+  year: number;
+  label: string;
+  reportTitle: string;
+  startDate: Date;
+  endDateExclusive: Date;
+};
+
 type ExportAttendanceRecord = {
   id: string;
   date: Date;
   status: AttendanceStatus;
   clockInAt: Date | null;
   clockOutAt: Date | null;
+  notes: string | null;
   outsideScheduleWork: boolean;
   earlyExit: boolean;
   earlyExitMinutes: number;
@@ -147,15 +161,15 @@ export class MonthlyAttendanceExportService {
   async buildMonthlyReport(
     query: MonthlyAttendanceExportQueryDto,
   ): Promise<MonthlyAttendanceExportReport> {
-    const { startOfMonth, endOfMonth } = this.getMonthRange(
-      query.year,
-      query.month,
-    );
-    const absenceCountingEnd = this.getAbsenceCountingEnd(
-      startOfMonth,
-      endOfMonth,
-      this.clock.now(),
-    );
+    const period = this.resolveReportPeriod(query);
+    const absenceCountingEnd =
+      period.mode === 'monthly'
+        ? this.getAbsenceCountingEnd(
+            period.startDate,
+            period.endDateExclusive,
+            this.clock.now(),
+          )
+        : period.endDateExclusive;
 
     const employees = await this.prisma.employee.findMany({
       where: {
@@ -176,8 +190,8 @@ export class MonthlyAttendanceExportService {
         attendances: {
           where: {
             date: {
-              gte: startOfMonth,
-              lt: endOfMonth,
+              gte: period.startDate,
+              lt: period.endDateExclusive,
             },
           },
           orderBy: {
@@ -201,6 +215,7 @@ export class MonthlyAttendanceExportService {
             scheduleWorkDaysSnapshot: true,
             scheduleLatenessMarginSnapshot: true,
             scheduleCapturedAt: true,
+            notes: true,
             checkInDistanceMeters: true,
             checkOutDistanceMeters: true,
             checkInVerificationMethod: true,
@@ -212,10 +227,17 @@ export class MonthlyAttendanceExportService {
       },
     });
 
-    const monthlySanctions = await this.sanctionsService.getMonthlySanctions(
-      `${query.year}-${String(query.month).padStart(2, '0')}`,
-      query.employeeId,
-    );
+    const monthlySanctions =
+      period.mode === 'monthly'
+        ? await this.sanctionsService.getMonthlySanctions(
+            `${period.year}-${String(period.month).padStart(2, '0')}`,
+            query.employeeId,
+          )
+        : await this.sanctionsService.getSanctionsForDateRange(
+            period.startDate,
+            period.endDateExclusive,
+            query.employeeId,
+          );
     const sanctionsByAttendanceId = new Map(
       monthlySanctions.map((sanction) => [sanction.attendanceId, sanction]),
     );
@@ -223,16 +245,15 @@ export class MonthlyAttendanceExportService {
     const allowedRadiusMeters = securityPolicy.allowedRadiusMeters;
     const generatedAt = this.clock.now().toISOString();
     const nonWorkingDateKeys = await this.calendarService.getNonWorkingDateKeys(
-      startOfMonth,
+      period.startDate,
       absenceCountingEnd,
     );
     const employeeExports = employees.map((employee) =>
       this.buildEmployeeExport(
         employee,
-        query.month,
-        query.year,
+        period,
         generatedAt,
-        startOfMonth,
+        period.startDate,
         absenceCountingEnd,
         nonWorkingDateKeys,
         allowedRadiusMeters,
@@ -241,8 +262,10 @@ export class MonthlyAttendanceExportService {
     );
 
     return {
-      month: query.month,
-      year: query.year,
+      reportingMode: period.mode,
+      periodLabel: period.label,
+      month: period.month,
+      year: period.year,
       generatedAt,
       currentVerificationModelLabel:
         'Mode de vérification actif : sécurité GPS pour le flux de pointage employé',
@@ -259,10 +282,9 @@ export class MonthlyAttendanceExportService {
 
   private buildEmployeeExport(
     employee: ExportEmployeeRecord,
-    month: number,
-    year: number,
+    period: ResolvedReportPeriod,
     generatedAt: string,
-    startOfMonth: Date,
+    startOfPeriod: Date,
     absenceCountingEnd: Date,
     nonWorkingDateKeys: Set<number>,
     allowedRadiusMeters: number | null,
@@ -298,8 +320,36 @@ export class MonthlyAttendanceExportService {
       employee.schedule,
       employee.attendances,
     );
+    const attendanceByDateKey = new Map(
+      employee.attendances.map((attendance) => [
+        normalizeAttendanceDate(attendance.date).getTime(),
+        attendance,
+      ]),
+    );
+    const cursor = new Date(startOfPeriod);
 
-    for (const attendance of employee.attendances) {
+    while (cursor < absenceCountingEnd) {
+      const currentDate = normalizeAttendanceDate(cursor);
+      const attendance = attendanceByDateKey.get(currentDate.getTime()) ?? null;
+      const resolvedSchedule = resolveAttendanceSchedule(
+        attendance ?? {},
+        employee.schedule,
+      );
+      const isNonWorkingDay = nonWorkingDateKeys.has(currentDate.getTime());
+      const isScheduledDay =
+        this.isScheduledDay(resolvedSchedule, currentDate) && !isNonWorkingDay;
+
+      if (!attendance && !isScheduledDay) {
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+        continue;
+      }
+
+      if (!attendance) {
+        dailyRows.push(this.buildAbsenceDailyReportRow(currentDate));
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+        continue;
+      }
+
       const hasClockIn = attendance.clockInAt !== null;
       const hasClockOut = attendance.clockOutAt !== null;
       const isOutsideScheduleWork = attendance.outsideScheduleWork;
@@ -423,6 +473,8 @@ export class MonthlyAttendanceExportService {
       dailyRows.push(
         this.buildDailyReportRow(attendance, allowedRadiusMeters, sanction),
       );
+
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
     }
 
     this.finalizeSanctionSummary(sanctionSummary);
@@ -430,7 +482,7 @@ export class MonthlyAttendanceExportService {
     const { absentDays, workingDays } = this.getScheduleCoverage(
       employee.schedule,
       employee.attendances,
-      startOfMonth,
+      startOfPeriod,
       absenceCountingEnd,
       nonWorkingDateKeys,
     );
@@ -476,7 +528,7 @@ export class MonthlyAttendanceExportService {
         ),
         departmentLabel: employee.department ?? 'Non affecté',
         assignedScheduleLabel: assignedScheduleSummary.assignedScheduleLabel,
-        monthLabel: this.formatMonthLabel(month, year),
+        monthLabel: period.label,
         generationDateLabel: this.formatDateTimeLabel(generatedAt),
         workingDays,
         presenceDays,
@@ -579,6 +631,7 @@ export class MonthlyAttendanceExportService {
       clockInTime: this.formatTime(attendance.clockInAt),
       clockOutTime: this.formatTime(attendance.clockOutAt),
       statusLabel: this.getStatusLabel(attendance.status),
+      commentLabel: attendance.notes?.trim() || null,
       lateLabel:
         attendance.minutesLate > 0 ? `${attendance.minutesLate} min` : '-',
       earlyExitLabel:
@@ -609,6 +662,23 @@ export class MonthlyAttendanceExportService {
           this.isOutsideZoneReason(attendance.checkOutVerificationReason),
       }),
       sanctionLabel: this.getDailySanctionLabel(sanction),
+    };
+  }
+
+  private buildAbsenceDailyReportRow(date: Date): MonthlyAttendanceDailyReportRow {
+    return {
+      date: this.formatShortDate(date),
+      dayLabel: this.frenchWeekdayLabels[date.getUTCDay()],
+      clockInTime: '-',
+      clockOutTime: '-',
+      statusLabel: 'Absence',
+      commentLabel: null,
+      lateLabel: '-',
+      earlyExitLabel: '-',
+      workTypeLabel: '-',
+      overtimeLabel: '-',
+      gpsVerificationLabel: '-',
+      sanctionLabel: '-',
     };
   }
 
@@ -1042,6 +1112,74 @@ export class MonthlyAttendanceExportService {
 
   private getMonthRange(year: number, month: number) {
     return getAttendanceMonthRange(year, month);
+  }
+
+  private resolveReportPeriod(
+    query: MonthlyAttendanceExportQueryDto,
+  ): ResolvedReportPeriod {
+    if (query.mode === 'custom') {
+      if (!query.startDate || !query.endDate) {
+        throw new BadRequestException(
+          'Custom report period requires startDate and endDate.',
+        );
+      }
+
+      const startDate = normalizeAttendanceDate(new Date(query.startDate));
+      const endDate = normalizeAttendanceDate(new Date(query.endDate));
+
+      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+        throw new BadRequestException('Custom report period dates are invalid.');
+      }
+
+      if (endDate < startDate) {
+        throw new BadRequestException(
+          'endDate must be greater than or equal to startDate.',
+        );
+      }
+
+      return {
+        mode: 'custom',
+        month: startDate.getUTCMonth() + 1,
+        year: startDate.getUTCFullYear(),
+        label: this.formatCustomPeriodLabel(startDate, endDate),
+        reportTitle: 'Synthèse RH — Période personnalisée',
+        startDate,
+        endDateExclusive: addAttendanceDays(endDate, 1),
+      };
+    }
+
+    if (typeof query.month !== 'number' || typeof query.year !== 'number') {
+      throw new BadRequestException(
+        'month and year are required for monthly reports.',
+      );
+    }
+
+    const { startOfMonth, endOfMonth } = this.getMonthRange(
+      query.year,
+      query.month,
+    );
+
+    return {
+      mode: 'monthly',
+      month: query.month,
+      year: query.year,
+      label: this.formatMonthLabel(query.month, query.year),
+      reportTitle: 'Synthèse RH mensuelle',
+      startDate: startOfMonth,
+      endDateExclusive: endOfMonth,
+    };
+  }
+
+  private formatCustomPeriodLabel(startDate: Date, endDate: Date) {
+    return `Du ${this.formatLongDateLabel(startDate)} au ${this.formatLongDateLabel(endDate)}`;
+  }
+
+  private formatLongDateLabel(date: Date) {
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    const month = this.frenchMonthLabels[date.getUTCMonth()] ?? '';
+    const year = date.getUTCFullYear();
+
+    return `${day} ${month} ${year}`;
   }
 
   private getAbsenceCountingEnd(
