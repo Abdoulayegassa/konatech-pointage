@@ -32,6 +32,7 @@ type ExportEmployeeOption = {
   employeeIdentifier: string;
   firstName: string;
   lastName: string;
+  isActive: boolean;
 };
 
 type ReportMode = 'monthly' | 'custom';
@@ -128,7 +129,7 @@ export function MonthlyAttendanceExportCard() {
       const payload = (await response.json()) as ExportEmployeeOption[];
 
       if (!ignore) {
-        setEmployees(payload);
+        setEmployees(payload.filter((employee) => employee.isActive));
       }
     }
 
