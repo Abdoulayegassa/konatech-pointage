@@ -6,7 +6,11 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { scheduleWithEmployeesSelect } from '../../common/prisma/selects';
+import {
+  publicEmployeeSelect,
+  scheduleSelect,
+} from '../../common/prisma/selects';
+import { AuthenticationContext } from '../auth/interfaces/authentication-context.interface';
 import { CreateScheduleDto } from './dto/create-schedule.dto';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
 import { UpdateScheduleStatusDto } from './dto/update-schedule-status.dto';
@@ -15,19 +19,23 @@ import { UpdateScheduleStatusDto } from './dto/update-schedule-status.dto';
 export class SchedulesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll() {
+  findAll(authentication?: AuthenticationContext) {
+    const organizationId = this.tenantId(authentication);
     return this.prisma.schedule.findMany({
-      select: scheduleWithEmployeesSelect,
+      where: organizationId ? { organizationId } : undefined,
+      select: this.scheduleSelect(organizationId),
       orderBy: [{ createdAt: 'desc' }, { name: 'asc' }],
     });
   }
 
-  async findOne(id: string) {
-    const schedule = await this.prisma.schedule.findUnique({
+  async findOne(id: string, authentication?: AuthenticationContext) {
+    const organizationId = this.tenantId(authentication);
+    const schedule = await this.prisma.schedule.findFirst({
       where: {
         id,
+        ...(organizationId ? { organizationId } : {}),
       },
-      select: scheduleWithEmployeesSelect,
+      select: this.scheduleSelect(organizationId),
     });
 
     if (!schedule) {
@@ -37,7 +45,11 @@ export class SchedulesService {
     return schedule;
   }
 
-  async create(createScheduleDto: CreateScheduleDto) {
+  async create(
+    createScheduleDto: CreateScheduleDto,
+    authentication?: AuthenticationContext,
+  ) {
+    const organizationId = this.tenantId(authentication);
     this.assertValidScheduleWindow(
       createScheduleDto.startTime,
       createScheduleDto.endTime,
@@ -52,16 +64,22 @@ export class SchedulesService {
           latenessMarginMinutes: createScheduleDto.latenessMarginMinutes ?? 0,
           isActive: createScheduleDto.isActive ?? true,
           workDays: createScheduleDto.workDays,
+          organizationId: organizationId ?? null,
         },
-        select: scheduleWithEmployeesSelect,
+        select: this.scheduleSelect(organizationId),
       });
     } catch (error) {
       this.handlePersistenceError(error);
     }
   }
 
-  async update(id: string, updateScheduleDto: UpdateScheduleDto) {
-    const existingSchedule = await this.ensureScheduleExists(id);
+  async update(
+    id: string,
+    updateScheduleDto: UpdateScheduleDto,
+    authentication?: AuthenticationContext,
+  ) {
+    const organizationId = this.tenantId(authentication);
+    const existingSchedule = await this.ensureScheduleExists(id, organizationId);
     const nextStartTime =
       updateScheduleDto.startTime ?? existingSchedule.startTime;
     const nextEndTime = updateScheduleDto.endTime ?? existingSchedule.endTime;
@@ -72,15 +90,20 @@ export class SchedulesService {
       return await this.prisma.schedule.update({
         where: { id },
         data: updateScheduleDto,
-        select: scheduleWithEmployeesSelect,
+        select: this.scheduleSelect(organizationId),
       });
     } catch (error) {
       this.handlePersistenceError(error);
     }
   }
 
-  async updateStatus(id: string, payload: UpdateScheduleStatusDto) {
-    await this.ensureScheduleExists(id);
+  async updateStatus(
+    id: string,
+    payload: UpdateScheduleStatusDto,
+    authentication?: AuthenticationContext,
+  ) {
+    const organizationId = this.tenantId(authentication);
+    await this.ensureScheduleExists(id, organizationId);
 
     return this.prisma.schedule.update({
       where: {
@@ -89,14 +112,15 @@ export class SchedulesService {
       data: {
         isActive: payload.isActive,
       },
-      select: scheduleWithEmployeesSelect,
+      select: this.scheduleSelect(organizationId),
     });
   }
 
-  private async ensureScheduleExists(id: string) {
-    const schedule = await this.prisma.schedule.findUnique({
+  private async ensureScheduleExists(id: string, organizationId?: string) {
+    const schedule = await this.prisma.schedule.findFirst({
       where: {
         id,
+        ...(organizationId ? { organizationId } : {}),
       },
       select: {
         id: true,
@@ -110,6 +134,31 @@ export class SchedulesService {
     }
 
     return schedule;
+  }
+
+  private scheduleSelect(organizationId?: string) {
+    return {
+      ...scheduleSelect,
+      employees: {
+        where: organizationId ? { organizationId } : undefined,
+        select: publicEmployeeSelect,
+      },
+    } satisfies Prisma.ScheduleSelect;
+  }
+
+  private tenantId(authentication?: AuthenticationContext) {
+    if (!authentication || authentication.generation === 'legacy') {
+      return undefined;
+    }
+
+    if (
+      authentication.purpose !== 'account' ||
+      !authentication.organizationId
+    ) {
+      throw new BadRequestException('A valid organization context is required.');
+    }
+
+    return authentication.organizationId;
   }
 
   private assertValidScheduleWindow(startTime: string, endTime: string) {
