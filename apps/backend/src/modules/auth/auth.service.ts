@@ -285,6 +285,80 @@ export class AuthService {
     };
   }
 
+  async getAvailableOrganizations(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, status: true },
+    });
+
+    if (!user || user.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException('Account is no longer active.');
+    }
+
+    const memberships = await this.prisma.membership.findMany({
+      where: { userId: user.id, status: MembershipStatus.ACTIVE },
+      select: {
+        id: true,
+        role: true,
+        organization: {
+          select: { id: true, name: true, slug: true, status: true },
+        },
+      },
+    });
+
+    return memberships
+      .filter(
+        ({ organization }) =>
+          organization.status === OrganizationStatus.ACTIVE,
+      )
+      .map(({ organization, role }) => ({
+        id: organization.id,
+        name: organization.name,
+        slug: organization.slug,
+        role,
+      }));
+  }
+
+  async selectOrganization(userId: string, organizationId: string) {
+    const context = await this.resolveOrganizationContext(
+      userId,
+      organizationId,
+    );
+    const membership = await this.prisma.membership.findUnique({
+      where: { id: context.context.membershipId! },
+      select: {
+        membershipVersion: true,
+        organization: { select: { id: true, name: true, slug: true } },
+      },
+    });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { userVersion: true },
+    });
+
+    if (!membership || !user) {
+      throw new UnauthorizedException('Organization access denied.');
+    }
+
+    return {
+      accessToken: this.createAccountToken({
+        userId,
+        membershipId: context.context.membershipId!,
+        organizationId: context.context.organizationId!,
+        userVersion: user.userVersion,
+        membershipVersion: membership.membershipVersion,
+      }),
+      tokenType: 'Bearer' as const,
+      expiresIn: this.getJwtExpiresIn(),
+      organization: membership.organization,
+      membership: {
+        id: context.context.membershipId!,
+        role: context.context.membershipRole,
+      },
+      employeeId: context.context.employeeId,
+    };
+  }
+
   createAccountToken(input: {
     userId: string;
     membershipId: string;

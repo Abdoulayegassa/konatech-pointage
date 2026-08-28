@@ -453,6 +453,55 @@ describe('Phase 1C.2 authentication foundation', () => {
       status: MembershipStatus.ACTIVE,
     });
 
+    it('discovers only active organizations for the authenticated user', async () => {
+      const { prisma, service } = createService();
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-1', status: UserStatus.ACTIVE });
+      prisma.membership.findMany.mockResolvedValue([
+        {
+          id: 'membership-a', role: MembershipRole.OWNER,
+          organization: { id: 'organization-a', name: 'A', slug: 'a', status: OrganizationStatus.ACTIVE },
+        },
+        {
+          id: 'membership-suspended', role: MembershipRole.ADMIN,
+          organization: { id: 'organization-c', name: 'C', slug: 'c', status: OrganizationStatus.SUSPENDED },
+        },
+      ]);
+
+      await expect(service.getAvailableOrganizations('user-1')).resolves.toEqual([
+        { id: 'organization-a', name: 'A', slug: 'a', role: MembershipRole.OWNER },
+      ]);
+    });
+
+    it('issues a validated account token for an explicitly selected organization', async () => {
+      const { prisma, service } = createService();
+      prisma.user.findUnique
+        .mockResolvedValueOnce({ id: 'user-1', status: UserStatus.ACTIVE })
+        .mockResolvedValueOnce({ userVersion: 1 });
+      prisma.membership.findUnique
+        .mockResolvedValueOnce(activeMembership('organization-a', 'membership-a'))
+        .mockResolvedValueOnce({
+          membershipVersion: 3,
+          organization: { id: 'organization-a', name: 'A', slug: 'a' },
+        });
+      prisma.organization.findUnique.mockResolvedValue({
+        id: 'organization-a', status: OrganizationStatus.ACTIVE,
+      });
+      prisma.employee.findFirst.mockResolvedValue(null);
+
+      const result = await service.selectOrganization('user-1', 'organization-a');
+      expect(result).toMatchObject({
+        tokenType: 'Bearer',
+        organization: { id: 'organization-a' },
+        membership: { id: 'membership-a', role: MembershipRole.ADMIN },
+        employeeId: null,
+      });
+      expect(verifyJwtToken(result.accessToken, secret)).toMatchObject({
+        sub: 'user-1', membershipId: 'membership-a',
+        organizationId: 'organization-a', purpose: 'account',
+        userVersion: 1, membershipVersion: 3,
+      });
+    });
+
     it('resolves one active organization and supports an owner without Employee', async () => {
       const { prisma, service } = createService();
       prisma.user.findUnique.mockResolvedValue({
