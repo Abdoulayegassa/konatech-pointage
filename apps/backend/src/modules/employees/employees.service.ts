@@ -22,6 +22,7 @@ import { AssignEmployeeScheduleDto } from './dto/assign-employee-schedule.dto';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { UpdateEmployeeStatusDto } from './dto/update-employee-status.dto';
+import { AuthenticationContext } from '../auth/interfaces/authentication-context.interface';
 
 const employeeWithScheduleAndPinSelect = {
   ...employeeWithScheduleSelect,
@@ -33,8 +34,10 @@ const employeeWithScheduleAndPinSelect = {
 export class EmployeesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll() {
+  async findAll(authentication?: AuthenticationContext) {
+    const organizationId = this.tenantId(authentication);
     const employees = await this.prisma.employee.findMany({
+      where: organizationId ? { organizationId } : undefined,
       select: employeeWithScheduleAndPinSelect,
       orderBy: [
         { createdAt: 'desc' },
@@ -46,10 +49,12 @@ export class EmployeesService {
     return employees.map((employee) => this.mapEmployeeResponse(employee));
   }
 
-  async findOne(id: string) {
-    const employee = await this.prisma.employee.findUnique({
+  async findOne(id: string, authentication?: AuthenticationContext) {
+    const organizationId = this.tenantId(authentication);
+    const employee = await this.prisma.employee.findFirst({
       where: {
         id,
+        ...(organizationId ? { organizationId } : {}),
       },
       select: employeeWithScheduleAndPinSelect,
     });
@@ -61,16 +66,22 @@ export class EmployeesService {
     return this.mapEmployeeResponse(employee);
   }
 
-  async create(createEmployeeDto: CreateEmployeeDto) {
+  async create(
+    createEmployeeDto: CreateEmployeeDto,
+    authentication?: AuthenticationContext,
+  ) {
+    const organizationId = this.tenantId(authentication);
     const pinSecret = await this.resolvePinSecret(
       createEmployeeDto.accessRole ?? AccessRole.EMPLOYEE,
       createEmployeeDto.pinCode,
       true,
       undefined,
+      undefined,
+      organizationId,
     );
 
     if (createEmployeeDto.scheduleId) {
-      await this.ensureScheduleExists(createEmployeeDto.scheduleId);
+      await this.ensureScheduleExists(createEmployeeDto.scheduleId, organizationId);
     }
 
     const passwordHash = await hashPassword(createEmployeeDto.password);
@@ -79,7 +90,7 @@ export class EmployeesService {
       try {
         const employee = await this.prisma.$transaction(async (transaction) => {
           const employeeIdentifier =
-            await this.generateEmployeeIdentifier(transaction);
+            await this.generateEmployeeIdentifier(transaction, new Date(), organizationId);
 
           return transaction.employee.create({
             data: {
@@ -94,16 +105,9 @@ export class EmployeesService {
               passwordHash,
               department: createEmployeeDto.department ?? null,
               isActive: createEmployeeDto.isActive ?? true,
-              ...(createEmployeeDto.scheduleId
-                ? {
-                    schedule: {
-                      connect: {
-                        id: createEmployeeDto.scheduleId,
-                      },
-                    },
-                  }
-                : {}),
-            },
+              ...(organizationId ? { organizationId } : {}),
+              scheduleId: createEmployeeDto.scheduleId ?? null,
+            } as Prisma.EmployeeUncheckedCreateInput,
             select: employeeWithScheduleAndPinSelect,
           });
         });
@@ -121,17 +125,23 @@ export class EmployeesService {
     throw new ConflictException("Impossible de creer l'employe.");
   }
 
-  async update(id: string, updateEmployeeDto: UpdateEmployeeDto) {
-    const existingEmployee = await this.ensureEmployeeExists(id);
+  async update(
+    id: string,
+    updateEmployeeDto: UpdateEmployeeDto,
+    authentication?: AuthenticationContext,
+  ) {
+    const organizationId = this.tenantId(authentication);
+    const existingEmployee = await this.ensureEmployeeExists(id, organizationId);
 
     if (typeof updateEmployeeDto.scheduleId === 'string') {
-      await this.ensureScheduleExists(updateEmployeeDto.scheduleId);
+      await this.ensureScheduleExists(updateEmployeeDto.scheduleId, organizationId);
     }
 
     const data = await this.buildEmployeeUpdateData(
       id,
       existingEmployee,
       updateEmployeeDto,
+      organizationId,
     );
 
     try {
@@ -147,27 +157,28 @@ export class EmployeesService {
     }
   }
 
-  updateStatus(id: string, payload: UpdateEmployeeStatusDto) {
+  updateStatus(id: string, payload: UpdateEmployeeStatusDto, authentication?: AuthenticationContext) {
     return this.updateEmployeeFields(id, {
       isActive: payload.isActive,
-    });
+    }, this.tenantId(authentication));
   }
 
-  assignRole(id: string, payload: AssignEmployeeRoleDto) {
+  assignRole(id: string, payload: AssignEmployeeRoleDto, authentication?: AuthenticationContext) {
     return this.updateEmployeeFields(id, {
       role: payload.role,
-    });
+    }, this.tenantId(authentication));
   }
 
-  assignDepartment(id: string, payload: AssignEmployeeDepartmentDto) {
+  assignDepartment(id: string, payload: AssignEmployeeDepartmentDto, authentication?: AuthenticationContext) {
     return this.updateEmployeeFields(id, {
       department: payload.department ?? null,
-    });
+    }, this.tenantId(authentication));
   }
 
-  async assignSchedule(id: string, payload: AssignEmployeeScheduleDto) {
+  async assignSchedule(id: string, payload: AssignEmployeeScheduleDto, authentication?: AuthenticationContext) {
+    const organizationId = this.tenantId(authentication);
     if (payload.scheduleId) {
-      await this.ensureScheduleExists(payload.scheduleId);
+      await this.ensureScheduleExists(payload.scheduleId, organizationId);
     }
 
     return this.updateEmployeeFields(id, {
@@ -184,14 +195,15 @@ export class EmployeesService {
               disconnect: true,
             },
           }),
-    });
+    }, organizationId);
   }
 
   private async updateEmployeeFields(
     id: string,
     data: Prisma.EmployeeUpdateInput,
+    organizationId?: string,
   ) {
-    await this.ensureEmployeeExists(id);
+    await this.ensureEmployeeExists(id, organizationId);
 
     try {
       const employee = await this.prisma.employee.update({
@@ -216,6 +228,7 @@ export class EmployeesService {
       pinCodeHash: string | null;
     },
     updateEmployeeDto: UpdateEmployeeDto,
+    organizationId?: string,
   ) {
     const nextAccessRole =
       updateEmployeeDto.accessRole ?? existingEmployee.accessRole;
@@ -228,6 +241,7 @@ export class EmployeesService {
         pinCodeHash: existingEmployee.pinCodeHash,
       },
       id,
+      organizationId,
     );
 
     const data: Prisma.EmployeeUpdateInput = {
@@ -265,10 +279,11 @@ export class EmployeesService {
     return data;
   }
 
-  private async ensureEmployeeExists(id: string) {
-    const employee = await this.prisma.employee.findUnique({
+  private async ensureEmployeeExists(id: string, organizationId?: string) {
+    const employee = await this.prisma.employee.findFirst({
       where: {
         id,
+        ...(organizationId ? { organizationId } : {}),
       },
       select: {
         id: true,
@@ -285,17 +300,18 @@ export class EmployeesService {
     return employee;
   }
 
-  private async ensureScheduleExists(scheduleId: string) {
+  private async ensureScheduleExists(scheduleId: string, organizationId?: string) {
     const schedule = await this.prisma.schedule.findUnique({
       where: {
         id: scheduleId,
       },
       select: {
         id: true,
+        organizationId: true,
       },
     });
 
-    if (!schedule) {
+    if (!schedule || (organizationId && schedule.organizationId !== organizationId)) {
       throw new NotFoundException('Assigned schedule not found.');
     }
   }
@@ -344,6 +360,7 @@ export class EmployeesService {
   private async generateEmployeeIdentifier(
     transaction: Prisma.TransactionClient,
     referenceDate = new Date(),
+    organizationId?: string,
   ) {
     const year = referenceDate.getUTCFullYear();
     const prefix = `EMP-${year}-`;
@@ -352,6 +369,7 @@ export class EmployeesService {
         employeeIdentifier: {
           startsWith: prefix,
         },
+        ...(organizationId ? { organizationId } : {}),
       },
       select: {
         employeeIdentifier: true,
@@ -399,6 +417,7 @@ export class EmployeesService {
       pinCodeHash: null,
     },
     excludedEmployeeId?: string,
+    organizationId?: string,
   ) {
     const effectiveCurrentPinSecret = currentPinSecret ?? {
       pinCode: null,
@@ -439,7 +458,11 @@ export class EmployeesService {
         throw new BadRequestException(INVALID_EMPLOYEE_PIN_MESSAGE);
       }
 
-      await this.ensurePinCodeAvailable(normalizedPinCode, excludedEmployeeId);
+      await this.ensurePinCodeAvailable(
+        normalizedPinCode,
+        excludedEmployeeId,
+        organizationId,
+      );
 
       return {
         pinCode: null,
@@ -494,10 +517,12 @@ export class EmployeesService {
   private async ensurePinCodeAvailable(
     normalizedPinCode: string,
     excludedEmployeeId?: string,
+    organizationId?: string,
   ) {
     const employees = await this.prisma.employee.findMany({
       where: {
         accessRole: AccessRole.EMPLOYEE,
+        ...(organizationId ? { organizationId } : {}),
         ...(excludedEmployeeId
           ? {
               id: {
@@ -536,5 +561,20 @@ export class EmployeesService {
         throw new ConflictException('Ce code PIN est deja utilise.');
       }
     }
+  }
+
+  private tenantId(authentication?: AuthenticationContext) {
+    if (!authentication || authentication.generation === 'legacy') {
+      return undefined;
+    }
+
+    if (
+      authentication.purpose !== 'account' ||
+      !authentication.organizationId
+    ) {
+      throw new BadRequestException('A valid organization context is required.');
+    }
+
+    return authentication.organizationId;
   }
 }
