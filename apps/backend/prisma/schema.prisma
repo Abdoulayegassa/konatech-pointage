@@ -21,6 +21,30 @@ enum AccessRole {
   EMPLOYEE
 }
 
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  MANAGER
+  MEMBER
+}
+
+enum MembershipStatus {
+  ACTIVE
+  SUSPENDED
+  REVOKED
+}
+
 enum AttendanceVerificationMethod {
   NONE
   GPS
@@ -54,45 +78,149 @@ enum SanctionPeriod {
   MONTHLY
 }
 
+model Organization {
+  id              String             @id @default(uuid())
+  name            String
+  slug            String             @unique
+  status          OrganizationStatus @default(ACTIVE)
+  timezone        String
+  logoUrl         String?
+  primaryColor    String?
+  employees       Employee[]
+  schedules       Schedule[]
+  attendances     Attendance[]
+  calendarEntries CalendarEntry[]
+  sanctionRules   SanctionRule[]
+  attendanceSites AttendanceSite[]
+  memberships     Membership[]
+  invitations     Invitation[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+}
+
+model User {
+  id              String       @id @default(uuid())
+  normalizedEmail String       @unique
+  passwordHash    String
+  status          UserStatus   @default(ACTIVE)
+  userVersion     Int          @default(1)
+  memberships     Membership[]
+  employees       Employee[]
+  invitationsSent Invitation[]
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+}
+
+model Membership {
+  id                String           @id @default(uuid())
+  userId            String
+  user              User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  organizationId    String
+  organization      Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  role              MembershipRole
+  status            MembershipStatus @default(ACTIVE)
+  membershipVersion Int              @default(1)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@unique([organizationId, userId])
+  @@index([userId, status])
+  @@index([organizationId, status])
+  @@index([organizationId, role, status])
+}
+
+model Invitation {
+  id              String       @id @default(uuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  invitedByUserId String
+  invitedByUser   User         @relation(fields: [invitedByUserId], references: [id], onDelete: Restrict)
+  email           String
+  tokenHash       String       @unique
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime     @default(now())
+
+  @@index([organizationId, email])
+  @@index([invitedByUserId])
+  @@index([expiresAt])
+}
+
+model AttendanceSite {
+  id                  String       @id @default(uuid())
+  organizationId      String
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  publicId            String       @unique @default(uuid())
+  name                String
+  latitude            Float
+  longitude           Float
+  allowedRadiusMeters Int
+  isActive            Boolean      @default(true)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  @@unique([organizationId, name])
+  @@index([organizationId, isActive])
+}
+
 model Employee {
-  id                 String       @id @default(uuid())
-  employeeCode       String?      @unique
-  employeeIdentifier String       @unique
-  pinCode            String?      @unique
+  id                 String          @id @default(uuid())
+  employeeCode       String?         @unique
+  employeeIdentifier String          @unique
+  pinCode            String?         @unique
   pinCodeHash        String?
   firstName          String
   lastName           String
-  email              String       @unique
+  email              String          @unique
   role               String
-  accessRole         AccessRole   @default(EMPLOYEE)
+  accessRole         AccessRole      @default(EMPLOYEE)
   passwordHash       String
   department         String?
-  isActive           Boolean      @default(true)
+  isActive           Boolean         @default(true)
+  userId             String?
+  user               User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  organizationId     String?
+  organization       Organization?   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   scheduleId         String?
-  schedule           Schedule?    @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  schedule           Schedule?       @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
   attendances        Attendance[]
-  calendarEntries     CalendarEntry[]
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  calendarEntries    CalendarEntry[]
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  @@unique([organizationId, employeeIdentifier])
+  @@unique([organizationId, employeeCode])
+  @@unique([organizationId, userId])
+  @@unique([organizationId, id])
+  @@index([organizationId, isActive])
 }
 
 model Schedule {
-  id                    String     @id @default(uuid())
-  name                  String     @unique
+  id                    String        @id @default(uuid())
+  name                  String        @unique
   startTime             String
   endTime               String
-  latenessMarginMinutes Int        @default(0)
-  isActive              Boolean    @default(true)
+  latenessMarginMinutes Int           @default(0)
+  isActive              Boolean       @default(true)
   workDays              Json
+  organizationId        String?
+  organization          Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   employees             Employee[]
-  createdAt             DateTime   @default(now())
-  updatedAt             DateTime   @updatedAt
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  @@unique([organizationId, name])
+  @@unique([organizationId, id])
+  @@index([organizationId, isActive])
 }
 
 model Attendance {
   id                                String                       @id @default(uuid())
   employeeId                        String
   employee                          Employee                     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  organizationId                    String?
+  organization                      Organization?                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   date                              DateTime
   clockInAt                         DateTime?
   clockOutAt                        DateTime?
@@ -136,7 +264,9 @@ model Attendance {
   updatedAt                         DateTime                     @updatedAt
 
   @@unique([employeeId, date])
+  @@unique([organizationId, employeeId, date])
   @@index([date])
+  @@index([organizationId, date])
   @@index([checkInDistanceMeters])
   @@index([checkInVerificationLevel])
   @@index([checkOutDistanceMeters])
@@ -148,18 +278,21 @@ model Attendance {
 }
 
 model CalendarEntry {
-  id          String            @id @default(uuid())
-  name        String
-  description String?
-  date        DateTime
-  type        CalendarEntryType
-  employeeId  String?
-  employee    Employee?         @relation(fields: [employeeId], references: [id], onDelete: SetNull)
-  isActive    Boolean           @default(true)
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  id             String            @id @default(uuid())
+  name           String
+  description    String?
+  date           DateTime
+  type           CalendarEntryType
+  employeeId     String?
+  employee       Employee?         @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  organizationId String?
+  organization   Organization?     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  isActive       Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
 
   @@index([date])
+  @@index([organizationId, date])
   @@index([type])
   @@index([employeeId])
 }
@@ -167,6 +300,7 @@ model CalendarEntry {
 model SanctionRule {
   id                   String           @id @default(uuid())
   type                 SanctionRuleType
+  code                 String?
   name                 String
   description          String?
   active               Boolean          @default(true)
@@ -180,9 +314,13 @@ model SanctionRule {
   priority             Int              @default(100)
   appliedReason        String
   toleratedReason      String?
+  organizationId       String?
+  organization         Organization?    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
 
+  @@unique([organizationId, code])
   @@index([type, active])
+  @@index([organizationId, type, active])
   @@index([priority])
 }
