@@ -4,10 +4,11 @@ import {
   ForbiddenException,
   Injectable,
 } from '@nestjs/common';
-import { AccessRole } from '@prisma/client';
+import { AccessRole, MembershipRole } from '@prisma/client';
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../constants/auth.constants';
 import { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
+import { AuthenticationContext } from '../interfaces/authentication-context.interface';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -25,8 +26,33 @@ export class RolesGuard implements CanActivate {
 
     const request = context
       .switchToHttp()
-      .getRequest<{ user?: AuthenticatedUser }>();
+      .getRequest<{
+        authentication?: AuthenticationContext;
+        user?: AuthenticatedUser;
+      }>();
     const user = request.user;
+    const authentication = request.authentication;
+
+    if (authentication?.generation === 'saas') {
+      if (authentication.purpose !== 'account') {
+        throw new ForbiddenException(
+          'This session cannot access account resources.',
+        );
+      }
+
+      if (
+        !this.membershipRoleSatisfies(
+          authentication.membershipRole,
+          requiredRoles,
+        )
+      ) {
+        throw new ForbiddenException(
+          'Insufficient permissions for this resource.',
+        );
+      }
+
+      return true;
+    }
 
     if (!user) {
       return false;
@@ -39,5 +65,25 @@ export class RolesGuard implements CanActivate {
     }
 
     return true;
+  }
+
+  private membershipRoleSatisfies(
+    membershipRole: MembershipRole | null,
+    requiredRoles: AccessRole[],
+  ) {
+    if (!membershipRole) {
+      return false;
+    }
+
+    return requiredRoles.some((requiredRole) => {
+      if (requiredRole === AccessRole.ADMIN) {
+        return (
+          membershipRole === MembershipRole.OWNER ||
+          membershipRole === MembershipRole.ADMIN
+        );
+      }
+
+      return membershipRole === MembershipRole.MEMBER;
+    });
   }
 }

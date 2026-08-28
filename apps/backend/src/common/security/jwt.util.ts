@@ -1,11 +1,35 @@
 import { createHmac, timingSafeEqual } from 'crypto';
 
-export type JwtPayload = {
-  sub: string;
+type JwtBasePayload = { sub: string; iat: number; exp: number };
+
+export type LegacyJwtPayload = JwtBasePayload & {
   email: string;
-  iat: number;
-  exp: number;
+  purpose?: never;
 };
+
+export type AccountJwtPayload = JwtBasePayload & {
+  membershipId: string;
+  organizationId: string;
+  purpose: 'account';
+  userVersion: number;
+  membershipVersion: number;
+};
+
+export type AttendanceEntryJwtPayload = JwtBasePayload & {
+  organizationId: string;
+  attendanceSiteId: string;
+  purpose: 'attendance_entry';
+};
+
+export type JwtPayload =
+  | LegacyJwtPayload
+  | AccountJwtPayload
+  | AttendanceEntryJwtPayload;
+
+export type SignableJwtPayload =
+  | Omit<LegacyJwtPayload, 'iat' | 'exp'>
+  | Omit<AccountJwtPayload, 'iat' | 'exp'>
+  | Omit<AttendanceEntryJwtPayload, 'iat' | 'exp'>;
 
 const DURATION_MULTIPLIERS: Record<string, number> = {
   s: 1,
@@ -54,17 +78,92 @@ function parseDuration(value: string) {
   return Number(amount) * DURATION_MULTIPLIERS[unit];
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0;
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return Number.isInteger(value) && Number(value) > 0;
+}
+
+function parseAndValidatePayload(value: string): JwtPayload {
+  const payload: unknown = JSON.parse(decodeBase64Url(value));
+
+  if (
+    !isRecord(payload) ||
+    !isNonEmptyString(payload.sub) ||
+    !isPositiveInteger(payload.iat) ||
+    !isPositiveInteger(payload.exp)
+  ) {
+    throw new Error('Invalid JWT payload.');
+  }
+
+  if (payload.exp <= Math.floor(Date.now() / 1000)) {
+    throw new Error('JWT token has expired.');
+  }
+
+  if (payload.purpose === undefined) {
+    if (!isNonEmptyString(payload.email)) {
+      throw new Error('Invalid legacy JWT payload.');
+    }
+
+    return payload as LegacyJwtPayload;
+  }
+
+  if (payload.purpose === 'account') {
+    if (
+      !isNonEmptyString(payload.membershipId) ||
+      !isNonEmptyString(payload.organizationId) ||
+      !isPositiveInteger(payload.userVersion) ||
+      !isPositiveInteger(payload.membershipVersion)
+    ) {
+      throw new Error('Invalid account JWT payload.');
+    }
+
+    return payload as AccountJwtPayload;
+  }
+
+  if (payload.purpose === 'attendance_entry') {
+    if (
+      !isNonEmptyString(payload.organizationId) ||
+      !isNonEmptyString(payload.attendanceSiteId)
+    ) {
+      throw new Error('Invalid attendance-entry JWT payload.');
+    }
+
+    return payload as AttendanceEntryJwtPayload;
+  }
+
+  throw new Error('Invalid JWT purpose.');
+}
+
+export function isLegacyJwtPayload(
+  payload: JwtPayload,
+): payload is LegacyJwtPayload {
+  return payload.purpose === undefined;
+}
+
+export function isAccountJwtPayload(
+  payload: JwtPayload,
+): payload is AccountJwtPayload {
+  return payload.purpose === 'account';
+}
+
 export function signJwtToken(
-  payload: Omit<JwtPayload, 'iat' | 'exp'>,
+  payload: SignableJwtPayload,
   secret: string,
   expiresIn: string,
 ) {
   const issuedAt = Math.floor(Date.now() / 1000);
-  const tokenPayload: JwtPayload = {
+  const tokenPayload = {
     ...payload,
     iat: issuedAt,
     exp: issuedAt + parseDuration(expiresIn),
-  };
+  } as JwtPayload;
 
   const header = encodeBase64Url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const body = encodeBase64Url(JSON.stringify(tokenPayload));
@@ -74,12 +173,13 @@ export function signJwtToken(
 }
 
 export function verifyJwtToken(token: string, secret: string): JwtPayload {
-  const [header, payload, signature] = token.split('.');
+  const segments = token.split('.');
 
-  if (!header || !payload || !signature) {
+  if (segments.length !== 3 || segments.some((segment) => !segment)) {
     throw new Error('Malformed JWT token.');
   }
 
+  const [header, payload, signature] = segments;
   const expectedSignature = createSignature(`${header}.${payload}`, secret);
   const expectedBuffer = Buffer.from(expectedSignature);
   const receivedBuffer = Buffer.from(signature);
@@ -91,15 +191,15 @@ export function verifyJwtToken(token: string, secret: string): JwtPayload {
     throw new Error('Invalid JWT signature.');
   }
 
-  const parsedPayload = JSON.parse(decodeBase64Url(payload)) as JwtPayload;
+  const parsedHeader: unknown = JSON.parse(decodeBase64Url(header));
 
-  if (!parsedPayload.sub || !parsedPayload.email) {
-    throw new Error('Invalid JWT payload.');
+  if (
+    !isRecord(parsedHeader) ||
+    parsedHeader.alg !== 'HS256' ||
+    parsedHeader.typ !== 'JWT'
+  ) {
+    throw new Error('Invalid JWT header.');
   }
 
-  if (parsedPayload.exp <= Math.floor(Date.now() / 1000)) {
-    throw new Error('JWT token has expired.');
-  }
-
-  return parsedPayload;
+  return parseAndValidatePayload(payload);
 }

@@ -7,6 +7,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { AuthService } from '../auth.service';
 import { IS_PUBLIC_KEY } from '../constants/auth.constants';
+import { AuthenticationContext } from '../interfaces/authentication-context.interface';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -27,6 +28,7 @@ export class JwtAuthGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest<{
       headers: Record<string, string | string[] | undefined>;
+      authentication?: AuthenticationContext;
       user?: unknown;
     }>();
     const authorization = request.headers.authorization;
@@ -41,7 +43,11 @@ export class JwtAuthGuard implements CanActivate {
       throw new UnauthorizedException('Authorization header must use Bearer.');
     }
 
-    request.user = await this.authService.getAuthenticatedUserFromToken(token);
+    const authentication =
+      await this.authService.getAuthenticationFromToken(token);
+
+    request.authentication = authentication.context;
+    request.user = authentication.employee ?? undefined;
 
     return true;
   }
