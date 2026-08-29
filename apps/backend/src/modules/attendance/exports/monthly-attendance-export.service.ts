@@ -89,6 +89,7 @@ type ExportEmployeeRecord = {
     workDays: ScheduleWorkDays;
     createdAt: Date;
     updatedAt: Date;
+    organizationId: string | null;
   } | null;
   attendances: ExportAttendanceRecord[];
 };
@@ -197,7 +198,10 @@ export class MonthlyAttendanceExportService {
         lastName: true,
         department: true,
         schedule: {
-          select: scheduleSelect,
+          select: {
+            ...scheduleSelect,
+            organizationId: true,
+          },
         },
         attendances: {
           where: {
@@ -264,9 +268,14 @@ export class MonthlyAttendanceExportService {
       absenceCountingEnd,
       authentication,
     );
-    const employeeExports = employees.map((employee) =>
-      this.buildEmployeeExport(
-        employee,
+    const employeeExports = employees.map((employee) => {
+      const tenantSafeEmployee =
+        organizationId && employee.schedule?.organizationId !== organizationId
+          ? { ...employee, schedule: null }
+          : employee;
+
+      return this.buildEmployeeExport(
+        tenantSafeEmployee,
         period,
         generatedAt,
         period.startDate,
@@ -274,8 +283,8 @@ export class MonthlyAttendanceExportService {
         nonWorkingDateKeys,
         allowedRadiusMeters,
         sanctionsByAttendanceId,
-      ),
-    );
+      );
+    });
 
     return {
       reportingMode: period.mode,

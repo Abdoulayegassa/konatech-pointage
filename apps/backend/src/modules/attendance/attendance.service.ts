@@ -78,7 +78,7 @@ export class AttendanceService {
         this.prisma.employee.findMany({
           where: {
             isActive: true,
-            ...(organizationId ? { organizationId } : {}),
+            ...this.employeeScheduleTenantWhere(organizationId),
             scheduleId: {
               not: null,
             },
@@ -164,10 +164,10 @@ export class AttendanceService {
   ) {
     const organizationId = this.tenantId(authentication);
     const today = normalizeAttendanceDate(referenceDate);
-    const employee = await this.prisma.employee.findUnique({
+    const employee = await this.prisma.employee.findFirst({
       where: {
         id: employeeId,
-        ...(organizationId ? { organizationId } : {}),
+        ...this.employeeScheduleTenantWhere(organizationId),
       },
       select: employeeWithScheduleSelect,
     });
@@ -472,6 +472,13 @@ export class AttendanceService {
         employeeId,
         date,
         ...(organizationId ? { organizationId } : {}),
+        ...(organizationId
+          ? {
+              employee: {
+                is: this.employeeScheduleTenantWhere(organizationId),
+              },
+            }
+          : {}),
       },
       select: {
         id: true,
@@ -595,7 +602,7 @@ export class AttendanceService {
     const employee = await this.prisma.employee.findFirst({
       where: {
         id: employeeId,
-        ...(organizationId ? { organizationId } : {}),
+        ...this.employeeScheduleTenantWhere(organizationId),
       },
       select: {
         id: true,
@@ -876,5 +883,18 @@ export class AttendanceService {
     }
 
     return authentication.organizationId;
+  }
+
+  private employeeScheduleTenantWhere(
+    organizationId?: string,
+  ): Prisma.EmployeeWhereInput {
+    if (!organizationId) {
+      return {};
+    }
+
+    return {
+      organizationId,
+      OR: [{ scheduleId: null }, { schedule: { is: { organizationId } } }],
+    };
   }
 }

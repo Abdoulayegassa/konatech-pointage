@@ -20,11 +20,16 @@ import {
 } from '../../common/utils/attendance-schedule-snapshot.util';
 import { CalendarService } from '../calendar/calendar.service';
 
+const monthlyMetricsScheduleSelect = {
+  ...scheduleSelect,
+  organizationId: true,
+} satisfies Prisma.ScheduleSelect;
+
 type EmployeeForMonthlyMetrics = {
   id: string;
   organizationId: string | null;
   schedule: Prisma.ScheduleGetPayload<{
-    select: typeof scheduleSelect;
+    select: typeof monthlyMetricsScheduleSelect;
   }> | null;
 };
 
@@ -139,6 +144,13 @@ export class AttendanceMonthlyMetricsService
     employee: EmployeeForMonthlyMetrics,
     range: MonthRange,
   ) {
+    if (
+      employee.organizationId &&
+      employee.schedule?.organizationId !== employee.organizationId
+    ) {
+      return;
+    }
+
     if (!employee.schedule?.isActive) {
       return;
     }
@@ -328,7 +340,7 @@ export class AttendanceMonthlyMetricsService
     id: true,
     organizationId: true,
     schedule: {
-      select: scheduleSelect,
+      select: monthlyMetricsScheduleSelect,
     },
   } satisfies Prisma.EmployeeSelect;
 
