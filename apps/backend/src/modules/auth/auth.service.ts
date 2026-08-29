@@ -643,8 +643,14 @@ export class AuthService {
   private async authenticateAttendanceEntry(
     payload: AttendanceEntryJwtPayload,
   ): Promise<AuthenticationResult> {
-    const employee = await this.prisma.employee.findUnique({
-      where: { id: payload.sub },
+    const employee = await this.prisma.employee.findFirst({
+      where: {
+        id: payload.sub,
+        organizationId: payload.organizationId,
+        organization: {
+          is: { status: OrganizationStatus.ACTIVE },
+        },
+      },
       select: {
         ...publicEmployeeSelect,
         organizationId: true,
@@ -660,14 +666,17 @@ export class AuthService {
       throw new UnauthorizedException('User is no longer active.');
     }
 
-    const attendanceSite = await this.prisma.attendanceSite.findUnique({
-      where: { id: payload.attendanceSiteId },
+    const attendanceSite = await this.prisma.attendanceSite.findFirst({
+      where: {
+        id: payload.attendanceSiteId,
+        organizationId: payload.organizationId,
+        isActive: true,
+      },
       select: { organizationId: true, isActive: true },
     });
 
     if (
       !attendanceSite ||
-      !attendanceSite.isActive ||
       attendanceSite.organizationId !== payload.organizationId
     ) {
       throw new UnauthorizedException('Attendance site is no longer active.');

@@ -163,6 +163,28 @@ export class CalendarService {
     authentication?: AuthenticationContext,
   ) {
     const organizationId = this.tenantId(authentication);
+    return this.queryNonWorkingDateKeys(start, end, organizationId);
+  }
+
+  getNonWorkingDateKeysForOrganization(
+    start: Date,
+    end: Date,
+    organizationId: string,
+  ) {
+    if (!organizationId) {
+      throw new BadRequestException(
+        'A valid organization context is required.',
+      );
+    }
+
+    return this.queryNonWorkingDateKeys(start, end, organizationId);
+  }
+
+  private async queryNonWorkingDateKeys(
+    start: Date,
+    end: Date,
+    organizationId?: string,
+  ) {
     const entries = await this.prisma.calendarEntry.findMany({
       where: {
         ...this.tenantWhere(organizationId),

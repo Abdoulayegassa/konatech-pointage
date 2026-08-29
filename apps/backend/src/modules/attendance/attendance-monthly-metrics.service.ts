@@ -67,21 +67,51 @@ export class AttendanceMonthlyMetricsService
       startOfMonth: range.startOfMonth,
       endOfMonth: this.getEffectiveEndOfMonth(range, new Date()),
     };
-    const employees = await this.prisma.employee.findMany({
-      where: {
-        isActive: true,
-        ...(employeeId ? { id: employeeId } : {}),
-      },
-      select: {
-        id: true,
-        organizationId: true,
-        schedule: {
-          select: scheduleSelect,
+    if (employeeId) {
+      const employee = await this.prisma.employee.findFirst({
+        where: {
+          id: employeeId,
+          isActive: true,
+          OR: [
+            { organizationId: null },
+            { organization: { is: { status: 'ACTIVE' } } },
+          ],
         },
-      },
+        select: this.employeeForMonthlyMetricsSelect,
+      });
+
+      if (employee) {
+        await this.recalculateEmployeeMonth(employee, effectiveRange);
+      }
+
+      return;
+    }
+
+    const activeOrganizations = await this.prisma.organization.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true },
     });
 
-    for (const employee of employees) {
+    for (const organization of activeOrganizations) {
+      const employees = await this.prisma.employee.findMany({
+        where: {
+          organizationId: organization.id,
+          isActive: true,
+        },
+        select: this.employeeForMonthlyMetricsSelect,
+      });
+
+      for (const employee of employees) {
+        await this.recalculateEmployeeMonth(employee, effectiveRange);
+      }
+    }
+
+    const legacyEmployees = await this.prisma.employee.findMany({
+      where: { organizationId: null, isActive: true },
+      select: this.employeeForMonthlyMetricsSelect,
+    });
+
+    for (const employee of legacyEmployees) {
       await this.recalculateEmployeeMonth(employee, effectiveRange);
     }
   }
@@ -142,10 +172,7 @@ export class AttendanceMonthlyMetricsService
           scheduleCapturedAt: true,
         },
       }),
-      this.calendarService.getNonWorkingDateKeys(
-        range.startOfMonth,
-        range.endOfMonth,
-      ),
+      this.getNonWorkingDateKeys(employee, range),
     ]);
     const absenceCount = attendances.filter(
       (attendance) =>
@@ -186,9 +213,10 @@ export class AttendanceMonthlyMetricsService
             attendance.clockOutAt,
           );
 
-      await this.prisma.attendance.update({
+      await this.prisma.attendance.updateMany({
         where: {
           id: attendance.id,
+          organizationId: employee.organizationId,
         },
         data: {
           outsideScheduleWork: isOutsideScheduleWork,
@@ -243,9 +271,9 @@ export class AttendanceMonthlyMetricsService
       ),
     );
     const cursor = new Date(range.startOfMonth);
-    const nonWorkingDateKeys = await this.calendarService.getNonWorkingDateKeys(
-      range.startOfMonth,
-      range.endOfMonth,
+    const nonWorkingDateKeys = await this.getNonWorkingDateKeys(
+      employee,
+      range,
     );
 
     while (cursor < range.endOfMonth) {
@@ -279,6 +307,30 @@ export class AttendanceMonthlyMetricsService
   private getMonthRange(year: number, month: number): MonthRange {
     return getAttendanceMonthRange(year, month);
   }
+
+  private getNonWorkingDateKeys(
+    employee: EmployeeForMonthlyMetrics,
+    range: MonthRange,
+  ) {
+    return employee.organizationId
+      ? this.calendarService.getNonWorkingDateKeysForOrganization(
+          range.startOfMonth,
+          range.endOfMonth,
+          employee.organizationId,
+        )
+      : this.calendarService.getNonWorkingDateKeys(
+          range.startOfMonth,
+          range.endOfMonth,
+        );
+  }
+
+  private readonly employeeForMonthlyMetricsSelect = {
+    id: true,
+    organizationId: true,
+    schedule: {
+      select: scheduleSelect,
+    },
+  } satisfies Prisma.EmployeeSelect;
 
   private getEffectiveEndOfMonth(range: MonthRange, referenceDate: Date) {
     if (referenceDate < range.startOfMonth) {

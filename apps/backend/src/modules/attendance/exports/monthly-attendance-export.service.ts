@@ -262,6 +262,7 @@ export class MonthlyAttendanceExportService {
     const nonWorkingDateKeys = await this.calendarService.getNonWorkingDateKeys(
       period.startDate,
       absenceCountingEnd,
+      authentication,
     );
     const employeeExports = employees.map((employee) =>
       this.buildEmployeeExport(

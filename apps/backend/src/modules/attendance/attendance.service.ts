@@ -93,7 +93,7 @@ export class AttendanceService {
             },
           },
         }),
-        this.calendarService.isNonWorkingDay(today),
+        this.calendarService.isNonWorkingDay(today, authentication),
       ]);
 
     const attendanceByEmployeeId = new Map(
@@ -190,11 +190,12 @@ export class AttendanceService {
       referenceDate,
       attendance?.clockInAt ? today : undefined,
       organizationId,
+      authentication,
     );
 
     const expectedToday = employee.schedule
       ? employee.schedule.isActive &&
-        !(await this.calendarService.isNonWorkingDay(today)) &&
+        !(await this.calendarService.isNonWorkingDay(today, authentication)) &&
         isScheduledOnDate(employee.schedule.workDays, referenceDate)
       : false;
 
@@ -342,7 +343,7 @@ export class AttendanceService {
     const { minutesLate, status } = this.getCheckInOutcome(
       employee.schedule,
       occurredAt,
-      await this.calendarService.isNonWorkingDay(date),
+      await this.calendarService.isNonWorkingDay(date, authentication),
     );
     const scheduledExitTime = this.getScheduledExitTime(
       employee.schedule,
@@ -359,6 +360,7 @@ export class AttendanceService {
       occurredAt,
       date,
       organizationId,
+      authentication,
     );
 
     if (existingAttendance?.clockInAt) {
@@ -524,7 +526,10 @@ export class AttendanceService {
       attendance,
       attendance.employee.schedule,
     );
-    const isNonWorkingDay = await this.calendarService.isNonWorkingDay(date);
+    const isNonWorkingDay = await this.calendarService.isNonWorkingDay(
+      date,
+      authentication,
+    );
     const isOutsideScheduleWork =
       Boolean(attendance.clockInAt) &&
       (isNonWorkingDay ||
@@ -542,6 +547,7 @@ export class AttendanceService {
       occurredAt,
       date,
       organizationId,
+      authentication,
     );
 
     const updateResult = await this.prisma.attendance.updateMany({
@@ -756,6 +762,7 @@ export class AttendanceService {
     referenceDate: Date,
     attendedDate?: Date,
     organizationId?: string,
+    authentication?: AuthenticationContext,
   ) {
     if (!schedule || !schedule.isActive) {
       return 0;
@@ -793,6 +800,7 @@ export class AttendanceService {
     const nonWorkingDateKeys = await this.calendarService.getNonWorkingDateKeys(
       start,
       endOfCountingWindow,
+      authentication,
     );
     let absenceCount = 0;
 

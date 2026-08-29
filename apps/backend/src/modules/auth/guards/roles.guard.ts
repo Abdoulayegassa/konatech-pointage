@@ -24,16 +24,29 @@ export class RolesGuard implements CanActivate {
       return true;
     }
 
-    const request = context
-      .switchToHttp()
-      .getRequest<{
-        authentication?: AuthenticationContext;
-        user?: AuthenticatedUser;
-      }>();
+    const request = context.switchToHttp().getRequest<{
+      authentication?: AuthenticationContext;
+      user?: AuthenticatedUser;
+    }>();
     const user = request.user;
     const authentication = request.authentication;
 
     if (authentication?.generation === 'saas') {
+      if (authentication.purpose === 'attendance_entry') {
+        if (
+          !authentication.employeeId ||
+          !user ||
+          user.id !== authentication.employeeId ||
+          !requiredRoles.includes(AccessRole.EMPLOYEE)
+        ) {
+          throw new ForbiddenException(
+            'This session cannot access account resources.',
+          );
+        }
+
+        return true;
+      }
+
       if (authentication.purpose !== 'account') {
         throw new ForbiddenException(
           'This session cannot access account resources.',
