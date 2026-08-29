@@ -245,11 +245,13 @@ export class MonthlyAttendanceExportService {
         ? await this.sanctionsService.getMonthlySanctions(
             `${period.year}-${String(period.month).padStart(2, '0')}`,
             query.employeeId,
+            authentication,
           )
         : await this.sanctionsService.getSanctionsForDateRange(
             period.startDate,
             period.endDateExclusive,
             query.employeeId,
+            authentication,
           );
     const sanctionsByAttendanceId = new Map(
       monthlySanctions.map((sanction) => [sanction.attendanceId, sanction]),

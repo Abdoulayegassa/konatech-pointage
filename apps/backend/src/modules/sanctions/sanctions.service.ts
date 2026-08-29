@@ -1,9 +1,13 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { SanctionRuleType as PrismaSanctionRuleType } from '@prisma/client';
+import {
+  Prisma,
+  SanctionRuleType as PrismaSanctionRuleType,
+} from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import {
   formatAttendanceMonth,
@@ -20,9 +24,12 @@ import {
   SanctionStatus,
 } from './sanction-engine.types';
 import { UpdateSanctionRuleDto } from './dto/update-sanction-rule.dto';
+import { CreateSanctionRuleDto } from './dto/create-sanction-rule.dto';
+import { AuthenticationContext } from '../auth/interfaces/authentication-context.interface';
 
 type DbSanctionRuleRecord = {
   id: string;
+  code: string | null;
   type: SanctionRuleType;
   name: string;
   description: string | null;
@@ -50,19 +57,95 @@ type DbSanctionRuleRecord = {
 export class SanctionsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getRules() {
-    const databaseRules = await this.getDatabaseRules();
+  async getRules(authentication?: AuthenticationContext) {
+    const organizationId = this.tenantId(authentication);
+    const databaseRules = await this.getDatabaseRules(organizationId);
 
-    return databaseRules.length > 0 ? databaseRules : SANCTION_RULES;
+    return organizationId || databaseRules.length > 0
+      ? databaseRules
+      : SANCTION_RULES;
   }
 
-  async updateRule(id: string, payload: UpdateSanctionRuleDto) {
-    const existingRule = (await this.prisma.sanctionRule.findUnique({
-      where: {
-        id,
-      },
-      select: this.getSanctionRuleSelect(),
-    })) as DbSanctionRuleRecord | null;
+  async getRuleById(id: string, authentication?: AuthenticationContext) {
+    const organizationId = this.tenantId(authentication);
+    const rule = await this.findRule({ id }, organizationId);
+
+    if (!rule) {
+      throw new NotFoundException('Sanction rule not found.');
+    }
+
+    return this.toRuleConfig(rule);
+  }
+
+  async getRuleByCode(code: string, authentication?: AuthenticationContext) {
+    const organizationId = this.tenantId(authentication);
+    const rule = await this.findRule({ code }, organizationId);
+
+    if (!rule) {
+      throw new NotFoundException('Sanction rule not found.');
+    }
+
+    return this.toRuleConfig(rule);
+  }
+
+  async createRule(
+    payload: CreateSanctionRuleDto,
+    authentication?: AuthenticationContext,
+  ) {
+    const organizationId = this.tenantId(authentication);
+    this.assertNoClientOrganizationId(payload);
+    const nextRule: DbSanctionRuleRecord = {
+      id: '',
+      code: payload.code.trim(),
+      type: payload.type as SanctionRuleType,
+      name: payload.name.trim(),
+      description: payload.description?.trim() || null,
+      active: payload.active ?? true,
+      latenessMinMinutes: payload.latenessMinMinutes ?? null,
+      latenessMinInclusive: payload.latenessMinInclusive ?? true,
+      latenessMaxMinutes: payload.latenessMaxMinutes ?? null,
+      latenessMaxInclusive: payload.latenessMaxInclusive ?? false,
+      monthlyTolerance: payload.monthlyTolerance,
+      amountFcfa: payload.amountFcfa,
+      priority: payload.priority,
+      appliedReason: payload.appliedReason.trim(),
+      toleratedReason: payload.toleratedReason?.trim() || null,
+    };
+
+    this.assertValidRuleThresholds(nextRule);
+    if (nextRule.active) {
+      await this.assertNoOverlappingActiveLatenessRanges(
+        undefined,
+        nextRule,
+        organizationId,
+      );
+    }
+
+    try {
+      const created = (await this.prisma.sanctionRule.create({
+        data: {
+          ...nextRule,
+          id: undefined,
+          type: payload.type as PrismaSanctionRuleType,
+          organizationId: organizationId ?? null,
+        },
+        select: this.getSanctionRuleSelect(),
+      })) as DbSanctionRuleRecord;
+
+      return this.toRuleConfig(created);
+    } catch (error) {
+      this.handleKnownPersistenceError(error);
+    }
+  }
+
+  async updateRule(
+    id: string,
+    payload: UpdateSanctionRuleDto,
+    authentication?: AuthenticationContext,
+  ) {
+    const organizationId = this.tenantId(authentication);
+    this.assertNoClientOrganizationId(payload);
+    const existingRule = await this.findRule({ id }, organizationId);
 
     if (!existingRule) {
       throw new NotFoundException('Sanction rule not found.');
@@ -76,7 +159,11 @@ export class SanctionsService {
     this.assertValidRuleThresholds(nextRule);
 
     if (nextRule.active && this.isLatenessRule(nextRule.type)) {
-      await this.assertNoOverlappingActiveLatenessRanges(id, nextRule);
+      await this.assertNoOverlappingActiveLatenessRanges(
+        id,
+        nextRule,
+        organizationId,
+      );
     }
 
     const updatedRule = (await this.prisma.sanctionRule.update({
@@ -101,7 +188,9 @@ export class SanctionsService {
         ...(payload.amountFcfa !== undefined
           ? { amountFcfa: payload.amountFcfa }
           : {}),
-        ...(payload.priority !== undefined ? { priority: payload.priority } : {}),
+        ...(payload.priority !== undefined
+          ? { priority: payload.priority }
+          : {}),
       },
       select: this.getSanctionRuleSelect(),
     })) as DbSanctionRuleRecord;
@@ -109,19 +198,31 @@ export class SanctionsService {
     return this.toRuleConfig(updatedRule);
   }
 
-  async getAttendanceSanction(attendanceId: string) {
-    const rules = await this.getActiveRules();
-    const attendance = await this.prisma.attendance.findUnique({
-      where: {
-        id: attendanceId,
-      },
-      select: {
-        id: true,
-        employeeId: true,
-        date: true,
-        minutesLate: true,
-      },
-    });
+  async getAttendanceSanction(
+    attendanceId: string,
+    authentication?: AuthenticationContext,
+  ) {
+    const organizationId = this.tenantId(authentication);
+    const rules = await this.getActiveRules(organizationId);
+    const attendanceSelect = {
+      id: true,
+      employeeId: true,
+      date: true,
+      minutesLate: true,
+    } as const;
+    const attendance = organizationId
+      ? await this.prisma.attendance.findFirst({
+          where: {
+            id: attendanceId,
+            organizationId,
+            employee: { organizationId },
+          },
+          select: attendanceSelect,
+        })
+      : await this.prisma.attendance.findUnique({
+          where: { id: attendanceId },
+          select: attendanceSelect,
+        });
 
     if (!attendance) {
       throw new NotFoundException('Attendance record not found.');
@@ -139,6 +240,7 @@ export class SanctionsService {
           employeeId: attendance.employeeId,
           date: attendance.date,
           rule,
+          organizationId,
         })
       : 0;
 
@@ -149,19 +251,32 @@ export class SanctionsService {
     );
   }
 
-  async getMonthlySanctions(month?: string, employeeId?: string) {
+  async getMonthlySanctions(
+    month?: string,
+    employeeId?: string,
+    authentication?: AuthenticationContext,
+  ) {
     const { start, end } = this.getMonthRange(month);
-    return this.getSanctionsForDateRange(start, end, employeeId);
+    return this.getSanctionsForDateRange(
+      start,
+      end,
+      employeeId,
+      authentication,
+    );
   }
 
   async getSanctionsForDateRange(
     start: Date,
     end: Date,
     employeeId?: string,
+    authentication?: AuthenticationContext,
   ) {
-    const rules = await this.getActiveRules();
+    const organizationId = this.tenantId(authentication);
+    const rules = await this.getActiveRules(organizationId);
     const attendances = await this.prisma.attendance.findMany({
       where: {
+        ...(organizationId ? { organizationId } : {}),
+        ...(organizationId ? { employee: { organizationId } } : {}),
         date: {
           gte: start,
           lt: end,
@@ -268,14 +383,19 @@ export class SanctionsService {
     };
   }
 
-  private async getActiveRules() {
-    const databaseRules = await this.getActiveDatabaseRules();
+  private async getActiveRules(organizationId?: string) {
+    const databaseRules = await this.getActiveDatabaseRules(organizationId);
 
-    return databaseRules.length > 0 ? databaseRules : SANCTION_RULES;
+    return organizationId || databaseRules.length > 0
+      ? databaseRules
+      : SANCTION_RULES;
   }
 
-  private async getDatabaseRules(): Promise<SanctionRuleConfig[]> {
+  private async getDatabaseRules(
+    organizationId?: string,
+  ): Promise<SanctionRuleConfig[]> {
     const records = (await this.prisma.sanctionRule.findMany({
+      where: organizationId ? { organizationId } : undefined,
       orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
       select: this.getSanctionRuleSelect(),
     })) as DbSanctionRuleRecord[];
@@ -287,10 +407,13 @@ export class SanctionsService {
     });
   }
 
-  private async getActiveDatabaseRules(): Promise<SanctionRuleConfig[]> {
+  private async getActiveDatabaseRules(
+    organizationId?: string,
+  ): Promise<SanctionRuleConfig[]> {
     const records = (await this.prisma.sanctionRule.findMany({
       where: {
         active: true,
+        ...(organizationId ? { organizationId } : {}),
       },
       orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
       select: this.getSanctionRuleSelect(),
@@ -306,6 +429,7 @@ export class SanctionsService {
   private getSanctionRuleSelect() {
     return {
       id: true,
+      code: true,
       type: true,
       name: true,
       description: true,
@@ -339,34 +463,40 @@ export class SanctionsService {
     }
 
     if (rule.monthlyTolerance < 0) {
-      throw new BadRequestException('monthlyTolerance must be greater than or equal to 0.');
+      throw new BadRequestException(
+        'monthlyTolerance must be greater than or equal to 0.',
+      );
     }
 
     if (rule.amountFcfa < 0) {
-      throw new BadRequestException('amountFcfa must be greater than or equal to 0.');
+      throw new BadRequestException(
+        'amountFcfa must be greater than or equal to 0.',
+      );
     }
 
     if (rule.priority < 0) {
-      throw new BadRequestException('priority must be greater than or equal to 0.');
+      throw new BadRequestException(
+        'priority must be greater than or equal to 0.',
+      );
     }
   }
 
   private async assertNoOverlappingActiveLatenessRanges(
-    id: string,
+    id: string | undefined,
     nextRule: DbSanctionRuleRecord,
+    organizationId?: string,
   ) {
     const activeRules = (await this.prisma.sanctionRule.findMany({
       where: {
         active: true,
+        ...(organizationId ? { organizationId } : {}),
         type: {
           in: [
             PrismaSanctionRuleType.MINOR_LATENESS,
             PrismaSanctionRuleType.MAJOR_LATENESS,
           ],
         },
-        NOT: {
-          id,
-        },
+        ...(id ? { NOT: { id } } : {}),
       },
       select: this.getSanctionRuleSelect(),
     })) as DbSanctionRuleRecord[];
@@ -464,6 +594,7 @@ export class SanctionsService {
 
     return {
       id: record.id,
+      code: record.code,
       type: record.type,
       name: record.name,
       description: record.description,
@@ -532,11 +663,15 @@ export class SanctionsService {
     employeeId: string;
     date: Date;
     rule: SanctionRuleConfig;
+    organizationId?: string;
   }) {
     const { start, end } = getAttendanceMonthRangeFromDate(input.date);
     const attendances = await this.prisma.attendance.findMany({
       where: {
         employeeId: input.employeeId,
+        ...(input.organizationId
+          ? { organizationId: input.organizationId }
+          : {}),
         AND: [
           {
             date: {
@@ -587,5 +722,64 @@ export class SanctionsService {
       start,
       end,
     };
+  }
+
+  private async findRule(
+    where: { id: string } | { code: string },
+    organizationId?: string,
+  ) {
+    if (organizationId) {
+      return (await this.prisma.sanctionRule.findFirst({
+        where: { ...where, organizationId },
+        select: this.getSanctionRuleSelect(),
+      })) as DbSanctionRuleRecord | null;
+    }
+
+    if ('id' in where) {
+      return (await this.prisma.sanctionRule.findUnique({
+        where: { id: where.id },
+        select: this.getSanctionRuleSelect(),
+      })) as DbSanctionRuleRecord | null;
+    }
+
+    return (await this.prisma.sanctionRule.findFirst({
+      where,
+      select: this.getSanctionRuleSelect(),
+    })) as DbSanctionRuleRecord | null;
+  }
+
+  private tenantId(authentication?: AuthenticationContext) {
+    if (!authentication || authentication.generation === 'legacy') {
+      return undefined;
+    }
+
+    if (!authentication.organizationId) {
+      throw new BadRequestException(
+        'A valid organization context is required.',
+      );
+    }
+
+    return authentication.organizationId;
+  }
+
+  private assertNoClientOrganizationId(payload: object) {
+    if (Object.hasOwn(payload, 'organizationId')) {
+      throw new BadRequestException(
+        'Sanction rule organization is server-controlled.',
+      );
+    }
+  }
+
+  private handleKnownPersistenceError(error: unknown): never {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    ) {
+      throw new ConflictException(
+        'A sanction rule with this code already exists.',
+      );
+    }
+
+    throw error;
   }
 }

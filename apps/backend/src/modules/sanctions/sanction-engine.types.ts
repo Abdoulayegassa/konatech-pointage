@@ -38,6 +38,7 @@ export type SanctionCondition =
 
 export type SanctionRuleConfig = {
   id?: string;
+  code?: string | null;
   type: SanctionRuleType;
   name?: string;
   description?: string | null;
