@@ -1,5 +1,7 @@
 import { Controller, Get } from '@nestjs/common';
 import { AccessRole } from '@prisma/client';
+import { CurrentAuthentication } from '../auth/decorators/current-authentication.decorator';
+import { AuthenticationContext } from '../auth/interfaces/authentication-context.interface';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { DashboardService } from './dashboard.service';
 
@@ -9,7 +11,7 @@ export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
   @Get('overview')
-  getOverview() {
-    return this.dashboardService.getOverview();
+  getOverview(@CurrentAuthentication() authentication: AuthenticationContext) {
+    return this.dashboardService.getOverview(new Date(), authentication);
   }
 }

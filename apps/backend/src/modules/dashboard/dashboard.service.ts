@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import {
   AttendanceStatus,
   AttendanceVerificationLevel,
@@ -22,6 +22,7 @@ import {
   DashboardTopSuspiciousEmployee,
 } from './dashboard.types';
 import { CalendarService } from '../calendar/calendar.service';
+import { AuthenticationContext } from '../auth/interfaces/authentication-context.interface';
 
 type DashboardEmployeeSummary = {
   id: string;
@@ -48,7 +49,9 @@ export class DashboardService {
 
   async getOverview(
     referenceDate: Date = new Date(),
+    authentication?: AuthenticationContext,
   ): Promise<DashboardOverview> {
+    const organizationId = this.tenantId(authentication);
     const { startOfDay, endOfDay } = this.getDayRange(referenceDate);
     const { startOfMonth, endOfMonth } = this.getMonthRange(referenceDate);
 
@@ -74,15 +77,24 @@ export class DashboardService {
     ] = await Promise.all([
       this.prisma.employee.count({
         where: {
+          ...this.employeeTenantWhere(organizationId),
           isActive: true,
         },
       }),
       this.prisma.employee.findMany({
         where: {
+          ...this.employeeTenantWhere(organizationId),
           isActive: true,
           scheduleId: {
             not: null,
           },
+          ...(organizationId
+            ? {
+                schedule: {
+                  is: { organizationId },
+                },
+              }
+            : {}),
         },
         select: {
           id: true,
@@ -96,6 +108,7 @@ export class DashboardService {
       }),
       this.prisma.attendance.count({
         where: {
+          ...this.attendanceTenantWhere(organizationId),
           date: {
             gte: startOfDay,
             lt: endOfDay,
@@ -107,6 +120,7 @@ export class DashboardService {
       }),
       this.prisma.attendance.count({
         where: {
+          ...this.attendanceTenantWhere(organizationId),
           date: {
             gte: startOfDay,
             lt: endOfDay,
@@ -119,6 +133,7 @@ export class DashboardService {
       }),
       this.prisma.attendance.count({
         where: {
+          ...this.attendanceTenantWhere(organizationId),
           date: {
             gte: startOfDay,
             lt: endOfDay,
@@ -130,6 +145,7 @@ export class DashboardService {
       }),
       this.prisma.attendance.count({
         where: {
+          ...this.attendanceTenantWhere(organizationId),
           date: {
             gte: startOfDay,
             lt: endOfDay,
@@ -139,6 +155,7 @@ export class DashboardService {
       }),
       this.prisma.attendance.aggregate({
         where: {
+          ...this.attendanceTenantWhere(organizationId),
           date: {
             gte: startOfDay,
             lt: endOfDay,
@@ -153,6 +170,7 @@ export class DashboardService {
       }),
       this.prisma.attendance.count({
         where: {
+          ...this.attendanceTenantWhere(organizationId),
           date: {
             gte: startOfDay,
             lt: endOfDay,
@@ -161,6 +179,7 @@ export class DashboardService {
       }),
       this.prisma.attendance.count({
         where: {
+          ...this.attendanceTenantWhere(organizationId),
           date: {
             gte: startOfDay,
             lt: endOfDay,
@@ -173,6 +192,7 @@ export class DashboardService {
       }),
       this.prisma.attendance.count({
         where: {
+          ...this.attendanceTenantWhere(organizationId),
           date: {
             gte: startOfDay,
             lt: endOfDay,
@@ -185,6 +205,7 @@ export class DashboardService {
       }),
       this.prisma.attendance.count({
         where: {
+          ...this.attendanceTenantWhere(organizationId),
           date: {
             gte: startOfDay,
             lt: endOfDay,
@@ -202,6 +223,7 @@ export class DashboardService {
       }),
       this.prisma.attendance.count({
         where: {
+          ...this.attendanceTenantWhere(organizationId),
           date: {
             gte: startOfDay,
             lt: endOfDay,
@@ -214,6 +236,7 @@ export class DashboardService {
       }),
       this.prisma.attendance.count({
         where: {
+          ...this.attendanceTenantWhere(organizationId),
           date: {
             gte: startOfDay,
             lt: endOfDay,
@@ -226,6 +249,7 @@ export class DashboardService {
       }),
       this.prisma.attendance.count({
         where: {
+          ...this.attendanceTenantWhere(organizationId),
           date: {
             gte: startOfDay,
             lt: endOfDay,
@@ -238,6 +262,7 @@ export class DashboardService {
       }),
       this.prisma.attendance.count({
         where: {
+          ...this.attendanceTenantWhere(organizationId),
           date: {
             gte: startOfDay,
             lt: endOfDay,
@@ -255,6 +280,7 @@ export class DashboardService {
       }),
       this.prisma.attendance.count({
         where: {
+          ...this.attendanceTenantWhere(organizationId),
           date: {
             gte: startOfDay,
             lt: endOfDay,
@@ -266,6 +292,7 @@ export class DashboardService {
         },
       }),
       this.prisma.attendance.findMany({
+        where: this.attendanceTenantWhere(organizationId),
         take: 5,
         orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
         select: {
@@ -307,7 +334,7 @@ export class DashboardService {
           },
         },
       }),
-      this.calendarService.isNonWorkingDay(startOfDay),
+      this.calendarService.isNonWorkingDay(startOfDay, authentication),
     ]);
 
     const scheduledEmployeeIds = scheduledEmployees
@@ -335,6 +362,7 @@ export class DashboardService {
         ? []
         : this.prisma.attendance.findMany({
             where: {
+              ...this.attendanceTenantWhere(organizationId),
               employeeId: {
                 in: scheduledEmployeeIds,
               },
@@ -349,12 +377,13 @@ export class DashboardService {
               clockInAt: true,
             },
           }),
-      this.getTopLateEmployees(startOfMonth, endOfMonth),
-      this.getTopSuspiciousEmployees(startOfMonth, endOfMonth),
-      this.getTopOvertimeEmployees(startOfMonth, endOfMonth),
-      this.getTopEarlyExitEmployees(startOfMonth, endOfMonth),
+      this.getTopLateEmployees(startOfMonth, endOfMonth, organizationId),
+      this.getTopSuspiciousEmployees(startOfMonth, endOfMonth, organizationId),
+      this.getTopOvertimeEmployees(startOfMonth, endOfMonth, organizationId),
+      this.getTopEarlyExitEmployees(startOfMonth, endOfMonth, organizationId),
       this.prisma.attendance.aggregate({
         where: {
+          ...this.attendanceTenantWhere(organizationId),
           date: {
             gte: startOfMonth,
             lt: endOfMonth,
@@ -369,6 +398,7 @@ export class DashboardService {
       }),
       this.prisma.attendance.aggregate({
         where: {
+          ...this.attendanceTenantWhere(organizationId),
           date: {
             gte: startOfMonth,
             lt: endOfMonth,
@@ -384,6 +414,7 @@ export class DashboardService {
       }),
       this.prisma.attendance.count({
         where: {
+          ...this.attendanceTenantWhere(organizationId),
           date: {
             gte: startOfMonth,
             lt: endOfMonth,
@@ -396,6 +427,8 @@ export class DashboardService {
         startOfMonth,
         endOfMonth,
         referenceDate,
+        authentication,
+        organizationId,
       ),
     ]);
     const absentEmployeesToday = this.countAbsentEmployees(
@@ -606,10 +639,12 @@ export class DashboardService {
   private async getTopLateEmployees(
     startOfMonth: Date,
     endOfMonth: Date,
+    organizationId?: string,
   ): Promise<DashboardTopLateEmployee[]> {
     const lateGroups = await this.prisma.attendance.groupBy({
       by: ['employeeId'],
       where: {
+        ...this.attendanceTenantWhere(organizationId),
         date: {
           gte: startOfMonth,
           lt: endOfMonth,
@@ -636,6 +671,7 @@ export class DashboardService {
     });
     const employees = await this.getEmployeeSummaryMap(
       lateGroups.map((group) => group.employeeId),
+      organizationId,
     );
 
     return lateGroups.flatMap((group) => {
@@ -675,6 +711,8 @@ export class DashboardService {
     startOfMonth: Date,
     endOfMonth: Date,
     referenceDate: Date,
+    authentication?: AuthenticationContext,
+    organizationId?: string,
   ) {
     const eligibleEmployees = scheduledEmployees.filter(
       (employee) => employee.schedule?.isActive,
@@ -692,6 +730,7 @@ export class DashboardService {
 
     const workedAttendances = await this.prisma.attendance.findMany({
       where: {
+        ...this.attendanceTenantWhere(organizationId),
         employeeId: {
           in: eligibleEmployees.map((employee) => employee.id),
         },
@@ -711,6 +750,7 @@ export class DashboardService {
     const nonWorkingDateKeys = await this.calendarService.getNonWorkingDateKeys(
       startOfMonth,
       countingEnd,
+      authentication,
     );
     const workedDateKeysByEmployee = new Map<string, Set<number>>();
 
@@ -763,10 +803,12 @@ export class DashboardService {
   private async getTopOvertimeEmployees(
     startOfMonth: Date,
     endOfMonth: Date,
+    organizationId?: string,
   ): Promise<DashboardTopOvertimeEmployee[]> {
     const overtimeGroups = await this.prisma.attendance.groupBy({
       by: ['employeeId'],
       where: {
+        ...this.attendanceTenantWhere(organizationId),
         date: {
           gte: startOfMonth,
           lt: endOfMonth,
@@ -787,6 +829,7 @@ export class DashboardService {
     });
     const employees = await this.getEmployeeSummaryMap(
       overtimeGroups.map((group) => group.employeeId),
+      organizationId,
     );
 
     return overtimeGroups.flatMap((group) => {
@@ -812,10 +855,12 @@ export class DashboardService {
   private async getTopEarlyExitEmployees(
     startOfMonth: Date,
     endOfMonth: Date,
+    organizationId?: string,
   ): Promise<DashboardTopEarlyExitEmployee[]> {
     const earlyExitGroups = await this.prisma.attendance.groupBy({
       by: ['employeeId'],
       where: {
+        ...this.attendanceTenantWhere(organizationId),
         date: {
           gte: startOfMonth,
           lt: endOfMonth,
@@ -840,6 +885,7 @@ export class DashboardService {
     });
     const employees = await this.getEmployeeSummaryMap(
       earlyExitGroups.map((group) => group.employeeId),
+      organizationId,
     );
 
     return earlyExitGroups.flatMap((group) => {
@@ -866,6 +912,7 @@ export class DashboardService {
   private async getTopSuspiciousEmployees(
     startOfMonth: Date,
     endOfMonth: Date,
+    organizationId?: string,
   ): Promise<DashboardTopSuspiciousEmployee[]> {
     const suspiciousGroups = await this.prisma.attendance.groupBy({
       by: [
@@ -874,6 +921,7 @@ export class DashboardService {
         'checkInVerificationMethod',
       ],
       where: {
+        ...this.attendanceTenantWhere(organizationId),
         date: {
           gte: startOfMonth,
           lt: endOfMonth,
@@ -897,6 +945,7 @@ export class DashboardService {
     });
     const employees = await this.getEmployeeSummaryMap(
       suspiciousGroups.map((group) => group.employeeId),
+      organizationId,
     );
     const totals = new Map<
       string,
@@ -984,7 +1033,10 @@ export class DashboardService {
       .slice(0, 5);
   }
 
-  private async getEmployeeSummaryMap(employeeIds: string[]) {
+  private async getEmployeeSummaryMap(
+    employeeIds: string[],
+    organizationId?: string,
+  ) {
     const uniqueEmployeeIds = [...new Set(employeeIds)];
 
     if (uniqueEmployeeIds.length === 0) {
@@ -993,6 +1045,7 @@ export class DashboardService {
 
     const employees = await this.prisma.employee.findMany({
       where: {
+        ...this.employeeTenantWhere(organizationId),
         id: {
           in: uniqueEmployeeIds,
         },
@@ -1008,6 +1061,41 @@ export class DashboardService {
     });
 
     return new Map(employees.map((employee) => [employee.id, employee]));
+  }
+
+  private tenantId(authentication?: AuthenticationContext) {
+    if (!authentication || authentication.generation === 'legacy') {
+      return undefined;
+    }
+
+    if (!authentication.organizationId) {
+      throw new BadRequestException(
+        'A valid organization context is required.',
+      );
+    }
+
+    return authentication.organizationId;
+  }
+
+  private employeeTenantWhere(
+    organizationId?: string,
+  ): Prisma.EmployeeWhereInput {
+    return organizationId ? { organizationId } : {};
+  }
+
+  private attendanceTenantWhere(
+    organizationId?: string,
+  ): Prisma.AttendanceWhereInput {
+    if (!organizationId) {
+      return {};
+    }
+
+    return {
+      organizationId,
+      employee: {
+        is: { organizationId },
+      },
+    };
   }
 
   private mapRecentActivity(
