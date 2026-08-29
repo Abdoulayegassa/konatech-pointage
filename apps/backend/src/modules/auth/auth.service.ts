@@ -6,6 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import {
   AccessRole,
+  MembershipRole,
   MembershipStatus,
   OrganizationStatus,
   UserStatus,
@@ -41,11 +42,15 @@ import {
 
 type LoginEmployee = PublicEmployee & {
   passwordHash: string;
+  userId: string | null;
+  organizationId: string | null;
 };
 
 type AttendanceEntryLoginEmployee = PublicEmployee & {
   pinCode: string | null;
   pinCodeHash: string | null;
+  userId: string | null;
+  organizationId: string | null;
 };
 
 @Injectable()
@@ -63,6 +68,8 @@ export class AuthService {
       select: {
         ...publicEmployeeSelect,
         passwordHash: true,
+        userId: true,
+        organizationId: true,
       },
     });
 
@@ -79,7 +86,15 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials.');
     }
 
-    return this.buildLoginResponse(employee, this.getJwtExpiresIn());
+    if (employee.userId) {
+      if (!employee.organizationId) {
+        throw new UnauthorizedException('Invalid SaaS account linkage.');
+      }
+
+      return this.loginSaasEmployee(employee);
+    }
+
+    return this.buildLegacyLoginResponse(employee, this.getJwtExpiresIn());
   }
 
   async loginForAttendanceEntry(
@@ -108,6 +123,8 @@ export class AuthService {
         ...publicEmployeeSelect,
         pinCode: true,
         pinCodeHash: true,
+        userId: true,
+        organizationId: true,
       },
     });
 
@@ -116,10 +133,7 @@ export class AuthService {
         employee.pinCodeHash &&
         (await verifyPinCode(normalizedPinCode, employee.pinCodeHash))
       ) {
-        return this.buildLoginResponse(
-          employee,
-          this.getAttendanceEntryJwtExpiresIn(),
-        );
+        return this.buildAttendanceEntryLoginResponse(employee);
       }
 
       if (!employee.pinCodeHash && employee.pinCode === normalizedPinCode) {
@@ -128,10 +142,7 @@ export class AuthService {
           normalizedPinCode,
         );
 
-        return this.buildLoginResponse(
-          migratedEmployee,
-          this.getAttendanceEntryJwtExpiresIn(),
-        );
+        return this.buildAttendanceEntryLoginResponse(migratedEmployee);
       }
     }
 
@@ -169,9 +180,7 @@ export class AuthService {
     if (isLegacyJwtPayload(payload)) {
       return this.authenticateLegacyEmployee(
         payload.sub,
-        expectedPurpose === 'attendance_entry'
-          ? 'attendance_entry'
-          : 'account',
+        expectedPurpose === 'attendance_entry' ? 'attendance_entry' : 'account',
       );
     }
 
@@ -223,7 +232,11 @@ export class AuthService {
           },
         });
     const candidates = (
-      Array.isArray(memberships) ? memberships : memberships ? [memberships] : []
+      Array.isArray(memberships)
+        ? memberships
+        : memberships
+          ? [memberships]
+          : []
     ).filter(
       (membership) =>
         membership.userId === user.id &&
@@ -308,8 +321,7 @@ export class AuthService {
 
     return memberships
       .filter(
-        ({ organization }) =>
-          organization.status === OrganizationStatus.ACTIVE,
+        ({ organization }) => organization.status === OrganizationStatus.ACTIVE,
       )
       .map(({ organization, role }) => ({
         id: organization.id,
@@ -356,6 +368,51 @@ export class AuthService {
         role: context.context.membershipRole,
       },
       employeeId: context.context.employeeId,
+    };
+  }
+
+  async getCurrentIdentity(authentication: AuthenticationResult['context']) {
+    if (authentication.generation === 'legacy') {
+      if (!authentication.employeeId) {
+        throw new UnauthorizedException('User is no longer active.');
+      }
+
+      const employee = await this.prisma.employee.findUnique({
+        where: { id: authentication.employeeId },
+        select: publicEmployeeSelect,
+      });
+
+      if (!employee || !employee.isActive) {
+        throw new UnauthorizedException('User is no longer active.');
+      }
+
+      return employee;
+    }
+
+    if (
+      authentication.purpose !== 'account' ||
+      !authentication.userId ||
+      !authentication.membershipId ||
+      !authentication.organizationId
+    ) {
+      throw new UnauthorizedException(
+        'An active SaaS account context is required.',
+      );
+    }
+
+    const authenticated = await this.authenticateSaasAccountPayload({
+      sub: authentication.userId,
+      membershipId: authentication.membershipId,
+      organizationId: authentication.organizationId,
+    });
+
+    return {
+      ...(authenticated.employee ??
+        this.buildAccountCompatibilityUser(authenticated)),
+      employee: authenticated.employee,
+      account: authenticated.user,
+      membership: authenticated.membership,
+      organization: authenticated.organization,
     };
   }
 
@@ -499,6 +556,90 @@ export class AuthService {
     };
   }
 
+  private async authenticateSaasAccountPayload(input: {
+    sub: string;
+    membershipId: string;
+    organizationId: string;
+  }) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: input.sub },
+      select: {
+        id: true,
+        normalizedEmail: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    const membership = await this.prisma.membership.findUnique({
+      where: { id: input.membershipId },
+      select: {
+        id: true,
+        userId: true,
+        organizationId: true,
+        role: true,
+        status: true,
+      },
+    });
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: input.organizationId },
+      select: { id: true, name: true, slug: true, status: true },
+    });
+
+    if (!user || user.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException('Account is no longer active.');
+    }
+
+    if (
+      !membership ||
+      membership.userId !== user.id ||
+      membership.organizationId !== input.organizationId ||
+      membership.status !== MembershipStatus.ACTIVE
+    ) {
+      throw new UnauthorizedException('Membership is no longer active.');
+    }
+
+    if (!organization || organization.status !== OrganizationStatus.ACTIVE) {
+      throw new UnauthorizedException('Organization is no longer active.');
+    }
+
+    const employee = await this.prisma.employee.findFirst({
+      where: {
+        userId: user.id,
+        organizationId: organization.id,
+        isActive: true,
+      },
+      select: publicEmployeeSelect,
+    });
+
+    return { user, membership, organization, employee };
+  }
+
+  private buildAccountCompatibilityUser(
+    authenticated: Awaited<
+      ReturnType<AuthService['authenticateSaasAccountPayload']>
+    >,
+  ): PublicEmployee {
+    const isAdmin =
+      authenticated.membership.role === MembershipRole.OWNER ||
+      authenticated.membership.role === MembershipRole.ADMIN;
+
+    return {
+      id: authenticated.user.id,
+      employeeIdentifier: '',
+      firstName: authenticated.user.normalizedEmail.split('@')[0] || 'Compte',
+      lastName: '',
+      email: authenticated.user.normalizedEmail,
+      role: authenticated.membership.role,
+      accessRole: isAdmin ? AccessRole.ADMIN : AccessRole.EMPLOYEE,
+      department: null,
+      isActive: true,
+      scheduleId: null,
+      createdAt: authenticated.user.createdAt,
+      updatedAt: authenticated.user.updatedAt,
+    };
+  }
+
   private async authenticateAttendanceEntry(
     payload: AttendanceEntryJwtPayload,
   ): Promise<AuthenticationResult> {
@@ -579,7 +720,7 @@ export class AuthService {
     );
   }
 
-  private buildLoginResponse(
+  private buildLegacyLoginResponse(
     employee: LoginEmployee | AttendanceEntryLoginEmployee | PublicEmployee,
     expiresIn: string,
   ) {
@@ -596,6 +737,8 @@ export class AuthService {
       passwordHash: _passwordHash,
       pinCode: _pinCode,
       pinCodeHash: _pinCodeHash,
+      userId: _userId,
+      organizationId: _organizationId,
       ...user
     } = employee as LoginEmployee & AttendanceEntryLoginEmployee;
 
@@ -604,6 +747,82 @@ export class AuthService {
       tokenType: 'Bearer' as const,
       expiresIn,
       user,
+    };
+  }
+
+  private async loginSaasEmployee(employee: LoginEmployee) {
+    const context = await this.resolveOrganizationContext(employee.userId!);
+
+    if (
+      context.context.organizationId !== employee.organizationId ||
+      context.employee?.id !== employee.id ||
+      !context.employee.isActive
+    ) {
+      throw new UnauthorizedException('Organization access denied.');
+    }
+
+    const session = await this.selectOrganization(
+      employee.userId!,
+      employee.organizationId!,
+    );
+
+    return {
+      ...session,
+      user: context.employee,
+    };
+  }
+
+  private async buildAttendanceEntryLoginResponse(
+    employee: AttendanceEntryLoginEmployee,
+  ) {
+    if (!employee.userId) {
+      return this.buildLegacyLoginResponse(
+        employee,
+        this.getAttendanceEntryJwtExpiresIn(),
+      );
+    }
+
+    if (!employee.organizationId) {
+      throw new UnauthorizedException(
+        ATTENDANCE_ENTRY_INVALID_CREDENTIALS_MESSAGE,
+      );
+    }
+
+    const context = await this.resolveOrganizationContext(
+      employee.userId,
+      employee.organizationId,
+    );
+
+    if (context.employee?.id !== employee.id || !context.employee.isActive) {
+      throw new UnauthorizedException(
+        ATTENDANCE_ENTRY_INVALID_CREDENTIALS_MESSAGE,
+      );
+    }
+
+    const activeSites = await this.prisma.attendanceSite.findMany({
+      where: {
+        organizationId: employee.organizationId,
+        isActive: true,
+      },
+      select: { id: true },
+      take: 2,
+    });
+
+    if (activeSites.length !== 1) {
+      throw new UnauthorizedException(
+        ATTENDANCE_ENTRY_INVALID_CREDENTIALS_MESSAGE,
+      );
+    }
+
+    return {
+      accessToken: this.createAttendanceEntryToken({
+        employeeId: employee.id,
+        organizationId: employee.organizationId,
+        attendanceSiteId: activeSites[0].id,
+      }),
+      tokenType: 'Bearer' as const,
+      expiresIn: this.getAttendanceEntryJwtExpiresIn(),
+      user: context.employee,
     };
   }
 
