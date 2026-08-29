@@ -35,6 +35,7 @@ import { CheckInDto } from './dto/check-in.dto';
 import { CheckInSecurityProofDto } from './dto/check-in-security.dto';
 import { CheckOutDto } from './dto/check-out.dto';
 import { CalendarService } from '../calendar/calendar.service';
+import { AuthenticationContext } from '../auth/interfaces/authentication-context.interface';
 
 @Injectable()
 /**
@@ -52,7 +53,11 @@ export class AttendanceService {
     private readonly calendarService: CalendarService,
   ) {}
 
-  async getTodaySummary(referenceDate: Date = new Date()) {
+  async getTodaySummary(
+    referenceDate: Date = new Date(),
+    authentication?: AuthenticationContext,
+  ) {
+    const organizationId = this.tenantId(authentication);
     const today = normalizeAttendanceDate(referenceDate);
 
     const [attendances, scheduledEmployees, isNonWorkingDay] =
@@ -60,6 +65,7 @@ export class AttendanceService {
         this.prisma.attendance.findMany({
           where: {
             date: today,
+            ...(organizationId ? { organizationId } : {}),
           },
           select: {
             employeeId: true,
@@ -72,6 +78,7 @@ export class AttendanceService {
         this.prisma.employee.findMany({
           where: {
             isActive: true,
+            ...(organizationId ? { organizationId } : {}),
             scheduleId: {
               not: null,
             },
@@ -135,22 +142,32 @@ export class AttendanceService {
     };
   }
 
-  async getMonthlyHistory(month?: string) {
-    return this.getAttendanceHistory(month);
+  async getMonthlyHistory(
+    month?: string,
+    authentication?: AuthenticationContext,
+  ) {
+    return this.getAttendanceHistory(month, undefined, authentication);
   }
 
-  async getEmployeeMonthlyHistory(employeeId: string, month?: string) {
-    return this.getAttendanceHistory(month, employeeId);
+  async getEmployeeMonthlyHistory(
+    employeeId: string,
+    month?: string,
+    authentication?: AuthenticationContext,
+  ) {
+    return this.getAttendanceHistory(month, employeeId, authentication);
   }
 
   async getEmployeeTodayAttendance(
     employeeId: string,
     referenceDate: Date = new Date(),
+    authentication?: AuthenticationContext,
   ) {
+    const organizationId = this.tenantId(authentication);
     const today = normalizeAttendanceDate(referenceDate);
     const employee = await this.prisma.employee.findUnique({
       where: {
         id: employeeId,
+        ...(organizationId ? { organizationId } : {}),
       },
       select: employeeWithScheduleSelect,
     });
@@ -159,12 +176,11 @@ export class AttendanceService {
       throw new NotFoundException('Employee not found.');
     }
 
-    const attendance = await this.prisma.attendance.findUnique({
+    const attendance = await this.prisma.attendance.findFirst({
       where: {
-        employeeId_date: {
-          employeeId,
-          date: today,
-        },
+        employeeId,
+        date: today,
+        ...(organizationId ? { organizationId } : {}),
       },
       select: attendanceWithEmployeeSelect,
     });
@@ -173,6 +189,7 @@ export class AttendanceService {
       employee.schedule,
       referenceDate,
       attendance?.clockInAt ? today : undefined,
+      organizationId,
     );
 
     const expectedToday = employee.schedule
@@ -197,16 +214,32 @@ export class AttendanceService {
     return this.attendanceSecurityService.getPolicy();
   }
 
-  async checkIn(checkInDto: CheckInDto) {
-    return this.recordCheckIn(checkInDto.employeeId, checkInDto, {
-      enforceSecurity: false,
-    });
+  async checkIn(
+    checkInDto: CheckInDto,
+    authentication?: AuthenticationContext,
+  ) {
+    return this.recordCheckIn(
+      checkInDto.employeeId,
+      checkInDto,
+      {
+        enforceSecurity: false,
+      },
+      authentication,
+    );
   }
 
-  async checkOut(checkOutDto: CheckOutDto) {
-    return this.recordCheckOut(checkOutDto.employeeId, checkOutDto, {
-      enforceSecurity: false,
-    });
+  async checkOut(
+    checkOutDto: CheckOutDto,
+    authentication?: AuthenticationContext,
+  ) {
+    return this.recordCheckOut(
+      checkOutDto.employeeId,
+      checkOutDto,
+      {
+        enforceSecurity: false,
+      },
+      authentication,
+    );
   }
 
   async checkInForEmployee(
@@ -216,10 +249,16 @@ export class AttendanceService {
       notes?: string;
       security?: CheckInSecurityProofDto;
     },
+    authentication?: AuthenticationContext,
   ) {
-    return this.recordCheckIn(employeeId, payload, {
-      enforceSecurity: true,
-    });
+    return this.recordCheckIn(
+      employeeId,
+      payload,
+      {
+        enforceSecurity: true,
+      },
+      authentication,
+    );
   }
 
   async checkOutForEmployee(
@@ -229,13 +268,24 @@ export class AttendanceService {
       notes?: string;
       security?: CheckInSecurityProofDto;
     },
+    authentication?: AuthenticationContext,
   ) {
-    return this.recordCheckOut(employeeId, payload, {
-      enforceSecurity: true,
-    });
+    return this.recordCheckOut(
+      employeeId,
+      payload,
+      {
+        enforceSecurity: true,
+      },
+      authentication,
+    );
   }
 
-  private async getAttendanceHistory(month?: string, employeeId?: string) {
+  private async getAttendanceHistory(
+    month?: string,
+    employeeId?: string,
+    authentication?: AuthenticationContext,
+  ) {
+    const organizationId = this.tenantId(authentication);
     const { start, end } = this.getMonthRange(month);
 
     return this.prisma.attendance.findMany({
@@ -249,6 +299,7 @@ export class AttendanceService {
               employeeId,
             }
           : {}),
+        ...(organizationId ? { organizationId } : {}),
       },
       select: attendanceWithEmployeeSelect,
       orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
@@ -265,16 +316,20 @@ export class AttendanceService {
     options: {
       enforceSecurity: boolean;
     },
+    authentication?: AuthenticationContext,
   ) {
-    const employee = await this.getActiveEmployeeWithSchedule(employeeId);
+    const organizationId = this.tenantId(authentication);
+    const employee = await this.getActiveEmployeeWithSchedule(
+      employeeId,
+      organizationId,
+    );
     const occurredAt = this.parseOccurredAt(payload.occurredAt);
     const date = normalizeAttendanceDate(occurredAt);
-    const existingAttendance = await this.prisma.attendance.findUnique({
+    const existingAttendance = await this.prisma.attendance.findFirst({
       where: {
-        employeeId_date: {
-          employeeId: employee.id,
-          date,
-        },
+        employeeId: employee.id,
+        date,
+        ...(organizationId ? { organizationId } : {}),
       },
       select: {
         id: true,
@@ -303,6 +358,7 @@ export class AttendanceService {
       employee.schedule,
       occurredAt,
       date,
+      organizationId,
     );
 
     if (existingAttendance?.clockInAt) {
@@ -331,6 +387,7 @@ export class AttendanceService {
           id: existingAttendance.id,
           clockInAt: null,
           clockOutAt: null,
+          ...(organizationId ? { organizationId } : {}),
         },
         data: {
           clockInAt: occurredAt,
@@ -356,13 +413,14 @@ export class AttendanceService {
         );
       }
 
-      return this.getAttendanceById(existingAttendance.id);
+      return this.getAttendanceById(existingAttendance.id, organizationId);
     }
 
     try {
       return await this.prisma.attendance.create({
         data: {
           employeeId: employee.id,
+          organizationId: organizationId ?? null,
           date,
           clockInAt: occurredAt,
           outsideScheduleWork: false,
@@ -402,15 +460,16 @@ export class AttendanceService {
     options: {
       enforceSecurity: boolean;
     },
+    authentication?: AuthenticationContext,
   ) {
+    const organizationId = this.tenantId(authentication);
     const occurredAt = this.parseOccurredAt(payload.occurredAt);
     const date = normalizeAttendanceDate(occurredAt);
-    const attendance = await this.prisma.attendance.findUnique({
+    const attendance = await this.prisma.attendance.findFirst({
       where: {
-        employeeId_date: {
-          employeeId,
-          date,
-        },
+        employeeId,
+        date,
+        ...(organizationId ? { organizationId } : {}),
       },
       select: {
         id: true,
@@ -470,11 +529,10 @@ export class AttendanceService {
       Boolean(attendance.clockInAt) &&
       (isNonWorkingDay ||
         !isScheduledOnResolvedAttendanceDate(resolvedSchedule, date));
-    const scheduledExitTime =
-      isNonWorkingDay
-        ? null
-        : attendance.scheduledExitTime ??
-          getResolvedAttendanceScheduledExitTime(resolvedSchedule, occurredAt);
+    const scheduledExitTime = isNonWorkingDay
+      ? null
+      : (attendance.scheduledExitTime ??
+        getResolvedAttendanceScheduledExitTime(resolvedSchedule, occurredAt));
     const exitOutcome = isOutsideScheduleWork
       ? getOutsideScheduleAttendanceOutcome(attendance.clockInAt, occurredAt)
       : getAttendanceCheckOutOutcome(scheduledExitTime, occurredAt);
@@ -483,6 +541,7 @@ export class AttendanceService {
       attendance.employee.schedule,
       occurredAt,
       date,
+      organizationId,
     );
 
     const updateResult = await this.prisma.attendance.updateMany({
@@ -492,6 +551,7 @@ export class AttendanceService {
           not: null,
         },
         clockOutAt: null,
+        ...(organizationId ? { organizationId } : {}),
       },
       data: {
         clockOutAt: occurredAt,
@@ -519,13 +579,17 @@ export class AttendanceService {
       );
     }
 
-    return this.getAttendanceById(attendance.id);
+    return this.getAttendanceById(attendance.id, organizationId);
   }
 
-  private async getActiveEmployeeWithSchedule(employeeId: string) {
-    const employee = await this.prisma.employee.findUnique({
+  private async getActiveEmployeeWithSchedule(
+    employeeId: string,
+    organizationId?: string,
+  ) {
+    const employee = await this.prisma.employee.findFirst({
       where: {
         id: employeeId,
+        ...(organizationId ? { organizationId } : {}),
       },
       select: {
         id: true,
@@ -543,10 +607,11 @@ export class AttendanceService {
     return employee;
   }
 
-  private async getAttendanceById(id: string) {
-    const attendance = await this.prisma.attendance.findUnique({
+  private async getAttendanceById(id: string, organizationId?: string) {
+    const attendance = await this.prisma.attendance.findFirst({
       where: {
         id,
+        ...(organizationId ? { organizationId } : {}),
       },
       select: attendanceWithEmployeeSelect,
     });
@@ -690,6 +755,7 @@ export class AttendanceService {
     } | null,
     referenceDate: Date,
     attendedDate?: Date,
+    organizationId?: string,
   ) {
     if (!schedule || !schedule.isActive) {
       return 0;
@@ -699,6 +765,7 @@ export class AttendanceService {
     const workedAttendances = await this.prisma.attendance.findMany({
       where: {
         employeeId,
+        ...(organizationId ? { organizationId } : {}),
         date: {
           gte: start,
           lt: end,
@@ -787,5 +854,19 @@ export class AttendanceService {
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === 'P2002'
     );
+  }
+
+  private tenantId(authentication?: AuthenticationContext) {
+    if (!authentication || authentication.generation === 'legacy') {
+      return undefined;
+    }
+
+    if (!authentication.organizationId) {
+      throw new BadRequestException(
+        'A valid organization context is required.',
+      );
+    }
+
+    return authentication.organizationId;
   }
 }

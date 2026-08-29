@@ -29,6 +29,7 @@ import {
 } from './monthly-attendance-export.types';
 import { CalendarService } from '../../calendar/calendar.service';
 import { AppClockService } from '../../../common/time/app-clock.service';
+import { AuthenticationContext } from '../../auth/interfaces/authentication-context.interface';
 
 type ScheduleWorkDays = Parameters<typeof isScheduledOnDate>[0];
 
@@ -160,7 +161,17 @@ export class MonthlyAttendanceExportService {
 
   async buildMonthlyReport(
     query: MonthlyAttendanceExportQueryDto,
+    authentication?: AuthenticationContext,
   ): Promise<MonthlyAttendanceExportReport> {
+    const organizationId =
+      authentication?.generation === 'saas'
+        ? authentication.organizationId
+        : undefined;
+    if (authentication?.generation === 'saas' && !organizationId) {
+      throw new BadRequestException(
+        'A valid organization context is required.',
+      );
+    }
     const period = this.resolveReportPeriod(query);
     const absenceCountingEnd =
       period.mode === 'monthly'
@@ -174,6 +185,7 @@ export class MonthlyAttendanceExportService {
     const employees = await this.prisma.employee.findMany({
       where: {
         isActive: true,
+        ...(organizationId ? { organizationId } : {}),
         ...(query.employeeId ? { id: query.employeeId } : {}),
       },
       orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
@@ -189,6 +201,7 @@ export class MonthlyAttendanceExportService {
         },
         attendances: {
           where: {
+            ...(organizationId ? { organizationId } : {}),
             date: {
               gte: period.startDate,
               lt: period.endDateExclusive,
@@ -665,7 +678,9 @@ export class MonthlyAttendanceExportService {
     };
   }
 
-  private buildAbsenceDailyReportRow(date: Date): MonthlyAttendanceDailyReportRow {
+  private buildAbsenceDailyReportRow(
+    date: Date,
+  ): MonthlyAttendanceDailyReportRow {
     return {
       date: this.formatShortDate(date),
       dayLabel: this.frenchWeekdayLabels[date.getUTCDay()],
@@ -1127,8 +1142,13 @@ export class MonthlyAttendanceExportService {
       const startDate = normalizeAttendanceDate(new Date(query.startDate));
       const endDate = normalizeAttendanceDate(new Date(query.endDate));
 
-      if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
-        throw new BadRequestException('Custom report period dates are invalid.');
+      if (
+        Number.isNaN(startDate.getTime()) ||
+        Number.isNaN(endDate.getTime())
+      ) {
+        throw new BadRequestException(
+          'Custom report period dates are invalid.',
+        );
       }
 
       if (endDate < startDate) {

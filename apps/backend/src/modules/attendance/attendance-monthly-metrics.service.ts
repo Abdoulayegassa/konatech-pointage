@@ -22,6 +22,7 @@ import { CalendarService } from '../calendar/calendar.service';
 
 type EmployeeForMonthlyMetrics = {
   id: string;
+  organizationId: string | null;
   schedule: Prisma.ScheduleGetPayload<{
     select: typeof scheduleSelect;
   }> | null;
@@ -73,6 +74,7 @@ export class AttendanceMonthlyMetricsService
       },
       select: {
         id: true,
+        organizationId: true,
         schedule: {
           select: scheduleSelect,
         },
@@ -117,6 +119,9 @@ export class AttendanceMonthlyMetricsService
       this.prisma.attendance.findMany({
         where: {
           employeeId: employee.id,
+          ...(employee.organizationId
+            ? { organizationId: employee.organizationId }
+            : {}),
           date: {
             gte: range.startOfMonth,
             lt: range.endOfMonth,
@@ -220,6 +225,9 @@ export class AttendanceMonthlyMetricsService
     const existingAttendances = await this.prisma.attendance.findMany({
       where: {
         employeeId: employee.id,
+        ...(employee.organizationId
+          ? { organizationId: employee.organizationId }
+          : {}),
         date: {
           gte: range.startOfMonth,
           lt: range.endOfMonth,
@@ -251,6 +259,7 @@ export class AttendanceMonthlyMetricsService
         await this.prisma.attendance.create({
           data: {
             employeeId: employee.id,
+            organizationId: employee.organizationId,
             date,
             status: AttendanceStatus.ABSENT,
             scheduledExitTime: getResolvedAttendanceScheduledExitTime(

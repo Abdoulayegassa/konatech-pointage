@@ -11,9 +11,11 @@ import {
 import { AccessRole } from '@prisma/client';
 import { AuditLogService } from '../../common/audit/audit-log.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { CurrentAuthentication } from '../auth/decorators/current-authentication.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
+import { AuthenticationContext } from '../auth/interfaces/authentication-context.interface';
 import { AttendanceEntryService } from './attendance-entry.service';
 import { AttendanceService } from './attendance.service';
 import { AttendanceHistoryQueryDto } from './dto/attendance-history-query.dto';
@@ -52,25 +54,36 @@ export class AttendanceController {
 
   @Roles(AccessRole.ADMIN)
   @Get('summary')
-  getTodaySummary() {
-    return this.attendanceService.getTodaySummary();
+  getTodaySummary(
+    @CurrentAuthentication() authentication: AuthenticationContext,
+  ) {
+    return this.attendanceService.getTodaySummary(new Date(), authentication);
   }
 
   @Roles(AccessRole.ADMIN)
   @Get('history')
-  getMonthlyHistory(@Query() query: AttendanceHistoryQueryDto) {
-    return this.attendanceService.getMonthlyHistory(query.month);
+  getMonthlyHistory(
+    @Query() query: AttendanceHistoryQueryDto,
+    @CurrentAuthentication() authentication: AuthenticationContext,
+  ) {
+    return this.attendanceService.getMonthlyHistory(
+      query.month,
+      authentication,
+    );
   }
 
   @Roles(AccessRole.ADMIN)
   @Get('exports/monthly')
   async exportMonthlyAttendance(
     @CurrentUser() user: AuthenticatedUser,
+    @CurrentAuthentication() authentication: AuthenticationContext,
     @Query() query: MonthlyAttendanceExportQueryDto,
     @Res({ passthrough: true }) response: ResponseWithHeaders,
   ) {
-    const report =
-      await this.monthlyAttendanceExportService.buildMonthlyReport(query);
+    const report = await this.monthlyAttendanceExportService.buildMonthlyReport(
+      query,
+      authentication,
+    );
     const file =
       query.format === 'pdf'
         ? await this.monthlyAttendancePdfExporter.export(report)
@@ -106,8 +119,15 @@ export class AttendanceController {
 
   @Roles(AccessRole.EMPLOYEE)
   @Get('me/today')
-  getMyTodayAttendance(@CurrentUser() user: AuthenticatedUser) {
-    return this.attendanceService.getEmployeeTodayAttendance(user.id);
+  getMyTodayAttendance(
+    @CurrentUser() user: AuthenticatedUser,
+    @CurrentAuthentication() authentication: AuthenticationContext,
+  ) {
+    return this.attendanceService.getEmployeeTodayAttendance(
+      user.id,
+      new Date(),
+      authentication,
+    );
   }
 
   @Roles(AccessRole.EMPLOYEE)
@@ -121,10 +141,12 @@ export class AttendanceController {
   getMyMonthlyHistory(
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: AttendanceHistoryQueryDto,
+    @CurrentAuthentication() authentication: AuthenticationContext,
   ) {
     return this.attendanceService.getEmployeeMonthlyHistory(
       user.id,
       query.month,
+      authentication,
     );
   }
 
@@ -133,8 +155,12 @@ export class AttendanceController {
   async checkIn(
     @CurrentUser() user: AuthenticatedUser,
     @Body() checkInDto: CheckInDto,
+    @CurrentAuthentication() authentication: AuthenticationContext,
   ) {
-    const attendance = await this.attendanceService.checkIn(checkInDto);
+    const attendance = await this.attendanceService.checkIn(
+      checkInDto,
+      authentication,
+    );
 
     this.auditLogService.logAdminAction({
       actor: user,
@@ -155,8 +181,12 @@ export class AttendanceController {
   async checkOut(
     @CurrentUser() user: AuthenticatedUser,
     @Body() checkOutDto: CheckOutDto,
+    @CurrentAuthentication() authentication: AuthenticationContext,
   ) {
-    const attendance = await this.attendanceService.checkOut(checkOutDto);
+    const attendance = await this.attendanceService.checkOut(
+      checkOutDto,
+      authentication,
+    );
 
     this.auditLogService.logAdminAction({
       actor: user,
@@ -177,8 +207,13 @@ export class AttendanceController {
   checkInForCurrentUser(
     @CurrentUser() user: AuthenticatedUser,
     @Body() selfCheckInDto: SelfCheckInDto,
+    @CurrentAuthentication() authentication: AuthenticationContext,
   ) {
-    return this.attendanceService.checkInForEmployee(user.id, selfCheckInDto);
+    return this.attendanceService.checkInForEmployee(
+      user.id,
+      selfCheckInDto,
+      authentication,
+    );
   }
 
   @Roles(AccessRole.EMPLOYEE)
@@ -186,7 +221,12 @@ export class AttendanceController {
   checkOutForCurrentUser(
     @CurrentUser() user: AuthenticatedUser,
     @Body() selfCheckOutDto: SelfCheckOutDto,
+    @CurrentAuthentication() authentication: AuthenticationContext,
   ) {
-    return this.attendanceService.checkOutForEmployee(user.id, selfCheckOutDto);
+    return this.attendanceService.checkOutForEmployee(
+      user.id,
+      selfCheckOutDto,
+      authentication,
+    );
   }
 }
