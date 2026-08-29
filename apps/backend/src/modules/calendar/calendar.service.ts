@@ -4,9 +4,15 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { CalendarEntryType as PrismaCalendarEntryType, Prisma } from '@prisma/client';
+import {
+  CalendarEntryType as PrismaCalendarEntryType,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { getAttendanceMonthRange, normalizeAttendanceDate } from '../../common/utils/attendance-date.util';
+import {
+  getAttendanceMonthRange,
+  normalizeAttendanceDate,
+} from '../../common/utils/attendance-date.util';
 import {
   CalendarDayRecord,
   CalendarDayType,
@@ -16,6 +22,7 @@ import {
 } from './calendar.types';
 import { CreateCalendarEntryDto } from './dto/create-calendar-entry.dto';
 import { UpdateCalendarEntryDto } from './dto/update-calendar-entry.dto';
+import { AuthenticationContext } from '../auth/interfaces/authentication-context.interface';
 
 type CalendarEntryWithEmployee = Prisma.CalendarEntryGetPayload<{
   select: {
@@ -49,11 +56,16 @@ type CalendarEntryWithEmployee = Prisma.CalendarEntryGetPayload<{
 export class CalendarService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getMonthOverview(month?: string): Promise<CalendarMonthResponse> {
+  async getMonthOverview(
+    month?: string,
+    authentication?: AuthenticationContext,
+  ): Promise<CalendarMonthResponse> {
+    const organizationId = this.tenantId(authentication);
     const { monthLabel, monthKey, startOfMonth, endOfMonth } =
       this.resolveMonthWindow(month);
     const entries = await this.prisma.calendarEntry.findMany({
       where: {
+        ...this.tenantWhere(organizationId),
         date: {
           gte: startOfMonth,
           lt: endOfMonth,
@@ -125,11 +137,16 @@ export class CalendarService {
     };
   }
 
-  async findMonthEntries(month?: string) {
+  async findMonthEntries(
+    month?: string,
+    authentication?: AuthenticationContext,
+  ) {
+    const organizationId = this.tenantId(authentication);
     const { startOfMonth, endOfMonth } = this.resolveMonthWindow(month);
 
     return this.prisma.calendarEntry.findMany({
       where: {
+        ...this.tenantWhere(organizationId),
         date: {
           gte: startOfMonth,
           lt: endOfMonth,
@@ -140,9 +157,15 @@ export class CalendarService {
     });
   }
 
-  async getNonWorkingDateKeys(start: Date, end: Date) {
+  async getNonWorkingDateKeys(
+    start: Date,
+    end: Date,
+    authentication?: AuthenticationContext,
+  ) {
+    const organizationId = this.tenantId(authentication);
     const entries = await this.prisma.calendarEntry.findMany({
       where: {
+        ...this.tenantWhere(organizationId),
         isActive: true,
         type: {
           in: ['PUBLIC_HOLIDAY', 'COMPANY_HOLIDAY'],
@@ -189,21 +212,31 @@ export class CalendarService {
     return nonWorkingDateKeys;
   }
 
-  async isNonWorkingDay(date: Date) {
+  async isNonWorkingDay(date: Date, authentication?: AuthenticationContext) {
     const normalizedDate = normalizeAttendanceDate(date);
     const nextDate = new Date(normalizedDate);
 
     nextDate.setUTCDate(nextDate.getUTCDate() + 1);
 
     return (
-      await this.getNonWorkingDateKeys(normalizedDate, nextDate)
+      await this.getNonWorkingDateKeys(normalizedDate, nextDate, authentication)
     ).has(normalizedDate.getTime());
   }
 
-  async create(payload: CreateCalendarEntryDto) {
+  async create(
+    payload: CreateCalendarEntryDto,
+    authentication?: AuthenticationContext,
+  ) {
+    const organizationId = this.tenantId(authentication);
+    this.assertNoClientTenantReferences(payload);
     const date = this.parseCalendarDate(payload.date);
 
-    await this.ensureNoDuplicateEntry(date, payload.type);
+    await this.ensureNoDuplicateEntry(
+      date,
+      payload.type,
+      undefined,
+      organizationId,
+    );
 
     try {
       return this.prisma.calendarEntry.create({
@@ -212,6 +245,7 @@ export class CalendarService {
           date,
           description: payload.description?.trim() || null,
           type: payload.type as PrismaCalendarEntryType,
+          organizationId: organizationId ?? null,
           isActive: true,
         },
         select: this.calendarEntrySelect,
@@ -221,14 +255,22 @@ export class CalendarService {
     }
   }
 
-  async update(id: string, payload: UpdateCalendarEntryDto) {
-    const existing = await this.ensureEntryExists(id);
-    const nextDate = payload.date ? this.parseCalendarDate(payload.date) : existing.date;
+  async update(
+    id: string,
+    payload: UpdateCalendarEntryDto,
+    authentication?: AuthenticationContext,
+  ) {
+    const organizationId = this.tenantId(authentication);
+    this.assertNoClientTenantReferences(payload);
+    const existing = await this.ensureEntryExists(id, organizationId);
+    const nextDate = payload.date
+      ? this.parseCalendarDate(payload.date)
+      : existing.date;
     const nextType = payload.type
       ? (payload.type as PrismaCalendarEntryType)
       : existing.type;
 
-    await this.ensureNoDuplicateEntry(nextDate, nextType, id);
+    await this.ensureNoDuplicateEntry(nextDate, nextType, id, organizationId);
 
     try {
       return this.prisma.calendarEntry.update({
@@ -248,8 +290,9 @@ export class CalendarService {
     }
   }
 
-  async remove(id: string) {
-    await this.ensureEntryExists(id);
+  async remove(id: string, authentication?: AuthenticationContext) {
+    const organizationId = this.tenantId(authentication);
+    await this.ensureEntryExists(id, organizationId);
 
     return this.prisma.calendarEntry.delete({
       where: { id },
@@ -295,15 +338,11 @@ export class CalendarService {
   }
 
   private resolveDayType(date: Date, entries: CalendarEntryRecord[]) {
-    if (
-      entries.some((entry) => entry.type === 'PUBLIC_HOLIDAY')
-    ) {
+    if (entries.some((entry) => entry.type === 'PUBLIC_HOLIDAY')) {
       return 'PUBLIC_HOLIDAY';
     }
 
-    if (
-      entries.some((entry) => entry.type === 'COMPANY_HOLIDAY')
-    ) {
+    if (entries.some((entry) => entry.type === 'COMPANY_HOLIDAY')) {
       return 'COMPANY_HOLIDAY';
     }
 
@@ -320,7 +359,10 @@ export class CalendarService {
       : 'WORKING_DAY';
   }
 
-  private resolveDayLabel(dayType: CalendarDayType, entries: CalendarEntryRecord[]) {
+  private resolveDayLabel(
+    dayType: CalendarDayType,
+    entries: CalendarEntryRecord[],
+  ) {
     const firstEntry = entries[0];
 
     if (firstEntry?.name) {
@@ -386,7 +428,10 @@ export class CalendarService {
     }
 
     const [year, monthIndex] = monthKey.split('-').map(Number);
-    const { startOfMonth, endOfMonth } = getAttendanceMonthRange(year, monthIndex);
+    const { startOfMonth, endOfMonth } = getAttendanceMonthRange(
+      year,
+      monthIndex,
+    );
 
     return {
       monthKey,
@@ -411,9 +456,12 @@ export class CalendarService {
     )}`;
   }
 
-  private async ensureEntryExists(id: string) {
-    const entry = await this.prisma.calendarEntry.findUnique({
-      where: { id },
+  private async ensureEntryExists(id: string, organizationId?: string) {
+    const entry = await this.prisma.calendarEntry.findFirst({
+      where: {
+        id,
+        ...this.tenantWhere(organizationId),
+      },
       select: {
         id: true,
         date: true,
@@ -432,9 +480,11 @@ export class CalendarService {
     date: Date,
     type: PrismaCalendarEntryType,
     excludedId?: string,
+    organizationId?: string,
   ) {
     const duplicate = await this.prisma.calendarEntry.findFirst({
       where: {
+        ...this.tenantWhere(organizationId),
         date,
         type,
         ...(excludedId
@@ -467,5 +517,51 @@ export class CalendarService {
     }
 
     throw error;
+  }
+
+  private tenantId(authentication?: AuthenticationContext) {
+    if (!authentication || authentication.generation === 'legacy') {
+      return undefined;
+    }
+
+    if (!authentication.organizationId) {
+      throw new BadRequestException(
+        'A valid organization context is required.',
+      );
+    }
+
+    return authentication.organizationId;
+  }
+
+  private tenantWhere(organizationId?: string): Prisma.CalendarEntryWhereInput {
+    if (!organizationId) {
+      return {};
+    }
+
+    return {
+      organizationId,
+      OR: [
+        { employeeId: null },
+        {
+          employee: {
+            is: { organizationId },
+          },
+        },
+      ],
+    };
+  }
+
+  private assertNoClientTenantReferences(payload: object) {
+    const unsafePayload = payload as Record<string, unknown>;
+
+    if (
+      Object.hasOwn(unsafePayload, 'organizationId') ||
+      Object.hasOwn(unsafePayload, 'employeeId') ||
+      Object.hasOwn(unsafePayload, 'scheduleId')
+    ) {
+      throw new BadRequestException(
+        'Calendar tenant and relationship identifiers are server-controlled.',
+      );
+    }
   }
 }

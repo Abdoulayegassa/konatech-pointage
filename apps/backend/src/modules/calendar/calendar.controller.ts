@@ -11,9 +11,11 @@ import {
 } from '@nestjs/common';
 import { AccessRole } from '@prisma/client';
 import { AuditLogService } from '../../common/audit/audit-log.service';
+import { CurrentAuthentication } from '../auth/decorators/current-authentication.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
+import { AuthenticationContext } from '../auth/interfaces/authentication-context.interface';
 import { CalendarMonthQueryDto } from './dto/calendar-month-query.dto';
 import { CreateCalendarEntryDto } from './dto/create-calendar-entry.dto';
 import { UpdateCalendarEntryDto } from './dto/update-calendar-entry.dto';
@@ -28,21 +30,28 @@ export class CalendarController {
   ) {}
 
   @Get('month')
-  getMonthOverview(@Query() query: CalendarMonthQueryDto) {
-    return this.calendarService.getMonthOverview(query.month);
+  getMonthOverview(
+    @Query() query: CalendarMonthQueryDto,
+    @CurrentAuthentication() authentication: AuthenticationContext,
+  ) {
+    return this.calendarService.getMonthOverview(query.month, authentication);
   }
 
   @Get('holidays')
-  getMonthEntries(@Query() query: CalendarMonthQueryDto) {
-    return this.calendarService.findMonthEntries(query.month);
+  getMonthEntries(
+    @Query() query: CalendarMonthQueryDto,
+    @CurrentAuthentication() authentication: AuthenticationContext,
+  ) {
+    return this.calendarService.findMonthEntries(query.month, authentication);
   }
 
   @Post('holidays')
   async create(
     @CurrentUser() user: AuthenticatedUser,
+    @CurrentAuthentication() authentication: AuthenticationContext,
     @Body() payload: CreateCalendarEntryDto,
   ) {
-    const entry = await this.calendarService.create(payload);
+    const entry = await this.calendarService.create(payload, authentication);
 
     this.auditLogService.logAdminAction({
       actor: user,
@@ -62,10 +71,15 @@ export class CalendarController {
   @Patch('holidays/:id')
   async update(
     @CurrentUser() user: AuthenticatedUser,
+    @CurrentAuthentication() authentication: AuthenticationContext,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() payload: UpdateCalendarEntryDto,
   ) {
-    const entry = await this.calendarService.update(id, payload);
+    const entry = await this.calendarService.update(
+      id,
+      payload,
+      authentication,
+    );
 
     this.auditLogService.logAdminAction({
       actor: user,
@@ -83,9 +97,10 @@ export class CalendarController {
   @Delete('holidays/:id')
   async remove(
     @CurrentUser() user: AuthenticatedUser,
+    @CurrentAuthentication() authentication: AuthenticationContext,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    const entry = await this.calendarService.remove(id);
+    const entry = await this.calendarService.remove(id, authentication);
 
     this.auditLogService.logAdminAction({
       actor: user,
