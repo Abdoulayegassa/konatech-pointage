@@ -22,20 +22,28 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/backend/package.json apps/backend/package.json
 COPY apps/frontend/package.json apps/frontend/package.json
 
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+
 RUN pnpm install --frozen-lockfile
 
 COPY . .
 
 RUN pnpm --dir apps/frontend build
 
-FROM base AS runtime
+FROM node:22-bookworm-slim AS runtime
 
 ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 
-COPY --from=build /app /app
+WORKDIR /app
 
-WORKDIR /app/apps/frontend
+COPY --from=build --chown=node:node /app/apps/frontend/.next/standalone ./
+COPY --from=build --chown=node:node /app/apps/frontend/.next/static ./apps/frontend/.next/static
+COPY --from=build --chown=node:node /app/apps/frontend/public ./apps/frontend/public
+
+USER node
 
 EXPOSE 3000
 
-CMD ["node", "./node_modules/next/dist/bin/next", "start", "-H", "0.0.0.0", "-p", "3000"]
+CMD ["node", "apps/frontend/server.js"]
