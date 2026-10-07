@@ -1,6 +1,8 @@
 import {
   ConflictException,
   Injectable,
+  Optional,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -10,7 +12,9 @@ import {
   MembershipStatus,
   OrganizationStatus,
   UserStatus,
+  V1OperationalScopeStatus,
 } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import {
   PublicEmployee,
@@ -20,7 +24,10 @@ import {
   AccountJwtPayload,
   AttendanceEntryJwtPayload,
   isAccountJwtPayload,
+  isPlatformJwtPayload,
   isLegacyJwtPayload,
+  isOrganizationSelectionJwtPayload,
+  OrganizationSelectionJwtPayload,
   signJwtToken,
   verifyJwtToken,
 } from '../../common/security/jwt.util';
@@ -34,6 +41,7 @@ import {
   DEFAULT_ATTENDANCE_ENTRY_JWT_EXPIRES_IN,
 } from './constants/attendance-entry.constants';
 import { AttendanceEntryLoginDto } from './dto/attendance-entry-login.dto';
+import { AttendanceSitesService } from '../attendance-sites/attendance-sites.service';
 import { LoginDto } from './dto/login.dto';
 import {
   AuthenticationResult,
@@ -58,18 +66,102 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    @Optional() private readonly attendanceSites?: AttendanceSitesService,
   ) {}
 
   async login(loginDto: LoginDto) {
-    const employee = await this.prisma.employee.findUnique({
+    const normalizedEmail = this.normalizeEmail(loginDto.email);
+    const user = await this.prisma.user.findUnique({
       where: {
-        email: loginDto.email,
+        normalizedEmail,
+      },
+      select: {
+        id: true,
+        normalizedEmail: true,
+        passwordHash: true,
+        status: true,
+        userVersion: true,
+        platformAdmin: { select: { id: true, isActive: true, version: true } },
+      },
+    });
+
+    if (user) {
+      if (user.status !== UserStatus.ACTIVE) {
+        throw new UnauthorizedException('Invalid credentials.');
+      }
+
+      const passwordValid = await verifyPassword(
+        loginDto.password,
+        user.passwordHash,
+      );
+
+      if (!passwordValid) {
+        throw new UnauthorizedException('Invalid credentials.');
+      }
+
+      if (user.platformAdmin?.isActive) {
+        return {
+          accessToken: signJwtToken(
+            {
+              sub: user.id,
+              purpose: 'platform',
+              platformAdminId: user.platformAdmin.id,
+              userVersion: user.userVersion,
+              platformAdminVersion: user.platformAdmin.version,
+            },
+            this.getJwtSecret(),
+            this.getJwtExpiresIn(),
+          ),
+          tokenType: 'Bearer' as const,
+          expiresIn: this.getJwtExpiresIn(),
+          platformAdmin: true as const,
+        } as never;
+      }
+
+      const organizations = await this.getAvailableMembershipOrganizations(
+        user.id,
+      );
+
+      if (organizations.length === 0) {
+        throw new UnauthorizedException('Invalid credentials.');
+      }
+
+      if (organizations.length > 1) {
+        return {
+          organizationSelectionRequired: true as const,
+          organizationSelectionChallenge:
+            this.createOrganizationSelectionChallenge({
+              userId: user.id,
+              userVersion: user.userVersion,
+              candidates: organizations.map((organization) => ({
+                organizationId: organization.id,
+                membershipId: organization.membershipId,
+                membershipVersion: organization.membershipVersion,
+              })),
+            }),
+          organizations: organizations.map(({ id, name, slug }) => ({
+            id,
+            name,
+            slug,
+          })),
+        };
+      }
+
+      return this.selectOrganization(user.id, organizations[0].id);
+    }
+
+    const employee = await this.prisma.employee.findFirst({
+      where: {
+        email: normalizedEmail,
+        organizationId: null,
+        userId: null,
       },
       select: {
         ...publicEmployeeSelect,
         passwordHash: true,
         userId: true,
         organizationId: true,
+        v1ScopeStatus: true,
       },
     });
 
@@ -86,14 +178,6 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials.');
     }
 
-    if (employee.userId) {
-      if (!employee.organizationId) {
-        throw new UnauthorizedException('Invalid SaaS account linkage.');
-      }
-
-      return this.loginSaasEmployee(employee);
-    }
-
     return this.buildLegacyLoginResponse(employee, this.getJwtExpiresIn());
   }
 
@@ -101,11 +185,19 @@ export class AuthService {
     attendanceEntryLoginDto: AttendanceEntryLoginDto,
   ) {
     const normalizedPinCode = attendanceEntryLoginDto.pinCode.trim();
+    const attendanceSite = attendanceEntryLoginDto.sitePublicId
+      ? await this.requireAttendanceSites().resolvePublicActiveSite(
+          attendanceEntryLoginDto.sitePublicId,
+        )
+      : null;
 
     const employees = await this.prisma.employee.findMany({
       where: {
         accessRole: AccessRole.EMPLOYEE,
         isActive: true,
+        ...(attendanceSite
+          ? { organizationId: attendanceSite.organizationId }
+          : { organizationId: null, userId: null }),
         OR: [
           {
             pinCodeHash: {
@@ -125,30 +217,57 @@ export class AuthService {
         pinCodeHash: true,
         userId: true,
         organizationId: true,
+        v1ScopeStatus: true,
       },
     });
 
+    const matches: typeof employees = [];
     for (const employee of employees) {
-      if (
+      const matchesHash =
         employee.pinCodeHash &&
-        (await verifyPinCode(normalizedPinCode, employee.pinCodeHash))
-      ) {
-        return this.buildAttendanceEntryLoginResponse(employee);
-      }
+        (await verifyPinCode(normalizedPinCode, employee.pinCodeHash));
+      const matchesLegacyPin =
+        !employee.pinCodeHash && employee.pinCode === normalizedPinCode;
 
-      if (!employee.pinCodeHash && employee.pinCode === normalizedPinCode) {
-        const migratedEmployee = await this.migrateLegacyPinCode(
-          employee,
-          normalizedPinCode,
-        );
-
-        return this.buildAttendanceEntryLoginResponse(migratedEmployee);
+      if (matchesHash || matchesLegacyPin) {
+        matches.push(employee);
       }
     }
 
-    throw new UnauthorizedException(
+    if (matches.length !== 1) {
+      throw new UnauthorizedException(
+        ATTENDANCE_ENTRY_INVALID_CREDENTIALS_MESSAGE,
+      );
+    }
+
+    const employee = matches[0];
+    if (attendanceSite && employee.organizationId) {
+      const today = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z');
+      const assignment = await this.prisma.employeeSiteAssignment.findFirst({
+        where: { organizationId: employee.organizationId, employeeId: employee.id, effectiveFrom: { lte: today }, OR: [{ effectiveTo: null }, { effectiveTo: { gt: today } }] },
+        select: { siteId: true },
+      });
+      if (employee.v1ScopeStatus !== V1OperationalScopeStatus.OPERATIONAL || assignment?.siteId !== attendanceSite.id) {
+        throw new UnauthorizedException(ATTENDANCE_ENTRY_INVALID_CREDENTIALS_MESSAGE);
+      }
+    }
+    await this.assertAttendanceEmployeeAccountAccess(
+      employee,
       ATTENDANCE_ENTRY_INVALID_CREDENTIALS_MESSAGE,
     );
+
+    if (!employee.pinCodeHash) {
+      const migratedEmployee = await this.migrateLegacyPinCode(
+        employee,
+        normalizedPinCode,
+      );
+      return this.buildAttendanceEntryLoginResponse(
+        migratedEmployee,
+        attendanceSite?.id,
+      );
+    }
+
+    return this.buildAttendanceEntryLoginResponse(employee, attendanceSite?.id);
   }
 
   async getAuthenticatedUserFromToken(token: string) {
@@ -186,6 +305,22 @@ export class AuthService {
 
     if (isAccountJwtPayload(payload)) {
       return this.authenticateSaasAccount(payload);
+    }
+
+    if (isPlatformJwtPayload(payload)) {
+      return this.authenticatePlatformAdmin(payload);
+    }
+
+    if (isOrganizationSelectionJwtPayload(payload)) {
+      throw new UnauthorizedException(
+        'Organization-selection challenges cannot authenticate requests.',
+      );
+    }
+
+    if (payload.purpose === 'offline_attendance_context') {
+      throw new UnauthorizedException(
+        'Offline attendance contexts cannot authenticate requests.',
+      );
     }
 
     return this.authenticateAttendanceEntry(payload);
@@ -293,12 +428,25 @@ export class AuthService {
         membershipRole: selected.membership.role,
         employeeId: employee?.id ?? null,
         attendanceSiteId: null,
+        sessionBinding: null,
       },
       employee,
     };
   }
 
   async getAvailableOrganizations(userId: string) {
+    const organizations =
+      await this.getAvailableMembershipOrganizations(userId);
+
+    return organizations.map(({ id, name, slug, role }) => ({
+      id,
+      name,
+      slug,
+      role,
+    }));
+  }
+
+  private async getAvailableMembershipOrganizations(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { id: true, status: true },
@@ -313,8 +461,15 @@ export class AuthService {
       select: {
         id: true,
         role: true,
+        membershipVersion: true,
         organization: {
-          select: { id: true, name: true, slug: true, status: true },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            timezone: true,
+            status: true,
+          },
         },
       },
     });
@@ -323,12 +478,126 @@ export class AuthService {
       .filter(
         ({ organization }) => organization.status === OrganizationStatus.ACTIVE,
       )
-      .map(({ organization, role }) => ({
+      .map(({ id: membershipId, organization, role, membershipVersion }) => ({
         id: organization.id,
         name: organization.name,
         slug: organization.slug,
+        timezone: organization.timezone,
         role,
+        membershipId,
+        membershipVersion,
       }));
+  }
+
+  async completeInitialOrganizationSelection(
+    challenge: string,
+    selectedOrganizationId: string,
+  ) {
+    let payload: OrganizationSelectionJwtPayload;
+
+    try {
+      const verified = verifyJwtToken(challenge, this.getJwtSecret());
+      if (!isOrganizationSelectionJwtPayload(verified)) {
+        throw new Error('Unexpected token purpose.');
+      }
+      payload = verified;
+    } catch {
+      throw new UnauthorizedException(
+        'Invalid or expired organization-selection challenge.',
+      );
+    }
+
+    const candidate = payload.candidates.find(
+      ({ organizationId }) => organizationId === selectedOrganizationId,
+    );
+    if (!candidate) {
+      throw new UnauthorizedException('Organization access denied.');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: {
+        id: true,
+        normalizedEmail: true,
+        status: true,
+        userVersion: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    if (
+      !user ||
+      user.status !== UserStatus.ACTIVE ||
+      user.userVersion !== payload.userVersion
+    ) {
+      throw new UnauthorizedException('Account is no longer active.');
+    }
+
+    const membership = await this.prisma.membership.findUnique({
+      where: { id: candidate.membershipId },
+      select: {
+        id: true,
+        userId: true,
+        organizationId: true,
+        role: true,
+        status: true,
+        membershipVersion: true,
+      },
+    });
+    if (
+      !membership ||
+      membership.userId !== user.id ||
+      membership.organizationId !== candidate.organizationId ||
+      membership.status !== MembershipStatus.ACTIVE ||
+      membership.membershipVersion !== candidate.membershipVersion
+    ) {
+      throw new UnauthorizedException('Membership is no longer active.');
+    }
+
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: candidate.organizationId },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        timezone: true,
+        status: true,
+      },
+    });
+    if (
+      !organization ||
+      organization.id !== membership.organizationId ||
+      organization.status !== OrganizationStatus.ACTIVE
+    ) {
+      throw new UnauthorizedException('Organization is no longer active.');
+    }
+
+    const employee = await this.prisma.employee.findFirst({
+      where: { userId: user.id, organizationId: organization.id },
+      select: publicEmployeeSelect,
+    });
+
+    return {
+      accessToken: this.createAccountToken({
+        userId: user.id,
+        membershipId: membership.id,
+        organizationId: organization.id,
+        userVersion: user.userVersion,
+        membershipVersion: membership.membershipVersion,
+      }),
+      tokenType: 'Bearer' as const,
+      expiresIn: this.getJwtExpiresIn(),
+      organization: {
+        id: organization.id,
+        name: organization.name,
+        slug: organization.slug,
+        timezone: organization.timezone,
+      },
+      membership: { id: membership.id, role: membership.role },
+      employeeId: employee?.id ?? null,
+      user:
+        employee ?? this.buildAccountCompatibilityUser({ user, membership }),
+    };
   }
 
   async selectOrganization(userId: string, organizationId: string) {
@@ -340,12 +609,20 @@ export class AuthService {
       where: { id: context.context.membershipId! },
       select: {
         membershipVersion: true,
-        organization: { select: { id: true, name: true, slug: true } },
+        organization: {
+          select: { id: true, name: true, slug: true, timezone: true },
+        },
       },
     });
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { userVersion: true },
+      select: {
+        id: true,
+        normalizedEmail: true,
+        userVersion: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
     if (!membership || !user) {
@@ -368,6 +645,12 @@ export class AuthService {
         role: context.context.membershipRole,
       },
       employeeId: context.context.employeeId,
+      user:
+        context.employee ??
+        this.buildAccountCompatibilityUser({
+          user,
+          membership: { role: context.context.membershipRole! },
+        }),
     };
   }
 
@@ -387,6 +670,23 @@ export class AuthService {
       }
 
       return employee;
+    }
+
+    if (authentication.purpose === 'attendance_entry') {
+      if (!authentication.employeeId || !authentication.sessionBinding) {
+        throw new UnauthorizedException('User is no longer active.');
+      }
+
+      const employee = await this.prisma.employee.findUnique({
+        where: { id: authentication.employeeId },
+        select: publicEmployeeSelect,
+      });
+
+      if (!employee || !employee.isActive) {
+        throw new UnauthorizedException('User is no longer active.');
+      }
+
+      return { ...employee, offlineSessionBinding: authentication.sessionBinding };
     }
 
     if (
@@ -413,6 +713,7 @@ export class AuthService {
       account: authenticated.user,
       membership: authenticated.membership,
       organization: authenticated.organization,
+      offlineSessionBinding: authentication.sessionBinding ?? null,
     };
   }
 
@@ -431,9 +732,27 @@ export class AuthService {
         purpose: 'account',
         userVersion: input.userVersion,
         membershipVersion: input.membershipVersion,
+        sessionBinding: randomUUID(),
       },
       this.getJwtSecret(),
       this.getJwtExpiresIn(),
+    );
+  }
+
+  private createOrganizationSelectionChallenge(input: {
+    userId: string;
+    userVersion: number;
+    candidates: OrganizationSelectionJwtPayload['candidates'];
+  }) {
+    return signJwtToken(
+      {
+        sub: input.userId,
+        purpose: 'organization_selection',
+        userVersion: input.userVersion,
+        candidates: input.candidates,
+      },
+      this.getJwtSecret(),
+      this.getOrganizationSelectionJwtExpiresIn(),
     );
   }
 
@@ -447,6 +766,7 @@ export class AuthService {
         sub: input.employeeId,
         organizationId: input.organizationId,
         attendanceSiteId: input.attendanceSiteId,
+        sessionBinding: randomUUID(),
         purpose: 'attendance_entry',
       },
       this.getJwtSecret(),
@@ -458,8 +778,12 @@ export class AuthService {
     employeeId: string,
     purpose: 'account' | 'attendance_entry',
   ): Promise<AuthenticationResult> {
-    const employee = await this.prisma.employee.findUnique({
-      where: { id: employeeId },
+    const employee = await this.prisma.employee.findFirst({
+      where: {
+        id: employeeId,
+        organizationId: null,
+        userId: null,
+      },
       select: publicEmployeeSelect,
     });
 
@@ -551,8 +875,51 @@ export class AuthService {
         membershipRole: membership.role,
         employeeId: employee?.id ?? null,
         attendanceSiteId: null,
+        sessionBinding: payload.sessionBinding,
+        platformAdminId: null,
       },
       employee,
+    };
+  }
+
+  private async authenticatePlatformAdmin(
+    payload: import('../../common/security/jwt.util').PlatformJwtPayload,
+  ): Promise<AuthenticationResult> {
+    const admin = await this.prisma.platformAdmin.findUnique({
+      where: { id: payload.platformAdminId },
+      select: {
+        id: true,
+        userId: true,
+        isActive: true,
+        version: true,
+        user: { select: { status: true, userVersion: true } },
+      },
+    });
+    if (
+      !admin ||
+      !admin.isActive ||
+      admin.userId !== payload.sub ||
+      admin.version !== payload.platformAdminVersion ||
+      admin.user.status !== UserStatus.ACTIVE ||
+      admin.user.userVersion !== payload.userVersion
+    )
+      throw new UnauthorizedException(
+        'Platform administrator is no longer active.',
+      );
+    return {
+      context: {
+        generation: 'saas',
+        purpose: 'platform',
+        userId: admin.userId,
+        membershipId: null,
+        organizationId: null,
+        membershipRole: null,
+        employeeId: null,
+        attendanceSiteId: null,
+        sessionBinding: null,
+        platformAdminId: admin.id,
+      },
+      employee: null,
     };
   }
 
@@ -583,7 +950,13 @@ export class AuthService {
     });
     const organization = await this.prisma.organization.findUnique({
       where: { id: input.organizationId },
-      select: { id: true, name: true, slug: true, status: true },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        timezone: true,
+        status: true,
+      },
     });
 
     if (!user || user.status !== UserStatus.ACTIVE) {
@@ -615,13 +988,16 @@ export class AuthService {
     return { user, membership, organization, employee };
   }
 
-  private buildAccountCompatibilityUser(
-    authenticated: Awaited<
-      ReturnType<AuthService['authenticateSaasAccountPayload']>
-    >,
-  ): PublicEmployee {
+  private buildAccountCompatibilityUser(authenticated: {
+    user: {
+      id: string;
+      normalizedEmail: string;
+      createdAt: Date;
+      updatedAt: Date;
+    };
+    membership: { role: MembershipRole };
+  }): PublicEmployee {
     const isAdmin =
-      authenticated.membership.role === MembershipRole.OWNER ||
       authenticated.membership.role === MembershipRole.ADMIN;
 
     return {
@@ -634,10 +1010,25 @@ export class AuthService {
       accessRole: isAdmin ? AccessRole.ADMIN : AccessRole.EMPLOYEE,
       department: null,
       isActive: true,
+      primarySiteId: null,
+      primarySite: null,
       scheduleId: null,
       createdAt: authenticated.user.createdAt,
       updatedAt: authenticated.user.updatedAt,
     };
+  }
+
+  private normalizeEmail(email: string) {
+    return email.trim().toLowerCase();
+  }
+
+  private requireAttendanceSites() {
+    if (!this.attendanceSites) {
+      throw new ServiceUnavailableException(
+        'Attendance site resolution is unavailable.',
+      );
+    }
+    return this.attendanceSites;
   }
 
   private async authenticateAttendanceEntry(
@@ -654,6 +1045,7 @@ export class AuthService {
       select: {
         ...publicEmployeeSelect,
         organizationId: true,
+        userId: true,
       },
     });
 
@@ -666,11 +1058,15 @@ export class AuthService {
       throw new UnauthorizedException('User is no longer active.');
     }
 
+    await this.assertAttendanceEmployeeAccountAccess(
+      employee,
+      'User is no longer active.',
+    );
+
     const attendanceSite = await this.prisma.attendanceSite.findFirst({
       where: {
         id: payload.attendanceSiteId,
         organizationId: payload.organizationId,
-        isActive: true,
       },
       select: { organizationId: true, isActive: true },
     });
@@ -682,7 +1078,11 @@ export class AuthService {
       throw new UnauthorizedException('Attendance site is no longer active.');
     }
 
-    const { organizationId: _organizationId, ...publicEmployee } = employee;
+    const {
+      organizationId: _organizationId,
+      userId: _userId,
+      ...publicEmployee
+    } = employee;
 
     return {
       context: {
@@ -694,9 +1094,44 @@ export class AuthService {
         membershipRole: null,
         employeeId: employee.id,
         attendanceSiteId: payload.attendanceSiteId,
+        sessionBinding: payload.sessionBinding,
       },
       employee: publicEmployee,
     };
+  }
+
+  private async assertAttendanceEmployeeAccountAccess(
+    employee: { userId: string | null; organizationId: string | null },
+    unauthorizedMessage: string,
+  ) {
+    if (!employee.userId) {
+      return;
+    }
+
+    if (!employee.organizationId) {
+      throw new UnauthorizedException(unauthorizedMessage);
+    }
+
+    const membership = await this.prisma.membership.findUnique({
+      where: {
+        organizationId_userId: {
+          organizationId: employee.organizationId,
+          userId: employee.userId,
+        },
+      },
+      select: {
+        status: true,
+        user: { select: { status: true } },
+      },
+    });
+
+    if (
+      !membership ||
+      membership.status !== MembershipStatus.ACTIVE ||
+      membership.user.status !== UserStatus.ACTIVE
+    ) {
+      throw new UnauthorizedException(unauthorizedMessage);
+    }
   }
 
   private assertExpectedPurpose(
@@ -729,6 +1164,13 @@ export class AuthService {
     );
   }
 
+  private getOrganizationSelectionJwtExpiresIn() {
+    return (
+      this.configService.get<string>('ORGANIZATION_SELECTION_JWT_EXPIRES_IN') ??
+      '5m'
+    );
+  }
+
   private buildLegacyLoginResponse(
     employee: LoginEmployee | AttendanceEntryLoginEmployee | PublicEmployee,
     expiresIn: string,
@@ -749,7 +1191,7 @@ export class AuthService {
       userId: _userId,
       organizationId: _organizationId,
       ...user
-    } = employee as LoginEmployee & AttendanceEntryLoginEmployee;
+    } = employee as AttendanceEntryLoginEmployee & { passwordHash?: string };
 
     return {
       accessToken,
@@ -759,32 +1201,11 @@ export class AuthService {
     };
   }
 
-  private async loginSaasEmployee(employee: LoginEmployee) {
-    const context = await this.resolveOrganizationContext(employee.userId!);
-
-    if (
-      context.context.organizationId !== employee.organizationId ||
-      context.employee?.id !== employee.id ||
-      !context.employee.isActive
-    ) {
-      throw new UnauthorizedException('Organization access denied.');
-    }
-
-    const session = await this.selectOrganization(
-      employee.userId!,
-      employee.organizationId!,
-    );
-
-    return {
-      ...session,
-      user: context.employee,
-    };
-  }
-
   private async buildAttendanceEntryLoginResponse(
     employee: AttendanceEntryLoginEmployee,
+    attendanceSiteId?: string,
   ) {
-    if (!employee.userId) {
+    if (!employee.organizationId && !employee.userId) {
       return this.buildLegacyLoginResponse(
         employee,
         this.getAttendanceEntryJwtExpiresIn(),
@@ -797,27 +1218,31 @@ export class AuthService {
       );
     }
 
-    const context = await this.resolveOrganizationContext(
-      employee.userId,
-      employee.organizationId,
-    );
-
-    if (context.employee?.id !== employee.id || !context.employee.isActive) {
-      throw new UnauthorizedException(
-        ATTENDANCE_ENTRY_INVALID_CREDENTIALS_MESSAGE,
+    let authenticatedEmployee: PublicEmployee;
+    if (employee.userId) {
+      const context = await this.resolveOrganizationContext(
+        employee.userId,
+        employee.organizationId,
       );
+
+      if (context.employee?.id !== employee.id || !context.employee.isActive) {
+        throw new UnauthorizedException(
+          ATTENDANCE_ENTRY_INVALID_CREDENTIALS_MESSAGE,
+        );
+      }
+      authenticatedEmployee = context.employee;
+    } else {
+      const {
+        pinCode: _pinCode,
+        pinCodeHash: _pinCodeHash,
+        userId: _userId,
+        organizationId: _organizationId,
+        ...publicEmployee
+      } = employee;
+      authenticatedEmployee = publicEmployee;
     }
 
-    const activeSites = await this.prisma.attendanceSite.findMany({
-      where: {
-        organizationId: employee.organizationId,
-        isActive: true,
-      },
-      select: { id: true },
-      take: 2,
-    });
-
-    if (activeSites.length !== 1) {
+    if (!attendanceSiteId) {
       throw new UnauthorizedException(
         ATTENDANCE_ENTRY_INVALID_CREDENTIALS_MESSAGE,
       );
@@ -827,11 +1252,11 @@ export class AuthService {
       accessToken: this.createAttendanceEntryToken({
         employeeId: employee.id,
         organizationId: employee.organizationId,
-        attendanceSiteId: activeSites[0].id,
+        attendanceSiteId,
       }),
       tokenType: 'Bearer' as const,
       expiresIn: this.getAttendanceEntryJwtExpiresIn(),
-      user: context.employee,
+      user: authenticatedEmployee,
     };
   }
 

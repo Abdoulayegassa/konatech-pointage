@@ -80,6 +80,83 @@ describe('environment validation', () => {
     ]);
   });
 
+  it('does not fall back to generic development env files in production', () => {
+    expect(buildEnvFilePaths('production', '/srv/backend')).toEqual([
+      resolve('/srv/backend', '.env.production.local'),
+      resolve('/srv/backend', '.env.production'),
+    ]);
+  });
+
+  describe('production fail-closed configuration', () => {
+    const productionConfig = {
+      NODE_ENV: 'production',
+      FRONTEND_URL: 'https://pointage.example.com',
+      JWT_SECRET: 'vR9!Km2#Qx7@Wp4$Bn8&Hs5*Ld3%Tf6Z',
+      JWT_EXPIRES_IN: '1d',
+      ATTENDANCE_ENTRY_JWT_EXPIRES_IN: '15m',
+      ORGANIZATION_SELECTION_JWT_EXPIRES_IN: '5m',
+      DATABASE_URL:
+        'postgresql://app:password@db.example.com/attendance?sslmode=require',
+      RATE_LIMIT_REDIS_URL:
+        'rediss://default:password@redis.example.com:6379/0',
+      TRUST_PROXY_CIDRS: '172.16.0.0/12',
+    };
+
+    it.each([
+      [
+        'placeholder JWT secrets',
+        { JWT_SECRET: 'replace-with-a-long-random-jwt-secret' },
+        /JWT_SECRET/,
+      ],
+      [
+        'non-TLS database connections',
+        { DATABASE_URL: 'postgresql://app:password@db.example.com/attendance' },
+        /DATABASE_URL must require TLS/,
+      ],
+      [
+        'non-TLS Redis connections',
+        {
+          RATE_LIMIT_REDIS_URL:
+            'redis://default:password@redis.example.com:6379/0',
+        },
+        /must use rediss/,
+      ],
+      [
+        'unauthenticated Redis connections',
+        { RATE_LIMIT_REDIS_URL: 'rediss://redis.example.com:6379/0' },
+        /must include Redis credentials/,
+      ],
+      [
+        'frontend URLs with paths',
+        { FRONTEND_URL: 'https://pointage.example.com/app' },
+        /exact origin/,
+      ],
+      [
+        'overlong account sessions',
+        { JWT_EXPIRES_IN: '7d' },
+        /no longer than 1d/,
+      ],
+      [
+        'overlong attendance-entry sessions',
+        { ATTENDANCE_ENTRY_JWT_EXPIRES_IN: '2h' },
+        /no longer than 30m/,
+      ],
+      [
+        'overlong organization-selection sessions',
+        { ORGANIZATION_SELECTION_JWT_EXPIRES_IN: '1h' },
+        /no longer than 15m/,
+      ],
+    ])('rejects %s', (_label, override, expected) => {
+      expect(() =>
+        validateSecurityConfig({ ...productionConfig, ...override }),
+      ).toThrow(expected);
+    });
+
+    it('accepts a complete secure production configuration', () => {
+      expect(() => validateSecurityConfig(productionConfig)).not.toThrow();
+    });
+  });
+
   it('allows smart security to boot without Cloudinary credentials', async () => {
     process.env.ATTENDANCE_SECURITY_ENABLED = 'true';
     process.env.COMPANY_LATITUDE = '5.359952';
@@ -102,9 +179,10 @@ describe('environment validation', () => {
     delete process.env.CLOUDINARY_API_SECRET;
 
     const service = new AttendancePhotoStorageService(new ConfigService());
-    const photoDataUrl = `data:image/jpeg;base64,${Buffer.from(
-      'verification-photo',
-    ).toString('base64')}`;
+    const photoDataUrl = `data:image/jpeg;base64,${Buffer.concat([
+      Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+      Buffer.from('verification-photo'),
+    ]).toString('base64')}`;
 
     await expect(
       service.uploadVerificationPhoto(photoDataUrl, {
@@ -158,9 +236,10 @@ describe('environment validation', () => {
       );
 
     const service = new AttendancePhotoStorageService(new ConfigService());
-    const photoDataUrl = `data:image/jpeg;base64,${Buffer.from(
-      'verification-photo',
-    ).toString('base64')}`;
+    const photoDataUrl = `data:image/jpeg;base64,${Buffer.concat([
+      Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+      Buffer.from('verification-photo'),
+    ]).toString('base64')}`;
 
     await expect(
       service.uploadVerificationPhoto(photoDataUrl, {
@@ -191,9 +270,10 @@ describe('environment validation', () => {
     jest.spyOn(global, 'fetch').mockRejectedValueOnce(abortError);
 
     const service = new AttendancePhotoStorageService(new ConfigService());
-    const photoDataUrl = `data:image/jpeg;base64,${Buffer.from(
-      'verification-photo',
-    ).toString('base64')}`;
+    const photoDataUrl = `data:image/jpeg;base64,${Buffer.concat([
+      Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+      Buffer.from('verification-photo'),
+    ]).toString('base64')}`;
 
     await expect(
       service.uploadVerificationPhoto(photoDataUrl, {

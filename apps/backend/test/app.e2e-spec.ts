@@ -11,6 +11,11 @@ import { MonthlyAttendancePuppeteerPdfRendererService } from '../src/modules/att
 import { DashboardService } from '../src/modules/dashboard/dashboard.service';
 import { prepareTestDatabase } from './test-database';
 import { resolveSessionToken } from '../../frontend/lib/auth-session';
+import {
+  enqueueOfflineAttendance,
+  readOfflineAttendanceQueue,
+  synchronizeOfflineAttendanceQueue,
+} from '../../frontend/lib/offline-attendance-queue';
 
 jest.setTimeout(30000);
 
@@ -23,6 +28,8 @@ describe('AppController (e2e)', () => {
   let operationsScheduleId: string;
   const attendanceSecurityEnvKeys = [
     'ATTENDANCE_SECURITY_ENABLED',
+    'ATTENDANCE_SELFIE_REQUIRED',
+    'ATTENDANCE_GPS_REQUIRED',
     'COMPANY_LATITUDE',
     'COMPANY_LONGITUDE',
     'ATTENDANCE_TRUSTED_RADIUS_METERS',
@@ -32,6 +39,125 @@ describe('AppController (e2e)', () => {
   ];
   const testSelfieDataUrl =
     'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2w==';
+
+  function memoryStorage() {
+    const values = new Map<string, string>();
+    return {
+      get length() {
+        return values.size;
+      },
+      clear: () => values.clear(),
+      getItem: (key: string) => values.get(key) ?? null,
+      key: (index: number) => [...values.keys()][index] ?? null,
+      removeItem: (key: string) => values.delete(key),
+      setItem: (key: string, value: string) => {
+        values.set(key, value);
+      },
+    } as Storage;
+  }
+
+  const testOfflineSessionBinding =
+    '0f205e79-48ae-469a-93a8-f8af87168e71';
+
+  function enqueueTestOfflineAttendance(
+    storage: Storage,
+    input: Omit<
+      Parameters<typeof enqueueOfflineAttendance>[1],
+      'sessionBinding'
+    >,
+  ) {
+    return enqueueOfflineAttendance(storage, {
+      ...input,
+      sessionBinding: testOfflineSessionBinding,
+    });
+  }
+
+  it('creates a local pending attendance item without finalizing it', () => {
+    const storage = memoryStorage();
+    const item = enqueueTestOfflineAttendance(storage, {
+      action: 'check-in',
+      capturedAt: new Date().toISOString(),
+    });
+
+    expect(item.state).toBe('pending');
+    expect(item.attempts).toBe(0);
+    expect(readOfflineAttendanceQueue(storage)).toEqual([item]);
+  });
+
+  it('returns a temporary offline synchronization failure to pending and retries', async () => {
+    const storage = memoryStorage();
+    let currentTime = new Date('2026-09-02T10:00:00.000Z');
+    enqueueTestOfflineAttendance(storage, {
+      action: 'check-in',
+      capturedAt: new Date().toISOString(),
+    });
+    const submit = jest
+      .fn<Promise<Response>, []>()
+      .mockResolvedValueOnce(new Response('{}', { status: 503 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({
+          state: 'accepted',
+          receivedAt: new Date().toISOString(),
+        }), { status: 201 }),
+      );
+
+    expect(
+      (
+        await synchronizeOfflineAttendanceQueue(
+          storage,
+          testOfflineSessionBinding,
+          submit,
+          () => currentTime,
+        )
+      )[0],
+    ).toMatchObject({ state: 'pending', attempts: 1 });
+    expect(
+      (
+        await synchronizeOfflineAttendanceQueue(
+          storage,
+          testOfflineSessionBinding,
+          submit,
+          () => currentTime,
+        )
+      )[0],
+    ).toMatchObject({ state: 'pending', attempts: 1 });
+    expect(submit).toHaveBeenCalledTimes(1);
+
+    currentTime = new Date(currentTime.getTime() + 1_000);
+    expect(
+      (
+        await synchronizeOfflineAttendanceQueue(
+          storage,
+          testOfflineSessionBinding,
+          submit,
+          () => currentTime,
+        )
+      )[0],
+    ).toMatchObject({ state: 'accepted', attempts: 2 });
+  });
+
+  it('marks a permanently rejected offline attendance and removes its evidence', async () => {
+    const storage = memoryStorage();
+    enqueueTestOfflineAttendance(storage, {
+      action: 'check-in',
+      capturedAt: new Date().toISOString(),
+      security: { verificationPhotoDataUrl: testSelfieDataUrl },
+    });
+
+    const [item] = await synchronizeOfflineAttendanceQueue(storage, testOfflineSessionBinding, () =>
+      Promise.resolve(
+        new Response(JSON.stringify({ error: 'Evidence expired.' }), {
+          status: 400,
+        }),
+      ),
+    );
+
+    expect(item).toMatchObject({
+      state: 'rejected',
+      rejectionReason: 'Evidence expired.',
+    });
+    expect(item.security).toBeUndefined();
+  });
 
   function enableAttendanceSecurityForTest(
     overrides: Partial<
@@ -46,6 +172,8 @@ describe('AppController (e2e)', () => {
       string
     > = {
       ATTENDANCE_SECURITY_ENABLED: 'true',
+      ATTENDANCE_SELFIE_REQUIRED: 'true',
+      ATTENDANCE_GPS_REQUIRED: 'true',
       COMPANY_LATITUDE: '5.359952',
       COMPANY_LONGITUDE: '-4.008256',
       ATTENDANCE_TRUSTED_RADIUS_METERS: '100',
@@ -79,6 +207,7 @@ describe('AppController (e2e)', () => {
 
   function terminalSelfieProof() {
     return {
+      evidenceCapturedAt: new Date().toISOString(),
       verificationPhotoDataUrl: testSelfieDataUrl,
     };
   }
@@ -91,6 +220,7 @@ describe('AppController (e2e)', () => {
     }> = {},
   ) {
     return {
+      evidenceCapturedAt: new Date().toISOString(),
       latitude: 5.359952,
       longitude: -4.008256,
       accuracyMeters: 8,
@@ -209,6 +339,12 @@ describe('AppController (e2e)', () => {
     expect(response.body.service).toBe('konatech-attendance-api');
   });
 
+  it('/api/v1/health/ready (GET)', async () => {
+    await request(app.getHttpServer()).get('/api/v1/health/ready').expect(200, {
+      status: 'ready',
+    });
+  });
+
   it('/api/v1/auth/login (POST)', async () => {
     const response = await login(
       'awa.traore@konatech.local',
@@ -259,9 +395,10 @@ describe('AppController (e2e)', () => {
     const baseConfig = {
       NODE_ENV: 'production',
       ATTENDANCE_SECURITY_ENABLED: false,
-      JWT_SECRET:
-        'replace-this-production-jwt-secret-with-at-least-32-characters',
+      JWT_SECRET: 'vR9!Km2#Qx7@Wp4$Bn8&Hs5*Ld3%Tf6Z',
       FRONTEND_URL: 'https://attendance.example.com',
+      DATABASE_URL:
+        'postgresql://app:password@db.example.com/attendance?sslmode=require',
     };
 
     expect(() =>
@@ -304,9 +441,11 @@ describe('AppController (e2e)', () => {
   });
 
   it('/api/v1/auth/attendance-entry/login (POST) migrates a legacy plain PIN to pinCodeHash on first successful login', async () => {
-    const legacyEmployeeBefore = await prisma.employee.findUniqueOrThrow({
+    const legacyEmployeeBefore = await prisma.employee.findFirstOrThrow({
       where: {
         email: 'aminata.keita@konatech.local',
+        organizationId: null,
+        userId: null,
       },
       select: {
         id: true,
@@ -364,7 +503,7 @@ describe('AppController (e2e)', () => {
       | Awaited<ReturnType<typeof loginForAttendanceEntry>>
       | undefined;
 
-    for (let attempt = 0; attempt < 4; attempt += 1) {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
       const response = await loginForAttendanceEntry('9999');
 
       if (response.status === 429) {
@@ -444,61 +583,60 @@ describe('AppController (e2e)', () => {
         summary: expect.objectContaining({
           totalEmployees: expect.any(Number),
           presentToday: expect.any(Number),
+          scheduledPresentToday: expect.any(Number),
           lateEmployeesToday: expect.any(Number),
           absentEmployeesToday: expect.any(Number),
           earlyExitToday: expect.any(Number),
           overtimeHoursToday: expect.any(Number),
-          totalAttendanceRecordsToday: expect.any(Number),
         }),
         analytics: expect.objectContaining({
-          attendanceRate: expect.any(Number),
-          latenessRate: expect.any(Number),
-          absenceRate: expect.any(Number),
-          outsideScheduleWorkDays: expect.any(Number),
-          outsideScheduleOvertimeHoursThisMonth: expect.any(Number),
-          gpsValidatedCheckInCount: expect.any(Number),
-          gpsValidatedCheckOutCount: expect.any(Number),
-          gpsValidatedAttendanceCount: expect.any(Number),
-          insideZoneCheckInCount: expect.any(Number),
-          insideZoneCheckOutCount: expect.any(Number),
-          insideZoneAttendanceCount: expect.any(Number),
-          blockedCheckInCount: null,
-          blockedCheckOutCount: null,
-          blockedAttendanceAttemptCount: null,
-          outsideZoneRejectedAttemptCount: null,
-          legacySensitiveCheckInCount: expect.any(Number),
-          legacySensitiveCheckOutCount: expect.any(Number),
-          legacyHistoricalVerificationCount: expect.any(Number),
-          legacyPhotoCheckInCount: expect.any(Number),
-          legacyPhotoCheckOutCount: expect.any(Number),
-          legacyHistoricalPhotoCount: expect.any(Number),
           earlyExitCount: expect.any(Number),
+          absenceCountThisMonth: expect.any(Number),
           overtimeHoursThisMonth: expect.any(Number),
-          suspiciousCheckInCount: expect.any(Number),
-          suspiciousCheckOutCount: expect.any(Number),
-          photoVerificationCount: expect.any(Number),
-          checkOutPhotoVerificationCount: expect.any(Number),
           topLateEmployees: expect.any(Array),
-          topLegacySecurityEmployees: expect.any(Array),
-          topSuspiciousEmployees: expect.any(Array),
           topOvertimeEmployees: expect.any(Array),
           topEarlyExitEmployees: expect.any(Array),
         }),
         recentActivity: expect.any(Array),
       }),
     );
+    expect(Object.keys(response.body.summary).sort()).toEqual(
+      [
+        'absentEmployeesToday',
+        'earlyExitToday',
+        'lateEmployeesToday',
+        'overtimeHoursToday',
+        'presentToday',
+        'scheduledPresentToday',
+        'totalEmployees',
+      ].sort(),
+    );
+    expect(Object.keys(response.body.analytics).sort()).toEqual(
+      [
+        'absenceCountThisMonth',
+        'earlyExitCount',
+        'overtimeHoursThisMonth',
+        'topEarlyExitEmployees',
+        'topLateEmployees',
+        'topOvertimeEmployees',
+      ].sort(),
+    );
 
     if (response.body.recentActivity.length > 0) {
       expect(response.body.recentActivity[0]).toEqual(
         expect.objectContaining({
-          id: expect.any(String),
-          employeeId: expect.any(String),
           employeeIdentifier: expect.any(String),
           employeeName: expect.any(String),
           status: expect.any(String),
           date: expect.any(String),
           minutesLate: expect.any(Number),
         }),
+      );
+      expect(response.body.recentActivity[0]).not.toHaveProperty(
+        'checkInVerificationPhoto',
+      );
+      expect(response.body.recentActivity[0]).not.toHaveProperty(
+        'checkOutVerificationPhotoPublicId',
       );
     }
 
@@ -1041,6 +1179,8 @@ describe('AppController (e2e)', () => {
         canCheckOut: expect.any(Boolean),
         securityPolicy: expect.objectContaining({
           enabled: false,
+          selfieRequired: false,
+          gpsRequired: false,
           locationConfigured: true,
           trustedRadiusMeters: null,
           warningRadiusMeters: null,
@@ -1080,6 +1220,8 @@ describe('AppController (e2e)', () => {
 
       expect(response.body.securityPolicy).toEqual({
         enabled: true,
+        selfieRequired: true,
+        gpsRequired: true,
         locationConfigured: true,
         trustedRadiusMeters: 10,
         warningRadiusMeters: 20,
@@ -1087,6 +1229,8 @@ describe('AppController (e2e)', () => {
         maxAccuracyMeters: 200,
         companyLatitude: 5.359952,
         companyLongitude: -4.008256,
+        siteId: null,
+        siteName: null,
       });
     } finally {
       restoreEnv();
@@ -1113,6 +1257,8 @@ describe('AppController (e2e)', () => {
 
       expect(response.body).toEqual({
         enabled: true,
+        selfieRequired: true,
+        gpsRequired: true,
         locationConfigured: true,
         trustedRadiusMeters: 10,
         warningRadiusMeters: 20,
@@ -1121,6 +1267,200 @@ describe('AppController (e2e)', () => {
         companyLatitude: 5.359952,
         companyLongitude: -4.008256,
       });
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it('/api/v1/attendance/me/check-in (POST) rejects stale attendance evidence', async () => {
+    const restoreEnv = enableAttendanceSecurityForTest();
+
+    try {
+      const session = await login(
+        'ibrahim.coulibaly@konatech.local',
+        'KonatechEmployee123!',
+      );
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/attendance/me/check-in')
+        .set('Authorization', `Bearer ${session.accessToken}`)
+        .send({
+          occurredAt: new Date().toISOString(),
+          security: {
+            ...terminalSecurityProof(),
+            evidenceCapturedAt: new Date(Date.now() - 180_000).toISOString(),
+          },
+        })
+        .expect(400);
+
+      expect(response.body.message).toBe(
+        'Preuve de pointage absente ou expirée. Recommencez la validation.',
+      );
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it('/api/v1/attendance/me/check-in (POST) rejects forged future evidenceCapturedAt', async () => {
+    const restoreEnv = enableAttendanceSecurityForTest();
+
+    try {
+      const session = await login(
+        'ibrahim.coulibaly@konatech.local',
+        'KonatechEmployee123!',
+      );
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/attendance/me/check-in')
+        .set('Authorization', `Bearer ${session.accessToken}`)
+        .send({
+          occurredAt: new Date().toISOString(),
+          security: {
+            ...terminalSecurityProof(),
+            evidenceCapturedAt: new Date(Date.now() + 60_000).toISOString(),
+          },
+        })
+        .expect(400);
+
+      expect(response.body.message).toBe(
+        'Preuve de pointage absente ou expirée. Recommencez la validation.',
+      );
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it('/api/v1/attendance/me/check-in (POST) rejects selfie bytes that do not match the declared image type', async () => {
+    const restoreEnv = enableAttendanceSecurityForTest({
+      ATTENDANCE_GPS_REQUIRED: 'false',
+    });
+
+    try {
+      const session = await login(
+        'ibrahim.coulibaly@konatech.local',
+        'KonatechEmployee123!',
+      );
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/attendance/me/check-in')
+        .set('Authorization', `Bearer ${session.accessToken}`)
+        .send({
+          security: {
+            evidenceCapturedAt: new Date().toISOString(),
+            verificationPhotoDataUrl:
+              'data:image/png;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2w==',
+          },
+        })
+        .expect(400);
+
+      expect(response.body.message).toBe(
+        'Verification photo content does not match its image type.',
+      );
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it.each([
+    ['latitude out of range', { latitude: 91 }],
+    ['longitude out of range', { longitude: -181 }],
+    ['zero accuracy', { accuracyMeters: 0 }],
+  ])(
+    '/api/v1/attendance/me/check-in (POST) rejects invalid GPS: %s',
+    async (_label, invalidGps) => {
+      const restoreEnv = enableAttendanceSecurityForTest();
+
+      try {
+        const session = await login(
+          'ibrahim.coulibaly@konatech.local',
+          'KonatechEmployee123!',
+        );
+        await request(app.getHttpServer())
+          .post('/api/v1/attendance/me/check-in')
+          .set('Authorization', `Bearer ${session.accessToken}`)
+          .send({
+            occurredAt: new Date().toISOString(),
+            security: { ...terminalSecurityProof(), ...invalidGps },
+          })
+          .expect(400);
+      } finally {
+        restoreEnv();
+      }
+    },
+  );
+
+  it('/api/v1/attendance/me/check-in (POST) rejects zero-zero GPS as suspicious', async () => {
+    const restoreEnv = enableAttendanceSecurityForTest();
+
+    try {
+      const session = await login(
+        'ibrahim.coulibaly@konatech.local',
+        'KonatechEmployee123!',
+      );
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/attendance/me/check-in')
+        .set('Authorization', `Bearer ${session.accessToken}`)
+        .send({
+          occurredAt: new Date().toISOString(),
+          notes: 'Invalid device position',
+          security: terminalSecurityProof({ latitude: 0, longitude: 0 }),
+        })
+        .expect(400);
+
+      expect(response.body.message).toBe('Coordonnées GPS suspectes.');
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it('/api/v1/attendance/me/check-in (POST) allows GPS-disabled policy with a fresh selfie only', async () => {
+    const restoreEnv = enableAttendanceSecurityForTest({
+      ATTENDANCE_GPS_REQUIRED: 'false',
+      COMPANY_LATITUDE: null,
+      COMPANY_LONGITUDE: null,
+    });
+
+    try {
+      const session = await login(
+        'ibrahim.coulibaly@konatech.local',
+        'KonatechEmployee123!',
+      );
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/attendance/me/check-in')
+        .set('Authorization', `Bearer ${session.accessToken}`)
+        .send({
+          occurredAt: '2026-05-08T09:00:00.000Z',
+          security: terminalSelfieProof(),
+        })
+        .expect(201);
+
+      expect(response.body.checkInVerificationMethod).toBe('PHOTO');
+      expect(response.body.checkInLatitude).toBeNull();
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it('/api/v1/attendance/me/check-in (POST) allows selfie-disabled policy with fresh GPS only', async () => {
+    const restoreEnv = enableAttendanceSecurityForTest({
+      ATTENDANCE_SELFIE_REQUIRED: 'false',
+    });
+
+    try {
+      const session = await login(
+        'ibrahim.coulibaly@konatech.local',
+        'KonatechEmployee123!',
+      );
+      const { verificationPhotoDataUrl: _photo, ...gpsProof } =
+        terminalSecurityProof();
+      const response = await request(app.getHttpServer())
+        .post('/api/v1/attendance/me/check-in')
+        .set('Authorization', `Bearer ${session.accessToken}`)
+        .send({
+          occurredAt: '2026-05-09T09:00:00.000Z',
+          security: gpsProof,
+        })
+      .expect(201);
+
+      expect(response.body.checkInVerificationMethod).toBe('GPS');
+      expect(response.body).not.toHaveProperty('checkInVerificationPhoto');
     } finally {
       restoreEnv();
     }
@@ -1179,7 +1519,7 @@ describe('AppController (e2e)', () => {
     expect(response.body.message).toBe('occurredAt cannot be in the future.');
   });
 
-  it('/api/v1/attendance/me/check-in (POST) rejects missing selfie proof', async () => {
+  it('/api/v1/attendance/me/check-in (POST) allows no selfie when the policy is disabled', async () => {
     const session = await login(
       'fatoumata.konate@konatech.local',
       'KonatechEmployee123!',
@@ -1191,14 +1531,12 @@ describe('AppController (e2e)', () => {
       .send({
         occurredAt: '2026-05-02T09:00:00.000Z',
       })
-      .expect(400);
+      .expect(201);
 
-    expect(response.body.message).toBe(
-      'Selfie requis pour valider le pointage.',
-    );
+    expect(response.body.checkInVerificationMethod).toBe('NONE');
   });
 
-  it('/api/v1/attendance/me/check-out (POST) rejects missing selfie proof', async () => {
+  it('/api/v1/attendance/me/check-out (POST) allows no selfie or GPS when the policy is disabled', async () => {
     const session = await login(
       'fatoumata.konate@konatech.local',
       'KonatechEmployee123!',
@@ -1209,7 +1547,6 @@ describe('AppController (e2e)', () => {
       .set('Authorization', `Bearer ${session.accessToken}`)
       .send({
         occurredAt: '2026-05-03T09:00:00.000Z',
-        security: terminalSelfieProof(),
       })
       .expect(201);
 
@@ -1219,11 +1556,9 @@ describe('AppController (e2e)', () => {
       .send({
         occurredAt: '2026-05-03T18:00:00.000Z',
       })
-      .expect(400);
+      .expect(201);
 
-    expect(response.body.message).toBe(
-      'Selfie requis pour valider le pointage.',
-    );
+    expect(response.body.checkOutVerificationMethod).toBe('NONE');
   });
 
   it('/api/v1/attendance/me/check-in (POST) records an incomplete attendance', async () => {
@@ -2426,7 +2761,7 @@ describe('AppController (e2e)', () => {
     expect(after).toEqual(before);
   });
 
-  it('dashboard presence rate excludes non-working days and tracks outside-schedule work separately', async () => {
+  it('dashboard keeps presence and absence counts on a non-working day', async () => {
     const dashboardService = app.get(DashboardService);
     const overview = await dashboardService.getOverview(
       new Date('2026-04-18T12:00:00.000Z'),
@@ -2434,14 +2769,6 @@ describe('AppController (e2e)', () => {
 
     expect(overview.summary.presentToday).toBe(1);
     expect(overview.summary.absentEmployeesToday).toBe(0);
-    expect(overview.analytics.attendanceRate).toBe(0);
-    expect(overview.analytics.absenceRate).toBe(0);
-    expect(overview.analytics.outsideScheduleWorkDays).toBeGreaterThanOrEqual(
-      1,
-    );
-    expect(
-      overview.analytics.outsideScheduleOvertimeHoursThisMonth,
-    ).toBeGreaterThanOrEqual(5);
   });
 
   it('/api/v1/attendance/exports/monthly (GET) returns a CSV export for admin', async () => {

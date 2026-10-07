@@ -1,0 +1,28 @@
+name: konatech-pointage-saas-validation
+
+services:
+  postgres-saas-validation:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: konatech_attendance_saas_validation
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${LOCAL_SAAS_POSTGRES_PASSWORD:?LOCAL_SAAS_POSTGRES_PASSWORD must be set in apps/backend/.env.local}
+    ports:
+      - '127.0.0.1:5434:5432'
+    volumes:
+      - konatech-saas-validation-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U postgres -d konatech_attendance_saas_validation',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  konatech-saas-validation-postgres-data:
+    name: konatech-saas-validation-postgres-data

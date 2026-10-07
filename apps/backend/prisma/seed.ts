@@ -1,10 +1,12 @@
 import {
   AccessRole,
   AttendanceStatus,
+  Prisma,
   PrismaClient,
   SanctionPeriod,
   SanctionRuleType,
 } from '@prisma/client';
+import { getSafeErrorSummary } from '../src/common/security/sensitive-data.util';
 import { getAttendanceCheckOutOutcome } from '../src/common/utils/attendance-checkout.util';
 import {
   findPreviousScheduledDate,
@@ -70,10 +72,8 @@ export async function seedDatabase(
 
   await ensureDefaultSanctionRules(prisma);
 
-  const officeSchedule = await prisma.schedule.upsert({
-    where: {
-      name: 'Office Day Shift',
-    },
+  const officeSchedule = await upsertLegacySchedule(prisma, {
+    name: 'Office Day Shift',
     update: {
       startTime: '08:00',
       endTime: '17:00',
@@ -82,7 +82,6 @@ export async function seedDatabase(
       workDays: [...STANDARD_WORK_WEEK],
     },
     create: {
-      name: 'Office Day Shift',
       startTime: '08:00',
       endTime: '17:00',
       latenessMarginMinutes: 5,
@@ -91,10 +90,8 @@ export async function seedDatabase(
     },
   });
 
-  const operationsSchedule = await prisma.schedule.upsert({
-    where: {
-      name: 'Operations Rotation',
-    },
+  const operationsSchedule = await upsertLegacySchedule(prisma, {
+    name: 'Operations Rotation',
     update: {
       startTime: '09:00',
       endTime: '18:00',
@@ -103,7 +100,6 @@ export async function seedDatabase(
       workDays: [...FULL_WORK_WEEK],
     },
     create: {
-      name: 'Operations Rotation',
       startTime: '09:00',
       endTime: '18:00',
       latenessMarginMinutes: 10,
@@ -121,10 +117,8 @@ export async function seedDatabase(
   } as const;
 
   const employees = await Promise.all([
-    prisma.employee.upsert({
-      where: {
-        email: 'awa.traore@konatech.local',
-      },
+    upsertLegacyEmployee(prisma, {
+      email: 'awa.traore@konatech.local',
       update: {
         employeeIdentifier: employeeIdentifiers.awa,
         pinCode: null,
@@ -144,7 +138,6 @@ export async function seedDatabase(
         pinCodeHash: null,
         firstName: 'Awa',
         lastName: 'Traore',
-        email: 'awa.traore@konatech.local',
         role: 'Operations Lead',
         accessRole: AccessRole.ADMIN,
         passwordHash: adminPasswordHash,
@@ -153,10 +146,8 @@ export async function seedDatabase(
         scheduleId: officeSchedule.id,
       },
     }),
-    prisma.employee.upsert({
-      where: {
-        email: 'salif.diallo@konatech.local',
-      },
+    upsertLegacyEmployee(prisma, {
+      email: 'salif.diallo@konatech.local',
       update: {
         employeeIdentifier: employeeIdentifiers.salif,
         pinCode: null,
@@ -176,7 +167,6 @@ export async function seedDatabase(
         pinCodeHash: null,
         firstName: 'Salif',
         lastName: 'Diallo',
-        email: 'salif.diallo@konatech.local',
         role: 'HR Coordinator',
         accessRole: AccessRole.ADMIN,
         passwordHash: adminPasswordHash,
@@ -185,10 +175,8 @@ export async function seedDatabase(
         scheduleId: officeSchedule.id,
       },
     }),
-    prisma.employee.upsert({
-      where: {
-        email: 'fatoumata.konate@konatech.local',
-      },
+    upsertLegacyEmployee(prisma, {
+      email: 'fatoumata.konate@konatech.local',
       update: {
         employeeIdentifier: employeeIdentifiers.fatoumata,
         pinCode: null,
@@ -208,7 +196,6 @@ export async function seedDatabase(
         pinCodeHash: fatoumataPinCodeHash,
         firstName: 'Fatoumata',
         lastName: 'Konate',
-        email: 'fatoumata.konate@konatech.local',
         role: 'Support Supervisor',
         accessRole: AccessRole.EMPLOYEE,
         passwordHash: employeePasswordHash,
@@ -217,10 +204,8 @@ export async function seedDatabase(
         scheduleId: operationsSchedule.id,
       },
     }),
-    prisma.employee.upsert({
-      where: {
-        email: 'ibrahim.coulibaly@konatech.local',
-      },
+    upsertLegacyEmployee(prisma, {
+      email: 'ibrahim.coulibaly@konatech.local',
       update: {
         employeeIdentifier: employeeIdentifiers.ibrahim,
         pinCode: '0000',
@@ -240,7 +225,6 @@ export async function seedDatabase(
         pinCodeHash: ibrahimPinCodeHash,
         firstName: 'Ibrahim',
         lastName: 'Coulibaly',
-        email: 'ibrahim.coulibaly@konatech.local',
         role: 'Field Agent',
         accessRole: AccessRole.EMPLOYEE,
         passwordHash: employeePasswordHash,
@@ -249,10 +233,8 @@ export async function seedDatabase(
         scheduleId: operationsSchedule.id,
       },
     }),
-    prisma.employee.upsert({
-      where: {
-        email: 'aminata.keita@konatech.local',
-      },
+    upsertLegacyEmployee(prisma, {
+      email: 'aminata.keita@konatech.local',
       update: {
         employeeIdentifier: employeeIdentifiers.aminata,
         pinCode: '4105',
@@ -272,7 +254,6 @@ export async function seedDatabase(
         pinCodeHash: null,
         firstName: 'Aminata',
         lastName: 'Keita',
-        email: 'aminata.keita@konatech.local',
         role: 'Payroll Analyst',
         accessRole: AccessRole.EMPLOYEE,
         passwordHash: employeePasswordHash,
@@ -460,6 +441,7 @@ async function ensureDefaultSanctionRules(prisma: PrismaClient) {
   for (const rule of defaultSanctionRules) {
     const existingRule = await prisma.sanctionRule.findFirst({
       where: {
+        organizationId: null,
         type: rule.type,
         priority: rule.priority,
       },
@@ -482,6 +464,75 @@ async function ensureDefaultSanctionRules(prisma: PrismaClient) {
       data: rule,
     });
   }
+}
+
+async function upsertLegacySchedule(
+  prisma: PrismaClient,
+  input: {
+    name: string;
+    update: Prisma.ScheduleUncheckedUpdateInput;
+    create: Omit<
+      Prisma.ScheduleUncheckedCreateInput,
+      'name' | 'organizationId'
+    >;
+  },
+) {
+  const existing = await prisma.schedule.findFirst({
+    where: { name: input.name, organizationId: null },
+    select: { id: true },
+  });
+
+  if (existing) {
+    return prisma.schedule.update({
+      where: { id: existing.id },
+      data: input.update,
+    });
+  }
+
+  return prisma.schedule.create({
+    data: {
+      ...input.create,
+      name: input.name,
+      organizationId: null,
+    },
+  });
+}
+
+async function upsertLegacyEmployee(
+  prisma: PrismaClient,
+  input: {
+    email: string;
+    update: Prisma.EmployeeUncheckedUpdateInput;
+    create: Omit<
+      Prisma.EmployeeUncheckedCreateInput,
+      'email' | 'organizationId' | 'userId'
+    >;
+  },
+) {
+  const existing = await prisma.employee.findFirst({
+    where: {
+      email: input.email,
+      organizationId: null,
+      userId: null,
+    },
+    select: { id: true },
+  });
+
+  if (existing) {
+    return prisma.employee.update({
+      where: { id: existing.id },
+      data: input.update,
+    });
+  }
+
+  return prisma.employee.create({
+    data: {
+      ...input.create,
+      email: input.email,
+      organizationId: null,
+      userId: null,
+    },
+  });
 }
 
 function getSeedAbsenceCount(
@@ -565,7 +616,7 @@ async function main() {
 if (require.main === module) {
   main()
     .catch(async (error) => {
-      console.error('Seed failed:', error);
+      console.error(`Seed failed: ${getSafeErrorSummary(error)}.`);
       await prisma.$disconnect();
       process.exit(1);
     })

@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { scheduleSelect } from '../src/common/prisma/selects';
 import { buildAttendanceScheduleSnapshot } from '../src/common/utils/attendance-schedule-snapshot.util';
+import { getSafeErrorSummary } from '../src/common/security/sensitive-data.util';
 
 const prisma = new PrismaClient();
 
@@ -53,7 +54,9 @@ async function main() {
 
 main()
   .catch(async (error) => {
-    console.error('Attendance schedule snapshot backfill failed:', error);
+    console.error(
+      `Attendance schedule snapshot backfill failed: ${getSafeErrorSummary(error)}.`,
+    );
     await prisma.$disconnect();
     process.exit(1);
   })

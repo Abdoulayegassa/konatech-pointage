@@ -9,6 +9,10 @@ import {
   SecurityLocation,
 } from './attendance-security-policy.service';
 import { CheckInSecurityProofDto } from './dto/check-in-security.dto';
+import { AttendanceSettingsService } from './attendance-settings.service';
+import type { AttendanceSiteSecurityContext } from './attendance-settings.service';
+import { AuthenticationContext } from '../auth/interfaces/authentication-context.interface';
+import type { AttendanceSecurityPolicy } from './attendance-security-policy.service';
 
 export type AttendanceSecurityMetadata = {
   checkInLatitude: number | null;
@@ -55,13 +59,70 @@ type AttendanceSecurityEvaluation = {
  * handling remain authoritative and must not silently downgrade security.
  */
 export class AttendanceSecurityService {
+  private readonly evidenceFreshnessToleranceMs = 2 * 60 * 1000;
+
   constructor(
     private readonly policyService: AttendanceSecurityPolicyService,
     private readonly photoStorageService: AttendancePhotoStorageService,
+    private readonly settingsService: AttendanceSettingsService,
   ) {}
 
   getPolicy() {
     return this.policyService.getPolicy();
+  }
+
+  getEffectivePolicy(
+    authentication?: AuthenticationContext,
+    site?: AttendanceSiteSecurityContext | null,
+  ) {
+    return authentication
+      ? this.settingsService.resolveSecurityPolicy(authentication, site)
+      : Promise.resolve(this.getPolicy());
+  }
+
+  getPhotoEvidenceFingerprint(photoDataUrl: string) {
+    return this.photoStorageService.getEvidenceFingerprint(photoDataUrl);
+  }
+
+  validateEvidence(
+    input: CheckInSecurityProofDto | undefined,
+    options: {
+      enforceSecurity: boolean;
+      notes?: string;
+      requireFreshEvidence?: boolean;
+      /** Offline evidence is compared with the validated attendance event time. */
+      evidenceReferenceTime?: Date;
+      authentication?: AuthenticationContext;
+      site?: AttendanceSiteSecurityContext | null;
+      policyOverride?: AttendanceSecurityPolicy;
+    },
+  ) {
+    const policyPromise = options.policyOverride
+      ? Promise.resolve(options.policyOverride)
+      : options.authentication
+      ? this.settingsService.resolveSecurityPolicy(
+          options.authentication,
+          options.site,
+        )
+      : Promise.resolve(this.getPolicy());
+    return policyPromise.then((policy) => {
+      const location = this.extractLocation(input);
+      const distanceMeters = this.policyService.getDistanceMeters(
+        policy,
+        location,
+      );
+
+      this.assertSecurityRequirements({
+        input,
+        location,
+        distanceMeters,
+        policy,
+        enforceSecurity: options.enforceSecurity,
+        notes: options.notes,
+        requireFreshEvidence: options.requireFreshEvidence,
+        evidenceReferenceTime: options.evidenceReferenceTime,
+      });
+    });
   }
 
   async evaluateCheckIn(
@@ -71,6 +132,12 @@ export class AttendanceSecurityService {
       employeeId: string;
       occurredAt: Date;
       notes?: string;
+      requireFreshEvidence?: boolean;
+      /** Offline evidence is compared with the validated attendance event time. */
+      evidenceReferenceTime?: Date;
+      authentication?: AuthenticationContext;
+      site?: AttendanceSiteSecurityContext | null;
+      policyOverride?: AttendanceSecurityPolicy;
     },
   ): Promise<AttendanceSecurityMetadata> {
     const evaluation = await this.evaluateSecurity(input, {
@@ -78,7 +145,12 @@ export class AttendanceSecurityService {
       employeeId: options.employeeId,
       occurredAt: options.occurredAt,
       notes: options.notes,
+      requireFreshEvidence: options.requireFreshEvidence,
+      evidenceReferenceTime: options.evidenceReferenceTime,
       reason: 'CHECK_IN',
+      authentication: options.authentication,
+      site: options.site,
+      policyOverride: options.policyOverride,
     });
 
     return this.buildCheckInMetadata(evaluation);
@@ -91,6 +163,12 @@ export class AttendanceSecurityService {
       employeeId: string;
       occurredAt: Date;
       notes?: string;
+      requireFreshEvidence?: boolean;
+      /** Offline evidence is compared with the validated attendance event time. */
+      evidenceReferenceTime?: Date;
+      authentication?: AuthenticationContext;
+      site?: AttendanceSiteSecurityContext | null;
+      policyOverride?: AttendanceSecurityPolicy;
     },
   ): Promise<AttendanceCheckOutSecurityMetadata> {
     const evaluation = await this.evaluateSecurity(input, {
@@ -98,7 +176,12 @@ export class AttendanceSecurityService {
       employeeId: options.employeeId,
       occurredAt: options.occurredAt,
       notes: options.notes,
+      requireFreshEvidence: options.requireFreshEvidence,
       reason: 'CHECK_OUT',
+      authentication: options.authentication,
+      site: options.site,
+      evidenceReferenceTime: options.evidenceReferenceTime,
+      policyOverride: options.policyOverride,
     });
 
     return this.buildCheckOutMetadata(evaluation);
@@ -112,9 +195,19 @@ export class AttendanceSecurityService {
       occurredAt: Date;
       notes?: string;
       reason: 'CHECK_IN' | 'CHECK_OUT';
+      requireFreshEvidence?: boolean;
+      evidenceReferenceTime?: Date;
+      authentication?: AuthenticationContext;
+      site?: AttendanceSiteSecurityContext | null;
+      policyOverride?: AttendanceSecurityPolicy;
     },
   ): Promise<AttendanceSecurityEvaluation> {
-    const policy = this.getPolicy();
+    const policy = context.policyOverride ?? (context.authentication
+      ? await this.settingsService.resolveSecurityPolicy(
+          context.authentication,
+          context.site,
+        )
+      : this.getPolicy());
     const location = this.extractLocation(input);
     const distanceMeters = this.policyService.getDistanceMeters(
       policy,
@@ -128,10 +221,12 @@ export class AttendanceSecurityService {
       policy,
       enforceSecurity: context.enforceSecurity,
       notes: context.notes,
+      requireFreshEvidence: context.requireFreshEvidence,
+      evidenceReferenceTime: context.evidenceReferenceTime,
     });
     const isOffsiteJustified =
       context.enforceSecurity &&
-      policy.enabled &&
+      policy.gpsRequired &&
       policy.allowedRadiusMeters !== null &&
       distanceMeters !== null &&
       distanceMeters > policy.allowedRadiusMeters &&
@@ -179,12 +274,17 @@ export class AttendanceSecurityService {
     policy: ReturnType<AttendanceSecurityPolicyService['getPolicy']>;
     enforceSecurity: boolean;
     notes?: string;
+    requireFreshEvidence?: boolean;
+    evidenceReferenceTime?: Date;
   }) {
     if (!input.enforceSecurity) {
       return;
     }
 
-    if (!input.input?.verificationPhotoDataUrl?.trim()) {
+    if (
+      input.policy.selfieRequired &&
+      !input.input?.verificationPhotoDataUrl?.trim()
+    ) {
       throw new BadRequestException('Selfie requis pour valider le pointage.');
     }
 
@@ -192,10 +292,39 @@ export class AttendanceSecurityService {
       return;
     }
 
+    const evidenceCapturedAt = input.input?.evidenceCapturedAt
+      ? new Date(input.input.evidenceCapturedAt)
+      : null;
+    const evidenceReferenceTime = input.evidenceReferenceTime?.getTime() ?? Date.now();
+    const evidenceDeltaMs = evidenceCapturedAt
+      ? evidenceReferenceTime - evidenceCapturedAt.getTime()
+      : null;
+    const evidenceOutsideTolerance = evidenceDeltaMs === null || (
+      input.evidenceReferenceTime
+        ? Math.abs(evidenceDeltaMs) > this.evidenceFreshnessToleranceMs
+        : evidenceDeltaMs < -5_000 || evidenceDeltaMs > this.evidenceFreshnessToleranceMs
+    );
+    if (
+      (input.requireFreshEvidence || evidenceCapturedAt) &&
+      evidenceOutsideTolerance
+    ) {
+      throw new BadRequestException(
+        'Preuve de pointage absente ou expirée. Recommencez la validation.',
+      );
+    }
+
+    if (!input.policy.gpsRequired) {
+      return;
+    }
+
     if (!input.location) {
       throw new BadRequestException(
         'Géolocalisation requise pour valider le pointage.',
       );
+    }
+
+    if (input.location.latitude === 0 && input.location.longitude === 0) {
+      throw new BadRequestException('Coordonnées GPS suspectes.');
     }
 
     if (

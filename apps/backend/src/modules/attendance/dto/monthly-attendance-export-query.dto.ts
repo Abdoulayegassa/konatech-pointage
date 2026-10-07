@@ -8,6 +8,7 @@ import {
   Min,
   ValidateIf,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class MonthlyAttendanceExportQueryDto {
   @IsOptional()
@@ -15,12 +16,14 @@ export class MonthlyAttendanceExportQueryDto {
   mode?: 'monthly' | 'custom';
 
   @ValidateIf((query) => query.mode !== 'custom')
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(12)
   month?: number;
 
   @ValidateIf((query) => query.mode !== 'custom')
+  @Type(() => Number)
   @IsInt()
   @Min(2000)
   @Max(2100)

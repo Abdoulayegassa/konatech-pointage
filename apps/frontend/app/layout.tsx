@@ -1,17 +1,16 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { LegacyRootServiceWorkerCleanup } from '@/components/pwa/legacy-root-service-worker-cleanup';
+import { TooltipProvider } from '@/components/ui/primitives/tooltip';
 
 export const metadata: Metadata = {
-  title: 'Konatech Pointage',
-  description: 'Plateforme de pointage et de suivi RH pour Konatech.',
+  title: { default: 'InOut', template: '%s | InOut' },
+  description: 'Gestion des présences et des opérations de votre organisation avec InOut.',
   icons: {
-    icon: [
-      { url: '/icon-konatech.svg', type: 'image/svg+xml' },
-      { url: '/favicon.ico', sizes: 'any' },
-      { url: '/icon.png', type: 'image/png', sizes: '512x512' },
-    ],
-    apple: [{ url: '/apple-touch-icon.png', sizes: '180x180' }],
+    icon: [{ url: '/brand/inout-favicon.svg', type: 'image/svg+xml' }],
+    apple: [{ url: '/brand/inout-apple-touch-icon.png', sizes: '180x180' }],
   },
+  formatDetection: { telephone: false },
 };
 
 export const dynamic = 'force-dynamic';
@@ -23,7 +22,10 @@ type RootLayoutProps = Readonly<{
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="fr">
-      <body>{children}</body>
+      <body>
+        <LegacyRootServiceWorkerCleanup />
+        <TooltipProvider>{children}</TooltipProvider>
+      </body>
     </html>
   );
 }

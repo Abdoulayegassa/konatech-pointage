@@ -22,14 +22,15 @@ export type EmployeeFormValues = {
   password: string;
   department: string;
   scheduleId: string;
+  siteId: string;
   isActive: boolean;
 };
 
 export const inputClassName =
-  'mt-1.5 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] transition duration-200 placeholder:text-slate-400 focus:border-accent/40 focus:ring-4 focus:ring-accent/10';
+  'admin-control mt-1.5 block min-h-10 w-full rounded-control border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none transition-colors placeholder:text-slate-400 focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-focus-ring/20 disabled:cursor-not-allowed disabled:bg-surface-subtle';
 
 export const labelClassName =
-  'text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500';
+  'text-xs font-medium text-slate-600';
 
 export const helperTextClassName = 'mt-1 text-sm leading-6 text-slate-500';
 
@@ -44,6 +45,7 @@ export function createEmptyEmployeeFormValues(): EmployeeFormValues {
     password: '',
     department: '',
     scheduleId: '',
+    siteId: '',
     isActive: true,
   };
 }
@@ -61,6 +63,7 @@ export function mapEmployeeToFormValues(
     password: '',
     department: employee.department ?? '',
     scheduleId: employee.schedule?.id ?? '',
+    siteId: employee.primarySiteId ?? '',
     isActive: employee.isActive,
   };
 }

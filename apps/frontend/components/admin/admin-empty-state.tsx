@@ -17,7 +17,7 @@ export function AdminEmptyState({
   title,
 }: AdminEmptyStateProps) {
   return (
-    <div className="admin-reveal rounded-[24px] border border-dashed border-slate-300 bg-[linear-gradient(180deg,rgba(248,250,252,0.96),rgba(255,255,255,0.98))] px-5 py-10 text-center shadow-sm sm:px-8">
+    <div className="admin-empty-state admin-reveal rounded-[24px] border border-dashed border-slate-300 bg-[linear-gradient(180deg,rgba(248,250,252,0.96),rgba(255,255,255,0.98))] px-5 py-10 text-center shadow-sm sm:px-8">
       <div className="mx-auto flex w-fit items-center gap-3 rounded-full border border-accent/15 bg-white/85 px-3 py-2 shadow-sm">
         <span className="h-2.5 w-2.5 rounded-full bg-accent" />
         <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">

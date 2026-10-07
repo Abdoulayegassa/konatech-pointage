@@ -110,6 +110,83 @@ pnpm db:status
 - Export a monthly PDF report.
 - Confirm report totals and employee rows are correct.
 
+## SaaS Multi-Tenant Checklist
+
+### Organization & Membership Management
+
+- Organization profile creation and update works.
+- Organization timezone is set and persists.
+- Owner can invite team members via email.
+- Invited member receives email and can accept invitation.
+- Membership role (OWNER, ADMIN, MANAGER, MEMBER) is enforced on backend endpoints.
+- Member with MEMBER role cannot access admin-only routes.
+- ADMIN and OWNER can access all permitted routes.
+- Suspended membership is revoked (user can no longer access organization).
+
+### Subscription & Entitlements
+
+- Organization in TRIALING status allows full read/write access.
+- Organization in EXPIRED or SUSPENDED status allows reads but blocks operational writes.
+- Subscription shows correct plan (STARTER, PRO, BUSINESS).
+- Subscription status and dates are displayed correctly.
+- Plan quotas are displayed (active employees, admins, sites, history months, custom export, support level).
+- Attempting to create 11th employee on STARTER plan fails with quota error.
+- Attempting to create 4th active site on STARTER plan fails with quota error.
+- Attempting to add 2nd admin on STARTER plan fails with quota error.
+- Plan upgrade takes effect immediately for increases.
+- Plan downgrade schedules change for next billing cycle (if applicable).
+
+### Owner Onboarding
+
+- Owner onboarding endpoint returns readiness status (organization configured, employees, sites, schedules, first attendance).
+- Onboarding checklist updates when first site is created.
+- Onboarding checklist updates when first employee is created.
+- Onboarding checklist updates when first schedule is created and assigned.
+- Onboarding checklist updates when first attendance is recorded.
+- Onboarding is marked complete when all items are checked.
+
+### Multi-Site Attendance
+
+- Attendance site is created tied to the organization.
+- Attendance site has unique public ID for QR code.
+- QR code generated from site public ID resolves to correct attendance-entry URL.
+- Site with different GPS policy enforces its own GPS settings.
+- Inactive site cannot accept attendance (check-in is rejected).
+- Attempting to use another organization's site public ID fails.
+
+### Tenant Isolation
+
+- Employee from Organization A cannot see Employee data from Organization B.
+- Attendance from Organization A is not visible in Organization B queries.
+- Schedule from Organization A is not visible in Organization B queries.
+- Calendar entries from Organization A are not visible in Organization B.
+- Dashboard metrics show only Organization A's data when logged in as Org A member.
+- Attempting to access `/api/v1/organizations/{other-org-id}/...` with member of different organization returns 403.
+- Switching organization context (if applicable) correctly scopes all subsequent queries.
+
+### Platform Admin
+
+- Platform Admin user can list all organizations.
+- Platform Admin can view subscription details for any organization.
+- Platform Admin can activate a subscription with plan and dates.
+- Platform Admin can suspend an organization subscription.
+- Platform Admin can schedule a downgrade to a different plan.
+- Subscription activation/suspension creates SubscriptionEvent.
+- Platform Admin actions are logged with `role = PLATFORM_ADMIN` in audit log.
+- Regular user cannot access Platform Admin routes.
+
+### PWA & Offline
+
+- Web manifest is served at `/manifest.webmanifest` with correct metadata.
+- Service worker registers successfully in browser console.
+- Service worker caches public shell assets (icons, offline.html) on install.
+- Service worker returns cached offline.html when network unavailable for navigation routes.
+- Service worker does NOT cache `/api/*` routes (sensitive data).
+- Offline attendance queue stores pending actions in localStorage.
+- Offline queue attempts sync when network is restored.
+- Offline queue retries with exponential backoff on sync failure.
+- Offline queue abandons sync after 5 failed attempts.
+
 ## Production Readiness Checklist
 
 - `.env.production` is created from `.env.production.example`.

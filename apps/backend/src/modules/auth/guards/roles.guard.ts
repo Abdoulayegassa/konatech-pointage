@@ -7,6 +7,7 @@ import {
 import { AccessRole, MembershipRole } from '@prisma/client';
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../constants/auth.constants';
+import { AuthorizationRole } from '../decorators/roles.decorator';
 import { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 import { AuthenticationContext } from '../interfaces/authentication-context.interface';
 
@@ -15,7 +16,7 @@ export class RolesGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext) {
-    const requiredRoles = this.reflector.getAllAndOverride<AccessRole[]>(
+    const requiredRoles = this.reflector.getAllAndOverride<AuthorizationRole[]>(
       ROLES_KEY,
       [context.getHandler(), context.getClass()],
     );
@@ -54,6 +55,19 @@ export class RolesGuard implements CanActivate {
       }
 
       if (
+        requiredRoles.includes(AccessRole.EMPLOYEE) &&
+        authentication.membershipRole === MembershipRole.EMPLOYEE &&
+        (!authentication.employeeId ||
+          !user ||
+          user.id !== authentication.employeeId ||
+          !user.isActive)
+      ) {
+        throw new ForbiddenException(
+          'An active employee profile is required for this resource.',
+        );
+      }
+
+      if (
         !this.membershipRoleSatisfies(
           authentication.membershipRole,
           requiredRoles,
@@ -82,21 +96,26 @@ export class RolesGuard implements CanActivate {
 
   private membershipRoleSatisfies(
     membershipRole: MembershipRole | null,
-    requiredRoles: AccessRole[],
+    requiredRoles: AuthorizationRole[],
   ) {
     if (!membershipRole) {
       return false;
     }
 
     return requiredRoles.some((requiredRole) => {
-      if (requiredRole === AccessRole.ADMIN) {
-        return (
-          membershipRole === MembershipRole.OWNER ||
-          membershipRole === MembershipRole.ADMIN
-        );
+      if (requiredRole === membershipRole) {
+        return true;
       }
 
-      return membershipRole === MembershipRole.MEMBER;
+      if (requiredRole === AccessRole.ADMIN) {
+        return membershipRole === MembershipRole.ADMIN;
+      }
+
+      if (requiredRole === AccessRole.EMPLOYEE) {
+        return membershipRole === MembershipRole.EMPLOYEE;
+      }
+
+      return false;
     });
   }
 }

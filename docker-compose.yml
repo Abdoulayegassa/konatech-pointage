@@ -1,32 +1,65 @@
 services:
+  backend-migrate:
+    profiles: ['app']
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      target: migration
+    restart: 'no'
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+    networks:
+      - konatech-network
+
   backend:
     profiles: ['app']
     build:
       context: .
       dockerfile: docker/backend.Dockerfile
-      args:
-        DATABASE_URL: ${DATABASE_URL}
+      target: runtime
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - '127.0.0.1:4000:4000'
     environment:
       NODE_ENV: production
       PORT: 4000
       FRONTEND_URL: ${FRONTEND_URL}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+      ATTENDANCE_ENTRY_JWT_EXPIRES_IN: ${ATTENDANCE_ENTRY_JWT_EXPIRES_IN:-15m}
+      ORGANIZATION_SELECTION_JWT_EXPIRES_IN: ${ORGANIZATION_SELECTION_JWT_EXPIRES_IN:-5m}
       DATABASE_URL: ${DATABASE_URL}
       JSON_BODY_LIMIT: ${JSON_BODY_LIMIT:-10mb}
       RATE_LIMIT_TTL_MS: ${RATE_LIMIT_TTL_MS:-60000}
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-300}
       LOGIN_RATE_LIMIT_TTL_MS: ${LOGIN_RATE_LIMIT_TTL_MS:-60000}
       LOGIN_RATE_LIMIT_MAX: ${LOGIN_RATE_LIMIT_MAX:-20}
-      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
+      TRUST_PROXY_CIDRS: ${TRUST_PROXY_CIDRS}
+      RATE_LIMIT_REDIS_URL: ${RATE_LIMIT_REDIS_URL}
+      RATE_LIMIT_REDIS_CONNECT_TIMEOUT_MS: ${RATE_LIMIT_REDIS_CONNECT_TIMEOUT_MS:-2000}
+      RATE_LIMIT_REDIS_COMMAND_TIMEOUT_MS: ${RATE_LIMIT_REDIS_COMMAND_TIMEOUT_MS:-5000}
       ATTENDANCE_SECURITY_ENABLED: ${ATTENDANCE_SECURITY_ENABLED:-false}
-      COMPANY_LATITUDE: ${COMPANY_LATITUDE:-}
-      COMPANY_LONGITUDE: ${COMPANY_LONGITUDE:-}
+      ATTENDANCE_SELFIE_REQUIRED: ${ATTENDANCE_SELFIE_REQUIRED:-${ATTENDANCE_SECURITY_ENABLED:-false}}
+      ATTENDANCE_GPS_REQUIRED: ${ATTENDANCE_GPS_REQUIRED:-${ATTENDANCE_SECURITY_ENABLED:-false}}
       ATTENDANCE_TRUSTED_RADIUS_METERS: ${ATTENDANCE_TRUSTED_RADIUS_METERS:-100}
       ATTENDANCE_WARNING_RADIUS_METERS: ${ATTENDANCE_WARNING_RADIUS_METERS:-300}
       ATTENDANCE_MAX_ACCURACY_METERS: ${ATTENDANCE_MAX_ACCURACY_METERS:-200}
-      ATTENDANCE_ALLOWED_RADIUS_METERS: ${ATTENDANCE_ALLOWED_RADIUS_METERS:-}
       ATTENDANCE_PDF_RENDERER: ${ATTENDANCE_PDF_RENDERER:-premium}
       ATTENDANCE_PDF_EXECUTABLE_PATH: /usr/bin/chromium
       ATTENDANCE_PDF_ALLOW_LEGACY_FALLBACK: ${ATTENDANCE_PDF_ALLOW_LEGACY_FALLBACK:-false}
@@ -39,12 +72,15 @@ services:
       CLOUDINARY_UPLOAD_RETRY_DELAY_MS: ${CLOUDINARY_UPLOAD_RETRY_DELAY_MS:-300}
     expose:
       - '4000'
+    depends_on:
+      backend-migrate:
+        condition: service_completed_successfully
     networks:
       - konatech-network
     labels:
       - traefik.enable=true
       - traefik.docker.network=konatech-network
-      - traefik.http.routers.konatech-backend.rule=Host(`staging-api-pointage.konatech.org`)
+      - traefik.http.routers.konatech-backend.rule=Host(`${BACKEND_HOST:?BACKEND_HOST must be set}`)
       - traefik.http.routers.konatech-backend.entrypoints=websecure
       - traefik.http.routers.konatech-backend.tls=true
       - traefik.http.services.konatech-backend.loadbalancer.server.port=4000
@@ -52,7 +88,7 @@ services:
       test:
         [
           'CMD-SHELL',
-          'node -e "fetch(''http://127.0.0.1:4000/api/v1/health'').then((response)=>process.exit(response.ok?0:1)).catch(()=>process.exit(1))"',
+          'node -e "fetch(''http://127.0.0.1:4000/api/v1/health/ready'').then((response)=>process.exit(response.ok?0:1)).catch(()=>process.exit(1))"',
         ]
       interval: 20s
       timeout: 5s
@@ -69,6 +105,16 @@ services:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
         API_BASE_URL: http://backend:4000/api/v1
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /app/apps/frontend/.next/cache:size=128m,mode=0755,uid=1000,gid=1000
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - '127.0.0.1:3000:3000'
     depends_on:
       backend:
         condition: service_healthy
@@ -85,7 +131,7 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=konatech-network
-      - traefik.http.routers.konatech-frontend.rule=Host(`staging-pointage.konatech.org`)
+      - traefik.http.routers.konatech-frontend.rule=Host(`${FRONTEND_HOST:?FRONTEND_HOST must be set}`)
       - traefik.http.routers.konatech-frontend.entrypoints=websecure
       - traefik.http.routers.konatech-frontend.tls=true
       - traefik.http.services.konatech-frontend.loadbalancer.server.port=3000

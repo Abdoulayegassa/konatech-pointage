@@ -10,6 +10,7 @@ import {
   MonthlyAttendanceExportReport,
   MonthlyAttendanceExportRow,
 } from './monthly-attendance-export.types';
+import { getLocalDateParts } from '../../../common/utils/attendance-date.util';
 import { MonthlyAttendancePuppeteerPdfRendererService } from './monthly-attendance-puppeteer-pdf-renderer.service';
 
 type RgbColor = readonly [number, number, number];
@@ -182,7 +183,7 @@ export class MonthlyAttendancePdfExporterService {
     if (rendererMode === 'legacy') {
       const startedAt = Date.now();
       this.logger.log(
-        `Monthly attendance PDF export started (renderer=legacy, reportType=${reportType}, fileName=${fileName}).`,
+        `Monthly attendance PDF export started (renderer=legacy, reportType=${reportType}).`,
       );
       this.logger.warn(
         'ATTENDANCE_PDF_RENDERER=legacy is enabled. Using the legacy low-level PDF generator for monthly attendance export.',
@@ -191,7 +192,7 @@ export class MonthlyAttendancePdfExporterService {
       const durationMs = Date.now() - startedAt;
 
       this.logger.log(
-        `Monthly attendance PDF export completed (renderer=legacy, reportType=${reportType}, durationMs=${durationMs}, pdfBytes=${pdf.length}, fileName=${fileName}).`,
+        `Monthly attendance PDF export completed (renderer=legacy, reportType=${reportType}, durationMs=${durationMs}, pdfBytes=${pdf.length}).`,
       );
 
       return {
@@ -204,7 +205,7 @@ export class MonthlyAttendancePdfExporterService {
     const startedAt = Date.now();
 
     this.logger.log(
-      `Monthly attendance PDF export started (renderer=puppeteer, reportType=${reportType}, fileName=${fileName}).`,
+      `Monthly attendance PDF export started (renderer=puppeteer, reportType=${reportType}).`,
     );
 
     try {
@@ -212,7 +213,7 @@ export class MonthlyAttendancePdfExporterService {
       const durationMs = Date.now() - startedAt;
 
       this.logger.log(
-        `Monthly attendance PDF export completed (renderer=puppeteer, reportType=${reportType}, durationMs=${durationMs}, pdfBytes=${pdf.length}, fileName=${fileName}).`,
+        `Monthly attendance PDF export completed (renderer=puppeteer, reportType=${reportType}, durationMs=${durationMs}, pdfBytes=${pdf.length}).`,
       );
 
       return {
@@ -221,24 +222,19 @@ export class MonthlyAttendancePdfExporterService {
         content: pdf,
       };
     } catch (error) {
-      const stack = error instanceof Error ? error.stack : undefined;
-      const message =
-        error instanceof Error ? error.message : 'Unknown Puppeteer error';
-
       this.logger.error(
-        `Puppeteer renderer failed for monthly attendance export: ${message}`,
-        stack,
+        `Puppeteer renderer failed for monthly attendance export (errorType=${error instanceof Error ? error.constructor.name : 'UnknownError'}).`,
       );
       if (this.isLegacyFallbackAllowed()) {
         this.logger.warn(
-          `Puppeteer renderer failed, falling back to legacy PDF renderer because ATTENDANCE_PDF_ALLOW_LEGACY_FALLBACK=true (reportType=${reportType}, fileName=${fileName}).`,
+          `Puppeteer renderer failed, falling back to legacy PDF renderer because ATTENDANCE_PDF_ALLOW_LEGACY_FALLBACK=true (reportType=${reportType}).`,
         );
         const fallbackStartedAt = Date.now();
         const pdf = this.buildLegacyPdf(report);
         const fallbackDurationMs = Date.now() - fallbackStartedAt;
 
         this.logger.log(
-          `Monthly attendance PDF export completed (renderer=legacy-fallback, reportType=${reportType}, durationMs=${fallbackDurationMs}, pdfBytes=${pdf.length}, fileName=${fileName}).`,
+          `Monthly attendance PDF export completed (renderer=legacy-fallback, reportType=${reportType}, durationMs=${fallbackDurationMs}, pdfBytes=${pdf.length}).`,
         );
 
         return {
@@ -2110,7 +2106,7 @@ export class MonthlyAttendancePdfExporterService {
       this.text(
         this.margin,
         484,
-        `Synth\u00e8se \u00e9quipe  |  ${report.periodLabel}  |  ${this.formatGeneratedAt(report.generatedAt)}`,
+        `${report.scope === 'SITE' ? `${report.organizationName}  |  Site : ${report.siteName}  |  ` : ''}Synth\u00e8se \u00e9quipe  |  ${report.periodLabel}  |  ${this.formatGeneratedAt(report.generatedAt, report.organizationTimezone)}`,
         10,
         'F1',
         this.slate700,
@@ -2435,7 +2431,7 @@ export class MonthlyAttendancePdfExporterService {
       this.text(
         this.margin,
         476,
-        `G\u00e9n\u00e9r\u00e9 le ${this.formatGeneratedAt(report.generatedAt)}`,
+        `G\u00e9n\u00e9r\u00e9 le ${this.formatGeneratedAt(report.generatedAt, report.organizationTimezone)}`,
         9,
         'F1',
         this.slate700,
@@ -3761,13 +3757,14 @@ export class MonthlyAttendancePdfExporterService {
     return `${this.capitalize(label)} ${year}`;
   }
 
-  private formatGeneratedAt(value: string) {
+  private formatGeneratedAt(value: string, timezone: string) {
     const date = new Date(value);
-    const day = String(date.getUTCDate()).padStart(2, '0');
-    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-    const year = date.getUTCFullYear();
-    const hours = String(date.getUTCHours()).padStart(2, '0');
-    const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+    const parts = getLocalDateParts(date, timezone);
+    const day = String(parts.day).padStart(2, '0');
+    const month = String(parts.month).padStart(2, '0');
+    const year = parts.year;
+    const hours = String(parts.hour).padStart(2, '0');
+    const minutes = String(parts.minute).padStart(2, '0');
 
     return `${day}/${month}/${year} ${hours}:${minutes}`;
   }
@@ -3815,7 +3812,9 @@ export class MonthlyAttendancePdfExporterService {
   }
 
   private buildFileName(report: MonthlyAttendanceExportReport) {
-    const scopeLabel = report.employeeReport?.fullName ?? '\u00e9quipe';
+    const scopeLabel = report.scope === 'SITE'
+      ? `site-${report.siteName ?? 'site'}-${report.employeeReport?.fullName ?? 'equipe'}`
+      : report.employeeReport?.fullName ?? '\u00e9quipe';
 
     if (report.reportingMode === 'custom') {
       return `rapport-presence-${this.slugify(scopeLabel)}-${this.slugify(report.periodLabel)}.pdf`;

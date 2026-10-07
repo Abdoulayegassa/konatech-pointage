@@ -30,6 +30,95 @@ export const FULL_WORK_WEEK = [
 
 export type WorkDay = (typeof WEEKDAY_NAMES)[number];
 
+export type LocalDateParts = {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+};
+
+export function isValidTimeZone(timeZone: string) {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone }).format();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function getLocalDateParts(
+  instant: Date,
+  timeZone: string,
+): LocalDateParts {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(instant);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value);
+
+  return {
+    year: value('year'),
+    month: value('month'),
+    day: value('day'),
+    hour: value('hour'),
+    minute: value('minute'),
+    second: value('second'),
+  };
+}
+
+/** Canonical database key for the calendar day containing an instant. */
+export function getBusinessDate(instant: Date, timeZone: string) {
+  const { year, month, day } = getLocalDateParts(instant, timeZone);
+  return createAttendanceDate(year, month - 1, day);
+}
+
+export function formatBusinessMonth(instant: Date, timeZone: string) {
+  const { year, month } = getLocalDateParts(instant, timeZone);
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
+
+/** Converts an organization-local wall time on a canonical date to UTC. */
+export function localScheduleTimeToUtc(
+  businessDate: Date,
+  time: string,
+  timeZone: string,
+) {
+  const [hour, minute] = time.split(':').map(Number);
+  const desired = Date.UTC(
+    businessDate.getUTCFullYear(),
+    businessDate.getUTCMonth(),
+    businessDate.getUTCDate(),
+    hour,
+    minute,
+  );
+  let candidate = new Date(desired);
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const actual = getLocalDateParts(candidate, timeZone);
+    const actualAsUtc = Date.UTC(
+      actual.year,
+      actual.month - 1,
+      actual.day,
+      actual.hour,
+      actual.minute,
+    );
+    const delta = desired - actualAsUtc;
+    if (delta === 0) return candidate;
+    candidate = new Date(candidate.getTime() + delta);
+  }
+
+  return candidate;
+}
+
 export function normalizeAttendanceDate(date: Date) {
   return new Date(
     Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
@@ -70,6 +159,23 @@ export function createAttendanceDate(
   day: number,
 ) {
   return new Date(Date.UTC(year, monthIndex, day));
+}
+
+export function parseAttendanceDateKey(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = createAttendanceDate(year, month - 1, day);
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return date;
 }
 
 export function addAttendanceDays(date: Date, days: number) {

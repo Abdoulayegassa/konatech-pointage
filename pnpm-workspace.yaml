@@ -11,9 +11,9 @@ onlyBuiltDependencies:
 
 overrides:
   ajv>fast-uri: 3.1.2
-  body-parser>qs: 6.15.2
-  express>qs: 6.15.2
+  '@nestjs/platform-express>multer': 2.3.0
+  body-parser>qs: 6.16.0
+  express>qs: 6.16.0
   minimatch>brace-expansion: 5.0.6
-  next>postcss: 8.5.10
-  puppeteer-core>ws: 8.20.1
-  superagent>qs: 6.15.2
+  next>postcss: 8.5.23
+  superagent>qs: 6.16.0

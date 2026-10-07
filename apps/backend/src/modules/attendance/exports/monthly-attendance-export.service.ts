@@ -1,18 +1,30 @@
-import { AttendanceStatus, AttendanceVerificationMethod } from '@prisma/client';
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  AttendanceStatus,
+  AttendanceVerificationMethod,
+  Prisma,
+} from '@prisma/client';
+import { BadRequestException, Injectable, Optional } from '@nestjs/common';
 import { scheduleSelect } from '../../../common/prisma/selects';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import {
+  attendanceOperationalWhere,
+  employeeOperationalWhere,
+} from '../../../common/prisma/operational-scope';
+import {
   addAttendanceDays,
   getAttendanceMonthRange,
+  getBusinessDate,
+  getLocalDateParts,
   isScheduledOnDate,
   normalizeAttendanceDate,
+  parseAttendanceDateKey,
 } from '../../../common/utils/attendance-date.util';
 import {
   resolveAttendanceSchedule,
   type ResolvedAttendanceSchedule,
 } from '../../../common/utils/attendance-schedule-snapshot.util';
 import { AttendanceSecurityPolicyService } from '../attendance-security-policy.service';
+import { AttendanceSettingsService } from '../attendance-settings.service';
 import { MonthlyAttendanceExportQueryDto } from '../dto/monthly-attendance-export-query.dto';
 import {
   SanctionResult,
@@ -30,6 +42,9 @@ import {
 import { CalendarService } from '../../calendar/calendar.service';
 import { AppClockService } from '../../../common/time/app-clock.service';
 import { AuthenticationContext } from '../../auth/interfaces/authentication-context.interface';
+import { EntitlementsService } from '../../subscriptions/entitlements.service';
+import { OrganizationTimezoneService } from '../../../common/time/organization-timezone.service';
+import { EffectiveScheduleResolver } from '../../schedules/effective-schedule.resolver';
 
 type ScheduleWorkDays = Parameters<typeof isScheduledOnDate>[0];
 
@@ -48,6 +63,9 @@ type ResolvedReportPeriod = {
 type ExportAttendanceRecord = {
   id: string;
   date: Date;
+  calendarNonWorkingDaySnapshot: boolean | null;
+  attendanceSiteId: string | null;
+  attendanceSite: { id: string; name: string } | null;
   status: AttendanceStatus;
   clockInAt: Date | null;
   clockOutAt: Date | null;
@@ -90,6 +108,7 @@ type ExportEmployeeRecord = {
     createdAt: Date;
     updatedAt: Date;
     organizationId: string | null;
+    v1ScopeStatus: string;
   } | null;
   attendances: ExportAttendanceRecord[];
 };
@@ -155,14 +174,20 @@ export class MonthlyAttendanceExportService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly attendanceSecurityPolicyService: AttendanceSecurityPolicyService,
+    private readonly attendanceSettingsService: AttendanceSettingsService,
     private readonly sanctionsService: SanctionsService,
     private readonly calendarService: CalendarService,
     private readonly clock: AppClockService,
+    private readonly entitlements: EntitlementsService,
+    private readonly effectiveSchedules: EffectiveScheduleResolver,
+    @Optional()
+    private readonly organizationTimezones?: OrganizationTimezoneService,
   ) {}
 
   async buildMonthlyReport(
     query: MonthlyAttendanceExportQueryDto,
     authentication?: AuthenticationContext,
+    site?: { id: string; name: string },
   ): Promise<MonthlyAttendanceExportReport> {
     const organizationId =
       authentication?.generation === 'saas'
@@ -173,21 +198,101 @@ export class MonthlyAttendanceExportService {
         'A valid organization context is required.',
       );
     }
-    const period = this.resolveReportPeriod(query);
+    if (site && !organizationId) {
+      throw new BadRequestException('Site reports require an authenticated organization.');
+    }
+    const timezone = await this.resolveTimezone(authentication);
+    const organization = site && organizationId
+      ? await this.prisma.organization.findUnique({
+          where: { id: organizationId },
+          select: { id: true, name: true },
+        })
+      : null;
+    if (site && !organization) {
+      throw new BadRequestException('Authenticated organization could not be resolved.');
+    }
+    const period = this.resolveReportPeriod(
+      query,
+      authentication?.generation === 'saas',
+    );
+    await this.entitlements.assertHistoryAllowed(
+      organizationId ?? undefined,
+      period.startDate,
+    );
     const absenceCountingEnd =
       period.mode === 'monthly'
         ? this.getAbsenceCountingEnd(
             period.startDate,
             period.endDateExclusive,
-            this.clock.now(),
+            getBusinessDate(this.clock.now(), timezone),
           )
         : period.endDateExclusive;
+    const historicalAttendanceWhere = {
+      ...attendanceOperationalWhere(organizationId ?? undefined),
+      ...(site ? { attendanceSiteId: site.id } : {}),
+      date: {
+        gte: period.startDate,
+        lt: period.endDateExclusive,
+      },
+    } satisfies Prisma.AttendanceWhereInput;
 
     const employees = await this.prisma.employee.findMany({
       where: {
-        isActive: true,
-        ...(organizationId ? { organizationId } : {}),
-        ...(query.employeeId ? { id: query.employeeId } : {}),
+        ...employeeOperationalWhere(organizationId ?? undefined),
+        ...(authentication?.generation === 'saas'
+          ? query.employeeId
+            ? {
+                id: query.employeeId,
+                ...(site
+                  ? {
+                      OR: [
+                        { attendances: { some: historicalAttendanceWhere } },
+                        {
+                          siteAssignments: {
+                            some: {
+                              organizationId: organizationId!,
+                              siteId: site.id,
+                              effectiveFrom: { lt: period.endDateExclusive },
+                              OR: [
+                                { effectiveTo: null },
+                                { effectiveTo: { gt: period.startDate } },
+                              ],
+                            },
+                          },
+                        },
+                      ],
+                    }
+                  : {}),
+              }
+            : site
+              ? {
+                  OR: [
+                    { attendances: { some: historicalAttendanceWhere } },
+                    {
+                      siteAssignments: {
+                        some: {
+                          organizationId: organizationId!,
+                          siteId: site.id,
+                          effectiveFrom: { lt: period.endDateExclusive },
+                          OR: [
+                            { effectiveTo: null },
+                            { effectiveTo: { gt: period.startDate } },
+                          ],
+                        },
+                      },
+                    },
+                  ],
+                }
+            : {
+                OR: [
+                  { isActive: true },
+                  { attendances: { some: historicalAttendanceWhere } },
+                ],
+              }
+          : {
+              isActive: true,
+              ...(query.employeeId ? { id: query.employeeId } : {}),
+            }),
       },
       orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
       select: {
@@ -201,11 +306,13 @@ export class MonthlyAttendanceExportService {
           select: {
             ...scheduleSelect,
             organizationId: true,
+            v1ScopeStatus: true,
           },
         },
         attendances: {
           where: {
-            ...(organizationId ? { organizationId } : {}),
+            ...attendanceOperationalWhere(organizationId ?? undefined),
+            ...(site ? { attendanceSiteId: site.id } : {}),
             date: {
               gte: period.startDate,
               lt: period.endDateExclusive,
@@ -215,8 +322,16 @@ export class MonthlyAttendanceExportService {
             date: 'asc',
           },
           select: {
-            id: true,
-            date: true,
+          id: true,
+          date: true,
+          calendarNonWorkingDaySnapshot: true,
+            attendanceSiteId: true,
+            attendanceSite: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
             status: true,
             clockInAt: true,
             clockOutAt: true,
@@ -250,27 +365,46 @@ export class MonthlyAttendanceExportService {
             `${period.year}-${String(period.month).padStart(2, '0')}`,
             query.employeeId,
             authentication,
+            site?.id,
           )
         : await this.sanctionsService.getSanctionsForDateRange(
             period.startDate,
             period.endDateExclusive,
             query.employeeId,
             authentication,
+            site?.id,
           );
     const sanctionsByAttendanceId = new Map(
       monthlySanctions.map((sanction) => [sanction.attendanceId, sanction]),
     );
-    const securityPolicy = this.attendanceSecurityPolicyService.getPolicy();
+    const securityPolicy = authentication
+      ? await this.attendanceSettingsService.resolveSecurityPolicy(
+          authentication,
+        )
+      : this.attendanceSecurityPolicyService.getPolicy();
     const allowedRadiusMeters = securityPolicy.allowedRadiusMeters;
     const generatedAt = this.clock.now().toISOString();
-    const nonWorkingDateKeys = await this.calendarService.getNonWorkingDateKeys(
-      period.startDate,
-      absenceCountingEnd,
-      authentication,
-    );
-    const employeeExports = employees.map((employee) => {
+    const resolvedSchedulesByEmployee = organizationId
+      ? await this.effectiveSchedules.resolvePeriod(
+          employees.map((employee) => employee.id),
+          organizationId,
+          period.startDate,
+          absenceCountingEnd,
+          site?.id,
+        )
+      : null;
+    const employeeExports = await Promise.all(employees.map(async (employee) => {
+      const nonWorkingDateKeys = organizationId
+        ? await this.calendarService.getNonWorkingDateKeysForEmployeeInOrganization(
+            period.startDate, absenceCountingEnd, employee.id, organizationId,
+          )
+        : await this.calendarService.getNonWorkingDateKeys(
+            period.startDate, absenceCountingEnd, authentication,
+          );
       const tenantSafeEmployee =
-        organizationId && employee.schedule?.organizationId !== organizationId
+        organizationId &&
+        (employee.schedule?.organizationId !== organizationId ||
+          employee.schedule?.v1ScopeStatus !== 'OPERATIONAL')
           ? { ...employee, schedule: null }
           : employee;
 
@@ -283,12 +417,25 @@ export class MonthlyAttendanceExportService {
         nonWorkingDateKeys,
         allowedRadiusMeters,
         sanctionsByAttendanceId,
+        timezone,
+        organizationId ?? undefined,
+        resolvedSchedulesByEmployee?.get(employee.id),
       );
-    });
+    }));
 
     return {
+      scope: site ? 'SITE' : 'ORGANIZATION',
+      organizationId: organization?.id ?? null,
+      organizationName: organization?.name ?? null,
+      siteId: site?.id ?? null,
+      siteName: site?.name ?? null,
+      organizationTimezone: timezone,
       reportingMode: period.mode,
       periodLabel: period.label,
+      period: {
+        startDate: this.formatDateKey(period.startDate),
+        endDate: this.formatDateKey(addAttendanceDays(period.endDateExclusive, -1)),
+      },
       month: period.month,
       year: period.year,
       generatedAt,
@@ -305,7 +452,7 @@ export class MonthlyAttendanceExportService {
     };
   }
 
-  private buildEmployeeExport(
+  private async buildEmployeeExport(
     employee: ExportEmployeeRecord,
     period: ResolvedReportPeriod,
     generatedAt: string,
@@ -314,7 +461,10 @@ export class MonthlyAttendanceExportService {
     nonWorkingDateKeys: Set<number>,
     allowedRadiusMeters: number | null,
     sanctionsByAttendanceId: Map<string, SanctionResult>,
-  ): EmployeeExportPayload {
+    timezone: string,
+    organizationId?: string,
+    resolvedScheduleMap?: Map<number, ExportEmployeeRecord['schedule']>,
+  ): Promise<EmployeeExportPayload> {
     const dailyRows: MonthlyAttendanceDailyReportRow[] = [];
     let totalWorkedDays = 0;
     let scheduledPresenceDays = 0;
@@ -341,9 +491,17 @@ export class MonthlyAttendanceExportService {
     let insideZonePointages = 0;
     let normalExitCount = 0;
     const sanctionSummary = this.buildEmptySanctionSummary();
+    const effectiveSchedules = await this.resolveEffectiveSchedules(
+      employee,
+      startOfPeriod,
+      absenceCountingEnd,
+      organizationId,
+      resolvedScheduleMap,
+    );
     const assignedScheduleSummary = this.getMonthlyAssignedScheduleSummary(
-      employee.schedule,
       employee.attendances,
+      effectiveSchedules,
+      employee.schedule,
     );
     const attendanceByDateKey = new Map(
       employee.attendances.map((attendance) => [
@@ -358,9 +516,10 @@ export class MonthlyAttendanceExportService {
       const attendance = attendanceByDateKey.get(currentDate.getTime()) ?? null;
       const resolvedSchedule = resolveAttendanceSchedule(
         attendance ?? {},
-        employee.schedule,
+        effectiveSchedules.get(currentDate.getTime()) ?? null,
       );
-      const isNonWorkingDay = nonWorkingDateKeys.has(currentDate.getTime());
+      const isNonWorkingDay = attendance?.calendarNonWorkingDaySnapshot ??
+        nonWorkingDateKeys.has(currentDate.getTime());
       const isScheduledDay =
         this.isScheduledDay(resolvedSchedule, currentDate) && !isNonWorkingDay;
 
@@ -496,7 +655,12 @@ export class MonthlyAttendanceExportService {
 
       this.addSanctionToSummary(sanctionSummary, sanction);
       dailyRows.push(
-        this.buildDailyReportRow(attendance, allowedRadiusMeters, sanction),
+        this.buildDailyReportRow(
+          attendance,
+          allowedRadiusMeters,
+          sanction,
+          timezone,
+        ),
       );
 
       cursor.setUTCDate(cursor.getUTCDate() + 1);
@@ -505,11 +669,11 @@ export class MonthlyAttendanceExportService {
     this.finalizeSanctionSummary(sanctionSummary);
 
     const { absentDays, workingDays } = this.getScheduleCoverage(
-      employee.schedule,
       employee.attendances,
       startOfPeriod,
       absenceCountingEnd,
       nonWorkingDateKeys,
+      effectiveSchedules,
     );
     const presenceDays =
       workingDays > 0 ? scheduledPresenceDays : totalWorkedDays;
@@ -554,7 +718,7 @@ export class MonthlyAttendanceExportService {
         departmentLabel: employee.department ?? 'Non affecté',
         assignedScheduleLabel: assignedScheduleSummary.assignedScheduleLabel,
         monthLabel: period.label,
-        generationDateLabel: this.formatDateTimeLabel(generatedAt),
+        generationDateLabel: this.formatDateTimeLabel(generatedAt, timezone),
         workingDays,
         presenceDays,
         presenceRate,
@@ -614,6 +778,7 @@ export class MonthlyAttendanceExportService {
     attendance: ExportAttendanceRecord,
     allowedRadiusMeters: number | null,
     sanction: SanctionResult | null,
+    timezone: string,
   ): MonthlyAttendanceDailyReportRow {
     const hasClockIn = attendance.clockInAt !== null;
     const hasClockOut = attendance.clockOutAt !== null;
@@ -653,8 +818,10 @@ export class MonthlyAttendanceExportService {
     return {
       date: this.formatShortDate(attendance.date),
       dayLabel: this.frenchWeekdayLabels[attendance.date.getUTCDay()],
-      clockInTime: this.formatTime(attendance.clockInAt),
-      clockOutTime: this.formatTime(attendance.clockOutAt),
+      attendanceSiteId: attendance.attendanceSiteId,
+      siteLabel: attendance.attendanceSite?.name ?? '-',
+      clockInTime: this.formatTime(attendance.clockInAt, timezone),
+      clockOutTime: this.formatTime(attendance.clockOutAt, timezone),
       statusLabel: this.getStatusLabel(attendance.status),
       commentLabel: attendance.notes?.trim() || null,
       lateLabel:
@@ -696,6 +863,8 @@ export class MonthlyAttendanceExportService {
     return {
       date: this.formatShortDate(date),
       dayLabel: this.frenchWeekdayLabels[date.getUTCDay()],
+      attendanceSiteId: null,
+      siteLabel: '-',
       clockInTime: '-',
       clockOutTime: '-',
       statusLabel: 'Absence',
@@ -777,14 +946,42 @@ export class MonthlyAttendanceExportService {
     return this.formatMoney(sanction.amount);
   }
 
+  /**
+   * Reports share the same business-date resolver as attendance and metrics.
+   * The legacy projection is intentionally used only for non-tenant records.
+   */
+  private async resolveEffectiveSchedules(
+    employee: ExportEmployeeRecord,
+    start: Date,
+    endExclusive: Date,
+    organizationId?: string,
+    resolvedScheduleMap?: Map<number, ExportEmployeeRecord['schedule']>,
+  ): Promise<Map<number, ExportEmployeeRecord['schedule']>> {
+    if (organizationId) return resolvedScheduleMap ?? new Map();
+    const schedules = new Map<number, ExportEmployeeRecord['schedule']>();
+    const cursor = new Date(start);
+
+    while (cursor < endExclusive) {
+      const date = normalizeAttendanceDate(cursor);
+      const schedule = employee.schedule;
+
+      if (schedule?.isActive) {
+        schedules.set(date.getTime(), schedule);
+      }
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+
+    return schedules;
+  }
+
   private getScheduleCoverage(
-    schedule: ExportEmployeeRecord['schedule'],
     attendances: ExportAttendanceRecord[],
     startOfMonth: Date,
     endOfMonth: Date,
     nonWorkingDateKeys: Set<number>,
+    effectiveSchedules: Map<number, ExportEmployeeRecord['schedule']>,
   ) {
-    if (!schedule?.isActive && attendances.length === 0) {
+    if (effectiveSchedules.size === 0 && attendances.length === 0) {
       return {
         absentDays: 0,
         workingDays: 0,
@@ -806,12 +1003,14 @@ export class MonthlyAttendanceExportService {
       const attendance = attendanceByDateKey.get(currentDate.getTime());
       const resolvedSchedule = resolveAttendanceSchedule(
         attendance ?? {},
-        schedule,
+        effectiveSchedules.get(currentDate.getTime()) ?? null,
       );
 
+      const isNonWorkingDay = attendance?.calendarNonWorkingDaySnapshot ??
+        nonWorkingDateKeys.has(currentDate.getTime());
       if (
         this.isScheduledDay(resolvedSchedule, currentDate) &&
-        !nonWorkingDateKeys.has(currentDate.getTime())
+        !isNonWorkingDay
       ) {
         workingDays += 1;
 
@@ -830,8 +1029,9 @@ export class MonthlyAttendanceExportService {
   }
 
   private getMonthlyAssignedScheduleSummary(
-    schedule: ExportEmployeeRecord['schedule'],
     attendances: ExportAttendanceRecord[],
+    effectiveSchedules: Map<number, ExportEmployeeRecord['schedule']>,
+    legacySchedule: ExportEmployeeRecord['schedule'],
   ) {
     const snapshotSummaries = new Map<
       string,
@@ -849,7 +1049,10 @@ export class MonthlyAttendanceExportService {
     >();
 
     for (const attendance of attendances) {
-      const resolvedSchedule = resolveAttendanceSchedule(attendance, schedule);
+      const resolvedSchedule = resolveAttendanceSchedule(
+        attendance,
+        effectiveSchedules.get(normalizeAttendanceDate(attendance.date).getTime()) ?? null,
+      );
       const summary = this.formatResolvedScheduleSummary(resolvedSchedule);
 
       if (summary) {
@@ -867,7 +1070,10 @@ export class MonthlyAttendanceExportService {
 
     if (summaries.size === 0) {
       const fallbackSummary = this.formatResolvedScheduleSummary(
-        resolveAttendanceSchedule({}, schedule),
+        resolveAttendanceSchedule(
+          {},
+          effectiveSchedules.values().next().value ?? legacySchedule,
+        ),
       );
 
       return (
@@ -1073,13 +1279,14 @@ export class MonthlyAttendanceExportService {
     return `${this.capitalize(this.frenchMonthLabels[month - 1] ?? '')} ${year}`;
   }
 
-  private formatDateTimeLabel(value: string) {
+  private formatDateTimeLabel(value: string, timezone: string) {
     const date = new Date(value);
-    const day = String(date.getUTCDate()).padStart(2, '0');
-    const month = this.frenchMonthLabels[date.getUTCMonth()] ?? '';
-    const year = date.getUTCFullYear();
-    const hours = String(date.getUTCHours()).padStart(2, '0');
-    const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+    const parts = getLocalDateParts(date, timezone);
+    const day = String(parts.day).padStart(2, '0');
+    const month = this.frenchMonthLabels[parts.month - 1] ?? '';
+    const year = parts.year;
+    const hours = String(parts.hour).padStart(2, '0');
+    const minutes = String(parts.minute).padStart(2, '0');
 
     return `${day} ${month} ${year} à ${hours}:${minutes}`;
   }
@@ -1109,13 +1316,14 @@ export class MonthlyAttendanceExportService {
     return `${day}/${month}/${year}`;
   }
 
-  private formatTime(value: Date | null) {
+  private formatTime(value: Date | null, timezone: string) {
     if (!value) {
       return '-';
     }
 
-    const hours = String(value.getUTCHours()).padStart(2, '0');
-    const minutes = String(value.getUTCMinutes()).padStart(2, '0');
+    const parts = getLocalDateParts(value, timezone);
+    const hours = String(parts.hour).padStart(2, '0');
+    const minutes = String(parts.minute).padStart(2, '0');
 
     return `${hours}:${minutes}`;
   }
@@ -1141,8 +1349,19 @@ export class MonthlyAttendanceExportService {
     return getAttendanceMonthRange(year, month);
   }
 
+  private resolveTimezone(authentication?: AuthenticationContext) {
+    return (
+      this.organizationTimezones ?? new OrganizationTimezoneService(this.prisma)
+    ).resolve(authentication);
+  }
+
+  private formatDateKey(date: Date) {
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+  }
+
   private resolveReportPeriod(
     query: MonthlyAttendanceExportQueryDto,
+    strictDateKeys = false,
   ): ResolvedReportPeriod {
     if (query.mode === 'custom') {
       if (!query.startDate || !query.endDate) {
@@ -1151,10 +1370,16 @@ export class MonthlyAttendanceExportService {
         );
       }
 
-      const startDate = normalizeAttendanceDate(new Date(query.startDate));
-      const endDate = normalizeAttendanceDate(new Date(query.endDate));
+      const startDate = strictDateKeys
+        ? parseAttendanceDateKey(query.startDate)
+        : normalizeAttendanceDate(new Date(query.startDate));
+      const endDate = strictDateKeys
+        ? parseAttendanceDateKey(query.endDate)
+        : normalizeAttendanceDate(new Date(query.endDate));
 
       if (
+        !startDate ||
+        !endDate ||
         Number.isNaN(startDate.getTime()) ||
         Number.isNaN(endDate.getTime())
       ) {

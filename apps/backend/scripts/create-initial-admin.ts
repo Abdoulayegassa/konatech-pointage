@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { AccessRole, Prisma, PrismaClient } from '@prisma/client';
 import { hashPassword } from '../src/common/security/password.util';
+import { getSafeErrorSummary } from '../src/common/security/sensitive-data.util';
 
 const prisma = new PrismaClient();
 
@@ -24,9 +25,11 @@ async function main() {
     throw new Error('ADMIN_PASSWORD must contain at least 8 characters.');
   }
 
-  const existingAdmin = await prisma.employee.findUnique({
+  const existingAdmin = await prisma.employee.findFirst({
     where: {
       email: adminEmail,
+      organizationId: null,
+      userId: null,
     },
     select: {
       id: true,
@@ -38,7 +41,7 @@ async function main() {
 
   if (existingAdmin) {
     console.log(
-      `Admin bootstrap skipped: ${existingAdmin.email} already exists with role ${existingAdmin.accessRole} and active=${existingAdmin.isActive}.`,
+      `Admin bootstrap skipped: existing account role=${existingAdmin.accessRole} active=${existingAdmin.isActive}.`,
     );
     return;
   }
@@ -66,6 +69,8 @@ async function main() {
             department:
               process.env.ADMIN_DEPARTMENT?.trim() || DEFAULT_DEPARTMENT,
             isActive: true,
+            organizationId: null,
+            userId: null,
             scheduleId: null,
           },
           select: {
@@ -78,7 +83,7 @@ async function main() {
       });
 
       console.log(
-        `Admin bootstrap complete: ${admin.email} created with role ${admin.accessRole} and active=${admin.isActive}.`,
+        `Admin bootstrap complete: account created with role ${admin.accessRole} and active=${admin.isActive}.`,
       );
       return;
     } catch (error) {
@@ -112,6 +117,7 @@ async function generateEmployeeIdentifier(
   const prefix = `EMP-${year}-`;
   const existingEmployees = await transaction.employee.findMany({
     where: {
+      organizationId: null,
       employeeIdentifier: {
         startsWith: prefix,
       },
@@ -147,7 +153,7 @@ function isEmployeeIdentifierConflict(error: unknown) {
 if (require.main === module) {
   main()
     .catch((error) => {
-      console.error('Admin bootstrap failed:', error);
+      console.error(`Admin bootstrap failed: ${getSafeErrorSummary(error)}.`);
       process.exitCode = 1;
     })
     .finally(async () => {

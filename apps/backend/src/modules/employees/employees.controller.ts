@@ -2,17 +2,18 @@ import {
   Body,
   Controller,
   Get,
+  Query,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
 } from '@nestjs/common';
-import { AccessRole } from '@prisma/client';
+import { AccessRole, MembershipRole } from '@prisma/client';
 import { AuditLogService } from '../../common/audit/audit-log.service';
-import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { CurrentActor } from '../auth/decorators/current-actor.decorator';
 import { CurrentAuthentication } from '../auth/decorators/current-authentication.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
+import { AuthorizationActor } from '../auth/interfaces/authorization-actor.interface';
 import { AuthenticationContext } from '../auth/interfaces/authentication-context.interface';
 import { AssignEmployeeDepartmentDto } from './dto/assign-employee-department.dto';
 import { AssignEmployeeRoleDto } from './dto/assign-employee-role.dto';
@@ -20,6 +21,7 @@ import { AssignEmployeeScheduleDto } from './dto/assign-employee-schedule.dto';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { UpdateEmployeeStatusDto } from './dto/update-employee-status.dto';
+import { TransferEmployeeSiteDto } from './dto/transfer-employee-site.dto';
 import { EmployeesService } from './employees.service';
 
 @Roles(AccessRole.ADMIN)
@@ -31,11 +33,16 @@ export class EmployeesController {
   ) {}
 
   @Get()
-  findAll(@CurrentAuthentication() authentication: AuthenticationContext) {
-    return this.employeesService.findAll(authentication);
+  @Roles(AccessRole.ADMIN, MembershipRole.ADMIN)
+  findAll(
+    @CurrentAuthentication() authentication: AuthenticationContext,
+    @Query('siteId') siteId?: string,
+  ) {
+    return this.employeesService.findAll(authentication, siteId);
   }
 
   @Get(':id')
+  @Roles(AccessRole.ADMIN, MembershipRole.ADMIN)
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentAuthentication() authentication: AuthenticationContext,
@@ -45,19 +52,21 @@ export class EmployeesController {
 
   @Post()
   async create(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentActor() actor: AuthorizationActor,
     @CurrentAuthentication() authentication: AuthenticationContext,
     @Body() createEmployeeDto: CreateEmployeeDto,
   ) {
-    const employee = await this.employeesService.create(createEmployeeDto, authentication);
+    const employee = await this.employeesService.create(
+      createEmployeeDto,
+      authentication,
+    );
 
     this.auditLogService.logAdminAction({
-      actor: user,
+      actor,
       action: 'employee.create',
       resource: 'employee',
       resourceId: employee.id,
       metadata: {
-        email: createEmployeeDto.email,
         accessRole: createEmployeeDto.accessRole,
         scheduleId: createEmployeeDto.scheduleId ?? null,
         isActive: createEmployeeDto.isActive,
@@ -69,15 +78,19 @@ export class EmployeesController {
 
   @Patch(':id')
   async update(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentActor() actor: AuthorizationActor,
     @CurrentAuthentication() authentication: AuthenticationContext,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateEmployeeDto: UpdateEmployeeDto,
   ) {
-    const employee = await this.employeesService.update(id, updateEmployeeDto, authentication);
+    const employee = await this.employeesService.update(
+      id,
+      updateEmployeeDto,
+      authentication,
+    );
 
     this.auditLogService.logAdminAction({
-      actor: user,
+      actor,
       action: 'employee.update',
       resource: 'employee',
       resourceId: id,
@@ -91,7 +104,7 @@ export class EmployeesController {
 
   @Patch(':id/status')
   async updateStatus(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentActor() actor: AuthorizationActor,
     @CurrentAuthentication() authentication: AuthenticationContext,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateEmployeeStatusDto: UpdateEmployeeStatusDto,
@@ -103,7 +116,7 @@ export class EmployeesController {
     );
 
     this.auditLogService.logAdminAction({
-      actor: user,
+      actor,
       action: 'employee.status.update',
       resource: 'employee',
       resourceId: id,
@@ -115,9 +128,32 @@ export class EmployeesController {
     return employee;
   }
 
+  @Patch(':id/site')
+  @Roles(AccessRole.ADMIN, MembershipRole.ADMIN)
+  async transferSite(
+    @CurrentActor() actor: AuthorizationActor,
+    @CurrentAuthentication() authentication: AuthenticationContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() payload: TransferEmployeeSiteDto,
+  ) {
+    const employee = await this.employeesService.transferSite(
+      id,
+      payload,
+      authentication,
+    );
+    this.auditLogService.logAdminAction({
+      actor,
+      action: 'employee.site.transfer',
+      resource: 'employee',
+      resourceId: id,
+      metadata: { siteId: payload.siteId, effectiveFrom: payload.effectiveFrom },
+    });
+    return employee;
+  }
+
   @Patch(':id/role')
   async assignRole(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentActor() actor: AuthorizationActor,
     @CurrentAuthentication() authentication: AuthenticationContext,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() assignEmployeeRoleDto: AssignEmployeeRoleDto,
@@ -129,7 +165,7 @@ export class EmployeesController {
     );
 
     this.auditLogService.logAdminAction({
-      actor: user,
+      actor,
       action: 'employee.role.assign',
       resource: 'employee',
       resourceId: id,
@@ -143,7 +179,7 @@ export class EmployeesController {
 
   @Patch(':id/department')
   async assignDepartment(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentActor() actor: AuthorizationActor,
     @CurrentAuthentication() authentication: AuthenticationContext,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() assignEmployeeDepartmentDto: AssignEmployeeDepartmentDto,
@@ -155,7 +191,7 @@ export class EmployeesController {
     );
 
     this.auditLogService.logAdminAction({
-      actor: user,
+      actor,
       action: 'employee.department.assign',
       resource: 'employee',
       resourceId: id,
@@ -169,7 +205,7 @@ export class EmployeesController {
 
   @Patch(':id/schedule')
   async assignSchedule(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentActor() actor: AuthorizationActor,
     @CurrentAuthentication() authentication: AuthenticationContext,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() assignEmployeeScheduleDto: AssignEmployeeScheduleDto,
@@ -181,7 +217,7 @@ export class EmployeesController {
     );
 
     this.auditLogService.logAdminAction({
-      actor: user,
+      actor,
       action: 'employee.schedule.assign',
       resource: 'employee',
       resourceId: id,

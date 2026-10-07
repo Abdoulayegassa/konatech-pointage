@@ -221,4 +221,28 @@ describe('CalendarController (e2e)', () => {
       ),
     ).toBe(false);
   });
+
+  it('rejects site and tenant scope identifiers on organization calendar writes', async () => {
+    const token = await loginAdmin();
+    await request(app.getHttpServer())
+      .post('/api/v1/calendar/holidays')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        name: 'Client selected site',
+        date: '2026-05-14T00:00:00.000Z',
+        type: 'COMPANY_HOLIDAY',
+        siteId: '00000000-0000-4000-8000-000000000001',
+      })
+      .expect(400);
+    await request(app.getHttpServer())
+      .post('/api/v1/calendar/holidays')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        name: 'Client selected tenant',
+        date: '2026-05-15T00:00:00.000Z',
+        type: 'COMPANY_HOLIDAY',
+        organizationId: '00000000-0000-4000-8000-000000000001',
+      })
+      .expect(400);
+  });
 });

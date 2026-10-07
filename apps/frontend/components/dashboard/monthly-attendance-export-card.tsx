@@ -5,6 +5,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getClientErrorMessage } from '@/lib/client-error';
+import {
+  getOrganizationDateKey,
+  getOrganizationMonth,
+} from '@/lib/organization-time';
 
 const monthOptions = [
   { value: 1, label: 'Janvier' },
@@ -36,13 +40,14 @@ type ExportEmployeeOption = {
 };
 
 type ReportMode = 'monthly' | 'custom';
+type ExportFormat = 'pdf' | 'csv';
 
-function getDefaultMonthYear() {
-  const now = new Date();
+function getDefaultMonthYear(timeZone?: string) {
+  const [year, month] = getOrganizationMonth(new Date(), timeZone).split('-');
 
   return {
-    month: String(now.getUTCMonth() + 1),
-    year: String(now.getUTCFullYear()),
+    month: String(Number(month)),
+    year,
   };
 }
 
@@ -76,10 +81,16 @@ function formatDateInputValue(value: Date) {
   ].join('-');
 }
 
-function getDefaultCustomPeriod() {
-  const now = new Date();
-  const startDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const endDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
+function getDefaultCustomPeriod(timeZone?: string) {
+  const localToday = new Date(
+    `${getOrganizationDateKey(new Date(), timeZone)}T00:00:00.000Z`,
+  );
+  const startDate = new Date(
+    Date.UTC(localToday.getUTCFullYear(), localToday.getUTCMonth(), 1),
+  );
+  const endDate = new Date(
+    Date.UTC(localToday.getUTCFullYear(), localToday.getUTCMonth() + 1, 0),
+  );
 
   return {
     startDate: formatDateInputValue(startDate),
@@ -97,17 +108,22 @@ function formatDisplayDate(value: string) {
   return `${day}/${month}/${year}`;
 }
 
-export function MonthlyAttendanceExportCard() {
+export function MonthlyAttendanceExportCard({
+  timeZone,
+}: {
+  timeZone?: string;
+}) {
   // Monthly HR PDF source of truth is the backend premium renderer.
   // This component only selects filters and downloads the generated file.
-  const defaults = getDefaultMonthYear();
-  const customDefaults = getDefaultCustomPeriod();
+  const defaults = getDefaultMonthYear(timeZone);
+  const customDefaults = getDefaultCustomPeriod(timeZone);
   const [mode, setMode] = useState<ReportMode>('monthly');
   const [month, setMonth] = useState(defaults.month);
   const [year, setYear] = useState(defaults.year);
   const [startDate, setStartDate] = useState(customDefaults.startDate);
   const [endDate, setEndDate] = useState(customDefaults.endDate);
   const [employeeId, setEmployeeId] = useState('all');
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('pdf');
   const [employees, setEmployees] = useState<ExportEmployeeOption[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,19 +133,13 @@ export function MonthlyAttendanceExportCard() {
     let ignore = false;
 
     async function loadEmployees() {
-      const response = await fetch('/api/employees', {
-        method: 'GET',
-        cache: 'no-store',
-      });
-
-      if (!response.ok) {
-        return;
-      }
-
-      const payload = (await response.json()) as ExportEmployeeOption[];
-
-      if (!ignore) {
-        setEmployees(payload.filter((employee) => employee.isActive));
+      try {
+        const response = await fetch('/api/employees', { method: 'GET', cache: 'no-store' });
+        if (!response.ok) throw new Error('employees');
+        const payload = (await response.json()) as ExportEmployeeOption[];
+        if (!ignore) setEmployees(payload);
+      } catch {
+        if (!ignore) setError('Impossible de charger la liste des employés.');
       }
     }
 
@@ -148,7 +158,7 @@ export function MonthlyAttendanceExportCard() {
 
     try {
       const searchParams = new URLSearchParams({
-        format: 'pdf',
+        format: exportFormat,
       });
 
       let fallbackPeriodLabel = '';
@@ -230,10 +240,7 @@ export function MonthlyAttendanceExportCard() {
           | unknown;
 
         setError(
-          getClientErrorMessage(
-            payload,
-            'Impossible de générer le rapport.',
-          ),
+          getClientErrorMessage(payload, 'Impossible de générer le rapport.'),
         );
         return;
       }
@@ -248,7 +255,7 @@ export function MonthlyAttendanceExportCard() {
           : selectedEmployee
             ? `${selectedEmployee.firstName} ${selectedEmployee.lastName}`
             : 'employe';
-      const fallbackFileName = `rapport-presence-${normalizeDownloadSegment(scopeLabel)}-${normalizeDownloadSegment(fallbackPeriodLabel)}.pdf`;
+      const fallbackFileName = `rapport-presence-${normalizeDownloadSegment(scopeLabel)}-${normalizeDownloadSegment(fallbackPeriodLabel)}.${exportFormat}`;
       const fileName = getFileName(
         response.headers.get('content-disposition'),
         fallbackFileName,
@@ -267,23 +274,25 @@ export function MonthlyAttendanceExportCard() {
         ? ` - ${selectedEmployee.firstName} ${selectedEmployee.lastName}`
         : '';
       setSuccessMessage(
-        `Rapport PDF téléchargé pour ${selectedPeriodLabel}${employeeScope}.`,
+        `Rapport ${exportFormat.toUpperCase()} téléchargé pour ${selectedPeriodLabel}${employeeScope}.`,
       );
+    } catch {
+      setError('Impossible de générer le rapport. Vérifiez votre connexion puis réessayez.');
     } finally {
       setIsExporting(false);
     }
   }
 
   return (
-    <Card className="overflow-hidden rounded-[30px] border-slate-200/80 bg-white/95">
-      <CardHeader className="space-y-3 border-b border-slate-200/70 pb-4">
+    <Card className="overflow-hidden rounded-xl border-slate-200 bg-white shadow-none">
+      <CardHeader className="space-y-3 border-b border-slate-200 pb-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-3">
               <Badge variant="outline">
                 {mode === 'custom' ? 'Export personnalisé' : 'Export mensuel'}
               </Badge>
-              <Badge variant="success">PDF</Badge>
+              <Badge variant="success">{exportFormat.toUpperCase()}</Badge>
             </div>
             <div className="space-y-1">
               <CardTitle className="text-xl sm:text-2xl">
@@ -293,8 +302,8 @@ export function MonthlyAttendanceExportCard() {
               </CardTitle>
               <p className="max-w-xl text-sm leading-5 text-slate-600">
                 {mode === 'custom'
-                  ? 'Export PDF sur une période libre, par équipe ou par employé.'
-                  : 'Export PDF par équipe ou par employé.'}
+                  ? 'Export sur une période libre, pour toute l’organisation ou un employé.'
+                  : 'Export mensuel pour toute l’organisation ou un employé.'}
               </p>
             </div>
           </div>
@@ -323,15 +332,13 @@ export function MonthlyAttendanceExportCard() {
 
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="grid gap-4">
-            <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
               <div className="grid gap-4">
                 <label className="block">
                   <span className={labelClassName}>Mode de période</span>
                   <select
                     className={inputClassName}
-                    onChange={(event) =>
-                      setMode(event.target.value === 'custom' ? 'custom' : 'monthly')
-                    }
+                    onChange={(event) => setMode(event.target.value as ReportMode)}
                     value={mode}
                   >
                     <option value="monthly">Mensuel</option>
@@ -366,7 +373,7 @@ export function MonthlyAttendanceExportCard() {
                         onChange={(event) => setYear(event.target.value)}
                         type="number"
                         value={year}
-                      />
+                  />
                     </label>
                   </div>
                 ) : (
@@ -409,9 +416,16 @@ export function MonthlyAttendanceExportCard() {
                     ))}
                   </select>
                 </label>
+                <label className="block">
+                  <span className={labelClassName}>Format de sortie</span>
+                  <select className={inputClassName} onChange={(event) => setExportFormat(event.target.value as ExportFormat)} value={exportFormat}>
+                    <option value="pdf">PDF</option>
+                    <option value="csv">CSV</option>
+                  </select>
+                </label>
               </div>
 
-              <div className="mt-4 rounded-[22px] border border-accent/15 bg-accent/5 p-4">
+              <div className="mt-4 rounded-lg border border-orange-200 bg-orange-50/60 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-bold text-slate-950">
@@ -425,13 +439,13 @@ export function MonthlyAttendanceExportCard() {
                         : 'Présences, retards, absences, heures et plannings.'}
                     </p>
                   </div>
-                  <Badge variant="success">PDF</Badge>
+                  <Badge variant="success">{exportFormat.toUpperCase()}</Badge>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="flex flex-col gap-3 rounded-[22px] border border-slate-200 bg-slate-50/85 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-semibold text-slate-950">
                 Action d'export

@@ -6,6 +6,7 @@ import {
   MonthlyAttendanceExportReport,
   MonthlyAttendanceExportRow,
 } from './monthly-attendance-export.types';
+import { getLocalDateParts } from '../../../common/utils/attendance-date.util';
 
 type TeamReportSummary = {
   totalEmployees: number;
@@ -2112,12 +2113,13 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
           <span class="eyebrow">KONATECH POINTAGE</span>
           <h1 class="hero-title">${this.escapeHtml(this.buildReportTitle(report))}</h1>
           <p class="hero-subtitle">${this.escapeHtml(report.periodLabel)}</p>
+          ${report.scope === 'SITE' ? `<p class="hero-copy">${this.escapeHtml(report.organizationName ?? '')} · Site : ${this.escapeHtml(report.siteName ?? '')}</p>` : ''}
           <p class="hero-copy">Vue consolidée des présences, absences et heures.</p>
         </div>
         <aside class="meta-card">
           <div>
             <p class="meta-label">Émission</p>
-            <p class="meta-value">${this.escapeHtml(this.formatGeneratedAt(report.generatedAt))}</p>
+            <p class="meta-value">${this.escapeHtml(this.formatGeneratedAt(report.generatedAt, report.organizationTimezone))}</p>
           </div>
           <p class="meta-copy">Confidentiel RH</p>
         </aside>
@@ -2260,7 +2262,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
   private buildDocumentTitle(report: MonthlyAttendanceExportReport) {
     const scope = report.employeeReport?.fullName ?? 'équipe';
 
-    return `${this.buildReportTitle(report)} - ${scope} - ${report.periodLabel}`;
+    return `${this.buildReportTitle(report)} - ${report.siteName ?? scope} - ${report.periodLabel}`;
   }
 
   private buildReportTitle(report: MonthlyAttendanceExportReport) {
@@ -2275,7 +2277,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
     totalPages: number,
   ) {
     return `<footer class="footer">
-      <span class="footer-mark">Document généré automatiquement par KONATECH POINTAGE</span>
+      <span class="footer-mark">${report.scope === 'SITE' ? `${this.escapeHtml(report.organizationName ?? '')} · Site : ${this.escapeHtml(report.siteName ?? '')} · ` : ''}Document généré automatiquement par KONATECH POINTAGE</span>
       <span>Confidentiel RH</span>
       <strong>Page ${pageNumber} / ${totalPages}</strong>
     </footer>`;
@@ -2493,9 +2495,7 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
     return 'Intervention RH recommandée';
   }
 
-  private renderDailyTimeValue(
-    value: string,
-  ) {
+  private renderDailyTimeValue(value: string) {
     const displayValue = this.readableValue(value, '');
 
     if (displayValue === '') {
@@ -2767,13 +2767,14 @@ export class MonthlyAttendancePuppeteerPdfRendererService {
     return `${monthLabel.charAt(0).toUpperCase()}${monthLabel.slice(1)} ${year}`;
   }
 
-  private formatGeneratedAt(value: string) {
+  private formatGeneratedAt(value: string, timezone: string) {
     const date = new Date(value);
-    const day = String(date.getUTCDate()).padStart(2, '0');
-    const month = this.frenchMonthLabels[date.getUTCMonth()] ?? '';
-    const year = date.getUTCFullYear();
-    const hours = String(date.getUTCHours()).padStart(2, '0');
-    const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+    const parts = getLocalDateParts(date, timezone);
+    const day = String(parts.day).padStart(2, '0');
+    const month = this.frenchMonthLabels[parts.month - 1] ?? '';
+    const year = parts.year;
+    const hours = String(parts.hour).padStart(2, '0');
+    const minutes = String(parts.minute).padStart(2, '0');
 
     return `${day} ${month} ${year} à ${hours}:${minutes}`;
   }

@@ -8,6 +8,10 @@ import {
 import { CheckInSecurityDto } from './check-in-security.dto';
 
 export class CheckInDto extends CheckInSecurityDto {
+  @IsOptional()
+  @IsUUID()
+  siteId?: string;
+
   @IsUUID()
   employeeId!: string;
 

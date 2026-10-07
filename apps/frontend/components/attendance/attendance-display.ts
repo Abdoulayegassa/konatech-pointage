@@ -25,12 +25,10 @@ export type AttendanceVerificationSource = {
   checkInVerificationMethod: AttendanceVerificationMethod;
   checkInVerificationLevel: AttendanceVerificationLevel;
   checkInVerificationReason: string | null;
-  checkInVerificationPhoto: string | null;
   checkOutDistanceMeters: number | null;
   checkOutVerificationMethod: AttendanceVerificationMethod;
   checkOutVerificationLevel: AttendanceVerificationLevel;
   checkOutVerificationReason: string | null;
-  checkOutVerificationPhoto: string | null;
 };
 
 const reasonLabels: Record<string, string> = {
@@ -43,7 +41,7 @@ const reasonLabels: Record<string, string> = {
   SELFIE_AND_LOCATION_RECORDED: 'Selfie et position enregistrés',
 };
 
-export function formatAttendanceTime(value: string | null) {
+export function formatAttendanceTime(value: string | null, timeZone?: string) {
   if (!value) {
     return '--:--';
   }
@@ -51,6 +49,7 @@ export function formatAttendanceTime(value: string | null) {
   return new Date(value).toLocaleTimeString('fr-FR', {
     hour: '2-digit',
     minute: '2-digit',
+    timeZone,
   });
 }
 
@@ -59,6 +58,7 @@ export function formatAttendanceHistoryDate(value: string) {
     weekday: 'short',
     day: '2-digit',
     month: 'long',
+    timeZone: 'UTC',
   });
 }
 
@@ -66,6 +66,7 @@ export function formatAttendanceShortDate(value: string) {
   return new Date(value).toLocaleDateString('fr-FR', {
     day: '2-digit',
     month: 'short',
+    timeZone: 'UTC',
   });
 }
 
@@ -205,9 +206,11 @@ export function getAttendanceExitMessage(
   return 'Sortie enregistrée.';
 }
 
-export function getAttendanceEntryMessage(attendance: {
-  minutesLate?: number;
-} | null) {
+export function getAttendanceEntryMessage(
+  attendance: {
+    minutesLate?: number;
+  } | null,
+) {
   const minutesLate = Math.max(0, attendance?.minutesLate ?? 0);
 
   if (minutesLate > 0) {
@@ -325,9 +328,6 @@ export function getAttendanceVerificationMeta(
   const reasonValue = isCheckOut
     ? item.checkOutVerificationReason
     : item.checkInVerificationReason;
-  const photoValue = isCheckOut
-    ? item.checkOutVerificationPhoto
-    : item.checkInVerificationPhoto;
   const distanceValue = isCheckOut
     ? item.checkOutDistanceMeters
     : item.checkInDistanceMeters;
@@ -345,7 +345,7 @@ export function getAttendanceVerificationMeta(
   const isBlocked =
     reasonValue === 'OUTSIDE_ALLOWED_RADIUS' ||
     reasonValue === 'LOCATION_UNAVAILABLE';
-  const isLegacyPhoto = Boolean(photoValue);
+  const isLegacyPhoto = Boolean(reasonValue?.includes('SELFIE'));
   const isLegacyGps =
     level === 'WARNING' ||
     level === 'STRICT' ||

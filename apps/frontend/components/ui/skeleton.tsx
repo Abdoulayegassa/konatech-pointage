@@ -6,7 +6,7 @@ type SkeletonProps = HTMLAttributes<HTMLDivElement>;
 export function Skeleton({ className, ...props }: SkeletonProps) {
   return (
     <div
-      className={cn('skeleton-shimmer rounded-[20px]', className)}
+      className={cn('skeleton-shimmer admin-skeleton rounded-[20px]', className)}
       {...props}
     />
   );

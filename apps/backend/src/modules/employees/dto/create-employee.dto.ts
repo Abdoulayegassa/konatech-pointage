@@ -64,4 +64,9 @@ export class CreateEmployeeDto {
   @IsOptional()
   @IsUUID()
   scheduleId?: string;
+
+  /** Required for SaaS employee creation; ignored by the legacy path. */
+  @IsOptional()
+  @IsUUID()
+  siteId?: string;
 }

@@ -1,6 +1,10 @@
 import 'dotenv/config';
 import { AccessRole, PrismaClient } from '@prisma/client';
-import { hashPinCode } from '../src/common/security/password.util';
+import {
+  hashPinCode,
+  verifyPinCode,
+} from '../src/common/security/password.util';
+import { getSafeErrorSummary } from '../src/common/security/sensitive-data.util';
 
 async function main() {
   const prisma = new PrismaClient();
@@ -27,12 +31,19 @@ async function main() {
         continue;
       }
 
+      const pinCodeHash = await hashPinCode(employee.pinCode);
+      const verified = await verifyPinCode(employee.pinCode, pinCodeHash);
+
+      if (!verified) {
+        throw new Error('Generated employee PIN hash could not be verified.');
+      }
+
       await prisma.employee.update({
         where: {
           id: employee.id,
         },
         data: {
-          pinCodeHash: await hashPinCode(employee.pinCode),
+          pinCodeHash,
           pinCode: null,
         },
       });
@@ -50,8 +61,7 @@ async function main() {
 
 void main().catch((error) => {
   console.error(
-    'Employee PIN hash backfill failed:',
-    error instanceof Error ? error.message : error,
+    `Employee PIN hash backfill failed: ${getSafeErrorSummary(error)}.`,
   );
   process.exitCode = 1;
 });

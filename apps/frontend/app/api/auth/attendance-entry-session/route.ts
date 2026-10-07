@@ -50,6 +50,7 @@ function getErrorMessage(
 export async function POST(request: Request) {
   const payload = (await request.json().catch(() => ({}))) as {
     pinCode?: string;
+    sitePublicId?: string;
   };
 
   let response: Response;
@@ -95,7 +96,9 @@ export async function POST(request: Request) {
   );
 
   return NextResponse.json({
-    redirectTo: '/attendance-entry',
+    redirectTo: payload.sitePublicId
+      ? `/attendance-entry?sitePublicId=${encodeURIComponent(payload.sitePublicId)}`
+      : '/attendance-entry',
     user: session.user,
   });
 }

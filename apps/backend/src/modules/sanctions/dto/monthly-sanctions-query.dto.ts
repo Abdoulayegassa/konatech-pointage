@@ -1,4 +1,4 @@
-import { IsOptional, IsString, Matches } from 'class-validator';
+import { IsOptional, IsString, IsUUID, Matches } from 'class-validator';
 
 export class MonthlySanctionsQueryDto {
   @IsOptional()
@@ -10,5 +10,6 @@ export class MonthlySanctionsQueryDto {
 
   @IsOptional()
   @IsString()
+  @IsUUID()
   employeeId?: string;
 }

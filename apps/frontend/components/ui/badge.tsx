@@ -7,11 +7,13 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
+        neutral: 'border-border bg-slate-100 text-slate-700',
         default: 'border-transparent bg-primary text-primary-foreground',
         outline: 'border-border/80 bg-white/78 text-foreground',
         success: 'border-transparent bg-success/15 text-success',
         warning: 'border-transparent bg-accent/15 text-accent',
         danger: 'border-transparent bg-red-50 text-red-700',
+        info: 'border-transparent bg-blue-50 text-blue-700',
       },
     },
     defaultVariants: {
@@ -20,11 +22,11 @@ const badgeVariants = cva(
   },
 );
 
-type BadgeProps = HTMLAttributes<HTMLDivElement> &
+type BadgeProps = HTMLAttributes<HTMLSpanElement> &
   VariantProps<typeof badgeVariants>;
 
 export function Badge({ className, variant, ...props }: BadgeProps) {
   return (
-    <div className={cn(badgeVariants({ variant }), className)} {...props} />
+    <span data-variant={variant ?? 'default'} className={cn('admin-badge', badgeVariants({ variant }), className)} {...props} />
   );
 }

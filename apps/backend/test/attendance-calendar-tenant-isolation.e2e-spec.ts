@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   INestApplication,
+  NotFoundException,
   ValidationPipe,
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -9,6 +10,7 @@ import {
   AttendanceStatus,
   MembershipRole,
   PrismaClient,
+  V1OperationalScopeStatus,
 } from '@prisma/client';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
@@ -87,6 +89,15 @@ describe('Attendance Calendar tenant boundary (e2e)', () => {
         timezone: 'Etc/UTC',
       },
     });
+    const site = await prisma.attendanceSite.create({
+      data: {
+        organizationId: organization.id,
+        name: `Site ${suffix}`,
+        latitude: 0,
+        longitude: 0,
+        allowedRadiusMeters: 100,
+      },
+    });
     const schedule = await prisma.schedule.create({
       data: {
         name: `Schedule ${suffix}`,
@@ -94,6 +105,8 @@ describe('Attendance Calendar tenant boundary (e2e)', () => {
         endTime: '17:00',
         workDays: [...FULL_WORK_WEEK],
         organizationId: organization.id,
+        siteId: site.id,
+        v1ScopeStatus: V1OperationalScopeStatus.OPERATIONAL,
       },
     });
     const user = await prisma.user.create({
@@ -103,7 +116,7 @@ describe('Attendance Calendar tenant boundary (e2e)', () => {
       data: {
         userId: user.id,
         organizationId: organization.id,
-        role: MembershipRole.MEMBER,
+        role: MembershipRole.EMPLOYEE,
       },
     });
     const employee = await prisma.employee.create({
@@ -118,16 +131,28 @@ describe('Attendance Calendar tenant boundary (e2e)', () => {
         isActive: true,
         userId: user.id,
         organizationId: organization.id,
+        primarySiteId: site.id,
         scheduleId: schedule.id,
+        v1ScopeStatus: V1OperationalScopeStatus.OPERATIONAL,
       },
     });
-    const site = await prisma.attendanceSite.create({
+    const siteAssignment = await prisma.employeeSiteAssignment.create({
       data: {
         organizationId: organization.id,
-        name: `Site ${suffix}`,
-        latitude: 0,
-        longitude: 0,
-        allowedRadiusMeters: 100,
+        employeeId: employee.id,
+        siteId: site.id,
+        effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+      },
+    });
+    await prisma.employeeScheduleAssignment.create({
+      data: {
+        organizationId: organization.id,
+        employeeId: employee.id,
+        siteId: site.id,
+        scheduleId: schedule.id,
+        employeeSiteAssignmentId: siteAssignment.id,
+        effectiveFrom: new Date('2026-01-01T00:00:00.000Z'),
+        v1ScopeStatus: V1OperationalScopeStatus.OPERATIONAL,
       },
     });
     const token = auth.createAttendanceEntryToken({
@@ -143,31 +168,63 @@ describe('Attendance Calendar tenant boundary (e2e)', () => {
     date: string,
     name: string,
   ) {
-    return prisma.calendarEntry.create({
-      data: {
-        organizationId,
-        date: new Date(`${date}T00:00:00.000Z`),
+    if (!organizationId) {
+      return prisma.calendarEntry.create({
+        data: {
+          organizationId: null,
+          date: new Date(`${date}T00:00:00.000Z`),
+          name,
+          type: 'PUBLIC_HOLIDAY',
+        },
+      });
+    }
+
+    return calendar.create(
+      {
         name,
+        date,
         type: 'PUBLIC_HOLIDAY',
       },
-    });
+      accountContext(organizationId),
+    );
   }
 
   it('applies an Organization A holiday to A attendance', async () => {
     const a = await createTenant('A');
-    await addHoliday(a.organization.id, '2026-08-03', 'A holiday');
+    const holiday = await addHoliday(
+      a.organization.id,
+      '2026-08-03',
+      'A holiday',
+    );
+    await expect(
+      prisma.calendarEntry.findUniqueOrThrow({ where: { id: holiday.id } }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        organizationId: a.organization.id,
+        v1ScopeStatus: V1OperationalScopeStatus.OPERATIONAL,
+      }),
+    );
     const result = await attendance.checkIn(
-      { employeeId: a.employee.id, occurredAt: '2026-08-03T08:00:00.000Z' },
+      {
+        employeeId: a.employee.id,
+        siteId: a.site.id,
+        occurredAt: '2026-08-03T10:00:00.000Z',
+      },
       accountContext(a.organization.id),
     );
     expect(result.status).toBe(AttendanceStatus.NON_WORKING_DAY_WORK);
+    expect(result.minutesLate).toBe(0);
   });
 
   it('applies an Organization B holiday to B attendance', async () => {
     const b = await createTenant('B');
     await addHoliday(b.organization.id, '2026-08-04', 'B holiday');
     const result = await attendance.checkIn(
-      { employeeId: b.employee.id, occurredAt: '2026-08-04T08:00:00.000Z' },
+      {
+        employeeId: b.employee.id,
+        siteId: b.site.id,
+        occurredAt: '2026-08-04T08:00:00.000Z',
+      },
       accountContext(b.organization.id),
     );
     expect(result.status).toBe(AttendanceStatus.NON_WORKING_DAY_WORK);
@@ -178,7 +235,11 @@ describe('Attendance Calendar tenant boundary (e2e)', () => {
     const b = await createTenant('B');
     await addHoliday(b.organization.id, '2026-08-05', 'Only B');
     const result = await attendance.checkIn(
-      { employeeId: a.employee.id, occurredAt: '2026-08-05T08:00:00.000Z' },
+      {
+        employeeId: a.employee.id,
+        siteId: a.site.id,
+        occurredAt: '2026-08-05T08:00:00.000Z',
+      },
       accountContext(a.organization.id),
     );
     expect(result.status).not.toBe(AttendanceStatus.NON_WORKING_DAY_WORK);
@@ -254,7 +315,7 @@ describe('Attendance Calendar tenant boundary (e2e)', () => {
       .expect(401);
   });
 
-  it('rejects an inactive AttendanceSite', async () => {
+  it('does not expose live attendance for an inactive AttendanceSite', async () => {
     const a = await createTenant('A');
     await prisma.attendanceSite.update({
       where: { id: a.site.id },
@@ -263,7 +324,9 @@ describe('Attendance Calendar tenant boundary (e2e)', () => {
     await request(app.getHttpServer())
       .get('/api/v1/attendance/me/today')
       .set('Authorization', `Bearer ${a.token}`)
-      .expect(401);
+      // Existing secured sessions may submit historical evidence for review;
+      // the live attendance projection still excludes the inactive site.
+      .expect(404);
   });
 
   it('rejects an inactive Employee', async () => {
@@ -377,7 +440,28 @@ describe('Attendance Calendar tenant boundary (e2e)', () => {
     );
   });
 
-  it('preserves historical global Calendar behavior for legacy calls', async () => {
+  it('rejects a SaaS Employee through the Legacy attendance path', async () => {
+    const tenant = await createTenant('LEGACY-BOUNDARY');
+
+    await expect(
+      attendance.checkIn({
+        employeeId: tenant.employee.id,
+        occurredAt: '2026-08-15T08:00:00.000Z',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    await expect(
+      prisma.attendance.findFirst({
+        where: {
+          employeeId: tenant.employee.id,
+          date: new Date('2026-08-15T00:00:00.000Z'),
+          organizationId: null,
+        },
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it('preserves Legacy Calendar behavior inside the Legacy namespace', async () => {
     await addHoliday(null, '2026-08-14', 'Legacy holiday');
     await expect(
       calendar.isNonWorkingDay(new Date('2026-08-14T00:00:00.000Z')),

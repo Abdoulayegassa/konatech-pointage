@@ -1,8 +1,10 @@
 'use client';
 
 import { FormEvent, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   CreateSchedulePayload,
+  AttendanceSite,
   ScheduleRecord,
   UpdateSchedulePayload,
   WorkDay,
@@ -32,7 +34,10 @@ import {
 } from './schedule-manager.helpers';
 
 type AdminSchedulesManagerProps = {
+  canManage?: boolean;
   initialSchedules: ScheduleRecord[];
+  sites: AttendanceSite[];
+  siteContext?: { id: string; name: string };
 };
 
 type StatusFilter = 'all' | 'active' | 'inactive';
@@ -56,8 +61,12 @@ function formatTimeRange(
 }
 
 export function AdminSchedulesManager({
+  canManage = true,
   initialSchedules,
+  sites,
+  siteContext,
 }: AdminSchedulesManagerProps) {
+  const router = useRouter();
   const [schedules, setSchedules] = useState(initialSchedules);
   const [formMode, setFormMode] = useState<FormMode>('create');
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(
@@ -79,11 +88,11 @@ export function AdminSchedulesManager({
   ).length;
   const inactiveSchedules = schedules.length - activeSchedules;
   const assignedEmployees = schedules.reduce(
-    (total, schedule) => total + schedule.employees.length,
+    (total, schedule) => total + (schedule.currentAssignedEmployeeCount ?? schedule.employees.length),
     0,
   );
   const utilizedSchedules = schedules.filter(
-    (schedule) => schedule.employees.length > 0,
+    (schedule) => (schedule.currentAssignedEmployeeCount ?? schedule.employees.length) > 0,
   ).length;
   const unassignedSchedules = schedules.length - utilizedSchedules;
   const normalizedSearch = searchQuery.trim().toLowerCase();
@@ -109,8 +118,8 @@ export function AdminSchedulesManager({
       const matchesUsage =
         usageFilter === 'all' ||
         (usageFilter === 'assigned'
-          ? schedule.employees.length > 0
-          : schedule.employees.length === 0);
+          ? (schedule.currentAssignedEmployeeCount ?? schedule.employees.length) > 0
+          : (schedule.currentAssignedEmployeeCount ?? schedule.employees.length) === 0);
       const matchesDay =
         dayFilter === 'all' || schedule.workDays.includes(dayFilter);
 
@@ -171,9 +180,12 @@ export function AdminSchedulesManager({
     setFeedback(null);
 
     try {
-      const response = await fetch(`/api/schedules/${scheduleId}`, {
-        cache: 'no-store',
-      });
+      const response = await fetch(
+        siteContext
+          ? `/api/attendance-sites/${encodeURIComponent(siteContext.id)}/schedules/${encodeURIComponent(scheduleId)}`
+          : `/api/schedules/${scheduleId}`,
+        { cache: 'no-store' },
+      );
       const data = (await response.json().catch(() => ({}))) as
         | ScheduleRecord
         | { error?: string };
@@ -194,12 +206,19 @@ export function AdminSchedulesManager({
       setFormMode('edit');
       setEditingScheduleId(schedule.id);
       setFormValues(mapScheduleToFormValues(schedule));
+    } catch {
+      setFeedback({ tone: 'error', message: 'Impossible de charger le planning. Vérifiez votre connexion puis réessayez.' });
     } finally {
       setRowAction(null);
     }
   }
 
   async function toggleStatus(schedule: ScheduleRecord) {
+    if (
+      siteContext &&
+      schedule.isActive &&
+      !window.confirm(`Désactiver le planning « ${schedule.name} » ?`)
+    ) return;
     setRowAction({
       scheduleId: schedule.id,
       type: 'status',
@@ -207,7 +226,10 @@ export function AdminSchedulesManager({
     setFeedback(null);
 
     try {
-      const response = await fetch(`/api/schedules/${schedule.id}/status`, {
+      const response = await fetch(
+        siteContext
+          ? `/api/attendance-sites/${encodeURIComponent(siteContext.id)}/schedules/${encodeURIComponent(schedule.id)}/status`
+          : `/api/schedules/${schedule.id}/status`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -248,6 +270,9 @@ export function AdminSchedulesManager({
       if (editingScheduleId === updatedSchedule.id) {
         setFormValues(mapScheduleToFormValues(updatedSchedule));
       }
+      if (siteContext) router.refresh();
+    } catch {
+      setFeedback({ tone: 'error', message: 'Impossible de modifier le statut du planning. Vérifiez votre connexion puis réessayez.' });
     } finally {
       setRowAction(null);
     }
@@ -318,12 +343,22 @@ export function AdminSchedulesManager({
         latenessMarginMinutes,
         isActive: formValues.isActive,
         workDays: sortWorkDays(formValues.workDays),
+        ...(formMode === 'create' && !siteContext ? { siteId: formValues.siteId } : {}),
       };
 
+      if (formMode === 'create' && !siteContext && !formValues.siteId) {
+        setFeedback({ tone: 'error', message: 'Sélectionnez un site actif pour ce planning.' });
+        return;
+      }
+
       const response = await fetch(
-        formMode === 'create'
-          ? '/api/schedules'
-          : `/api/schedules/${editingScheduleId}`,
+        siteContext
+          ? formMode === 'create'
+            ? `/api/attendance-sites/${encodeURIComponent(siteContext.id)}/schedules`
+            : `/api/attendance-sites/${encodeURIComponent(siteContext.id)}/schedules/${encodeURIComponent(editingScheduleId!)}`
+          : formMode === 'create'
+            ? '/api/schedules'
+            : `/api/schedules/${editingScheduleId}`,
         {
           method: formMode === 'create' ? 'POST' : 'PATCH',
           headers: {
@@ -363,6 +398,9 @@ export function AdminSchedulesManager({
             : 'Planning mis à jour avec succès.',
       });
       resetForm();
+      if (siteContext) router.refresh();
+    } catch {
+      setFeedback({ tone: 'error', message: 'Enregistrement du planning impossible. Vérifiez votre connexion puis réessayez.' });
     } finally {
       setIsSubmitting(false);
     }
@@ -416,25 +454,29 @@ export function AdminSchedulesManager({
               </div>
             </div>
 
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              {formMode === 'edit' ? (
+            {canManage ? (
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                {formMode === 'edit' ? (
+                  <Button
+                    className="min-h-11"
+                    onClick={resetForm}
+                    type="button"
+                    variant="secondary"
+                  >
+                    Annuler
+                  </Button>
+                ) : null}
                 <Button
-                  className="min-h-11"
+                  className="min-h-11 rounded-2xl bg-accent text-accent-foreground shadow-[0_14px_32px_rgba(244,110,40,0.22)] hover:bg-accent/95"
                   onClick={resetForm}
                   type="button"
-                  variant="secondary"
                 >
-                  Annuler
+                  Nouveau planning
                 </Button>
-              ) : null}
-              <Button
-                className="min-h-11 rounded-2xl bg-accent text-accent-foreground shadow-[0_14px_32px_rgba(244,110,40,0.22)] hover:bg-accent/95"
-                onClick={resetForm}
-                type="button"
-              >
-                Nouveau planning
-              </Button>
-            </div>
+              </div>
+            ) : (
+              <Badge variant="outline">Lecture seule</Badge>
+            )}
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -575,7 +617,7 @@ export function AdminSchedulesManager({
             <AdminEmptyState
               badge={schedules.length === 0 ? 'Plannings' : 'Filtres actifs'}
               action={
-                schedules.length === 0 ? (
+                schedules.length === 0 && canManage ? (
                   <Button className="mx-auto" onClick={resetForm} type="button">
                     Créer un planning
                   </Button>
@@ -674,7 +716,7 @@ export function AdminSchedulesManager({
                         </div>
                         <div className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-2">
                           <p className="text-sm font-bold text-slate-950">
-                            {schedule.employees.length} employé(s)
+                            {schedule.currentAssignedEmployeeCount ?? schedule.employees.length} employé(s)
                           </p>
                           <p className="mt-1 truncate text-sm text-slate-600">
                             {getEmployeePreview(schedule)}
@@ -682,31 +724,33 @@ export function AdminSchedulesManager({
                         </div>
                       </div>
 
-                      <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[178px] lg:grid-cols-1">
-                        <Button
-                          className="min-h-11 rounded-2xl"
-                          disabled={Boolean(rowAction)}
-                          onClick={() => startEdit(schedule.id)}
-                          size="sm"
-                          type="button"
-                        >
-                          {isEditing ? 'Chargement...' : 'Modifier'}
-                        </Button>
-                        <Button
-                          className="min-h-11 rounded-2xl"
-                          disabled={Boolean(rowAction)}
-                          onClick={() => toggleStatus(schedule)}
-                          size="sm"
-                          type="button"
-                          variant="secondary"
-                        >
-                          {isUpdatingStatus
-                            ? 'Mise à jour...'
-                            : schedule.isActive
-                              ? 'Désactiver'
-                              : 'Activer'}
-                        </Button>
-                      </div>
+                      {canManage ? (
+                        <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[178px] lg:grid-cols-1">
+                          <Button
+                            className="min-h-11 rounded-2xl"
+                            disabled={Boolean(rowAction)}
+                            onClick={() => startEdit(schedule.id)}
+                            size="sm"
+                            type="button"
+                          >
+                            {isEditing ? 'Chargement...' : 'Modifier'}
+                          </Button>
+                          <Button
+                            className="min-h-11 rounded-2xl"
+                            disabled={Boolean(rowAction)}
+                            onClick={() => toggleStatus(schedule)}
+                            size="sm"
+                            type="button"
+                            variant="secondary"
+                          >
+                            {isUpdatingStatus
+                              ? 'Mise à jour...'
+                              : schedule.isActive
+                                ? 'Désactiver'
+                                : 'Activer'}
+                          </Button>
+                        </div>
+                      ) : null}
                     </article>
                   );
                 })}
@@ -716,233 +760,266 @@ export function AdminSchedulesManager({
         </CardContent>
       </Card>
 
-      <Card className="admin-reveal admin-reveal-delay-2 self-start overflow-hidden rounded-[28px] border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] shadow-[0_18px_44px_rgba(15,45,58,0.07)] xl:sticky xl:top-6">
-        <div className="h-1.5 bg-[linear-gradient(90deg,rgba(16,50,60,0.92),rgba(244,110,40,0.72),rgba(244,110,40,0.95))]" />
+      {canManage ? (
+        <Card className="admin-reveal admin-reveal-delay-2 self-start overflow-hidden rounded-[28px] border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] shadow-[0_18px_44px_rgba(15,45,58,0.07)] xl:sticky xl:top-6">
+          <div className="h-1.5 bg-[linear-gradient(90deg,rgba(16,50,60,0.92),rgba(244,110,40,0.72),rgba(244,110,40,0.95))]" />
 
-        <CardHeader className="space-y-3 border-b border-slate-200/80 pb-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <Badge variant={formMode === 'create' ? 'success' : 'warning'}>
-              {formMode === 'create' ? 'Création' : 'Édition'}
-            </Badge>
-            <Badge variant="outline">
-              {formMode === 'create' ? 'Nouveau modèle' : 'Modèle actif'}
-            </Badge>
-          </div>
-
-          <div className="space-y-1">
-            <CardTitle className="text-xl text-slate-950">
-              {formMode === 'create' ? 'Planning' : 'Modifier le planning'}
-            </CardTitle>
-            <p className="text-sm leading-5 text-slate-600">
-              Paramètres du planning regroupés pour une mise à jour rapide.
-            </p>
-          </div>
-
-          <div className="rounded-[22px] border border-slate-200/80 bg-white/88 p-3.5 shadow-sm">
-            <p className={labelClassName}>Sélection</p>
-            <p className="mt-1 text-base font-semibold text-slate-950">
-              {editingSchedule?.name ?? 'Nouveau planning'}
-            </p>
-            <p className="mt-1 text-sm text-slate-600">
-              {editingSchedule
-                ? formatTimeRange(editingSchedule)
-                : 'Création rapide'}
-            </p>
-          </div>
-        </CardHeader>
-
-        <CardContent className="pt-4">
-          <form className="space-y-3.5" onSubmit={handleSubmit}>
-            <section className="space-y-3 rounded-[22px] border border-slate-200/80 bg-white/88 p-4 shadow-sm">
-              <div className="space-y-1">
-                <p className={labelClassName}>Identité</p>
-                <p className="text-base font-semibold text-slate-950">
-                  Nom du planning
-                </p>
-              </div>
-
-              <label className="block">
-                <span className={labelClassName}>Nom</span>
-                <input
-                  className={inputClassName}
-                  onChange={(event) =>
-                    updateFormValue('name', event.target.value)
-                  }
-                  placeholder="Ex: Planning bureau matin"
-                  required
-                  value={formValues.name}
-                />
-              </label>
-            </section>
-
-            <section className="space-y-3 rounded-[22px] border border-slate-200/80 bg-white/88 p-4 shadow-sm">
-              <div className="space-y-1">
-                <p className={labelClassName}>Horaire</p>
-                <p className="text-base font-semibold text-slate-950">
-                  Fenêtre et marge
-                </p>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block">
-                  <span className={labelClassName}>Début</span>
-                  <input
-                    className={inputClassName}
-                    onChange={(event) =>
-                      updateFormValue('startTime', event.target.value)
-                    }
-                    required
-                    type="time"
-                    value={formValues.startTime}
-                  />
-                </label>
-
-                <label className="block">
-                  <span className={labelClassName}>Fin</span>
-                  <input
-                    className={inputClassName}
-                    onChange={(event) =>
-                      updateFormValue('endTime', event.target.value)
-                    }
-                    required
-                    type="time"
-                    value={formValues.endTime}
-                  />
-                </label>
-              </div>
-
-              <label className="block">
-                <span className={labelClassName}>Marge de retard</span>
-                <input
-                  className={inputClassName}
-                  inputMode="numeric"
-                  max={180}
-                  min={0}
-                  onChange={(event) =>
-                    updateFormValue('latenessMarginMinutes', event.target.value)
-                  }
-                  required
-                  type="number"
-                  value={formValues.latenessMarginMinutes}
-                />
-              </label>
-            </section>
-
-            <section className="space-y-3 rounded-[22px] border border-slate-200/80 bg-white/88 p-4 shadow-sm">
-              <div className="space-y-1">
-                <p className={labelClassName}>Activation</p>
-                <p className="text-base font-semibold text-slate-950">
-                  Jours actifs et statut
-                </p>
-              </div>
-
-              <div className="space-y-2.5">
-                <span className={labelClassName}>Jours</span>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {WORK_DAY_OPTIONS.map((day) => {
-                    const isChecked = formValues.workDays.includes(day.value);
-
-                    return (
-                      <label
-                        key={day.value}
-                        className={cn(
-                          'flex min-h-11 items-center gap-3 rounded-[18px] border px-3.5 py-2.5 text-sm transition duration-200',
-                          isChecked
-                            ? 'border-accent/25 bg-accent/10 text-slate-950 shadow-sm'
-                            : 'border-slate-200 bg-slate-50/80 text-slate-600 hover:border-accent/20 hover:bg-white',
-                        )}
-                      >
-                        <input
-                          checked={isChecked}
-                          className="h-4 w-4 rounded border-border"
-                          onChange={() => toggleWorkDay(day.value)}
-                          type="checkbox"
-                        />
-                        <span>{day.label}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <label className="flex min-h-11 items-start gap-3 rounded-[20px] border border-slate-200 bg-slate-50/90 px-4 py-3 text-sm text-slate-600">
-                <input
-                  checked={formValues.isActive}
-                  className="mt-1 h-4 w-4 rounded border-border"
-                  onChange={(event) =>
-                    updateFormValue('isActive', event.target.checked)
-                  }
-                  type="checkbox"
-                />
-                <span>
-                  <span className="block font-semibold text-slate-950">
-                    Planning actif
-                  </span>
-                  <span className="mt-1 block text-sm text-slate-600">
-                    Même statut que l'action rapide de la liste.
-                  </span>
-                </span>
-              </label>
-            </section>
-
-            <section className="space-y-3 rounded-[22px] border border-slate-200/80 bg-white/88 p-4 shadow-sm">
-              <div className="space-y-1">
-                <p className={labelClassName}>Résumé</p>
-                <p className="text-base font-semibold text-slate-950">
-                  Configuration active
-                </p>
-              </div>
-
-              <div className="grid gap-2">
-                <div className="rounded-[18px] border border-slate-200 bg-slate-50/90 px-3 py-2">
-                  <p className="text-sm font-bold text-slate-950">
-                    {formValues.name.trim() || 'Nouveau planning'}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    {formValues.startTime} - {formValues.endTime} ·{' '}
-                    {formValues.latenessMarginMinutes || '0'} min
-                  </p>
-                </div>
-                <div className="rounded-[18px] border border-slate-200 bg-slate-50/90 px-3 py-2">
-                  <p className="text-sm font-bold text-slate-950">
-                    {formValues.workDays.length} jour(s) actif(s)
-                  </p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    {sortWorkDays(formValues.workDays)
-                      .map((day) => formatDayLabel(day))
-                      .join(', ')}
-                  </p>
-                </div>
-              </div>
-            </section>
-
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Button
-                className="min-h-11 rounded-2xl sm:flex-1"
-                disabled={isSubmitting}
-                type="submit"
-              >
-                {isSubmitting
-                  ? formMode === 'create'
-                    ? 'Création...'
-                    : 'Mise à jour...'
-                  : formMode === 'create'
-                    ? 'Créer le planning'
-                    : 'Enregistrer'}
-              </Button>
-              <Button
-                className="min-h-11 rounded-2xl sm:flex-1"
-                disabled={isSubmitting}
-                onClick={resetForm}
-                type="button"
-                variant="secondary"
-              >
-                Réinitialiser
-              </Button>
+          <CardHeader className="space-y-3 border-b border-slate-200/80 pb-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <Badge variant={formMode === 'create' ? 'success' : 'warning'}>
+                {formMode === 'create' ? 'Création' : 'Édition'}
+              </Badge>
+              <Badge variant="outline">
+                {formMode === 'create' ? 'Nouveau modèle' : 'Modèle actif'}
+              </Badge>
             </div>
-          </form>
-        </CardContent>
-      </Card>
+
+            <div className="space-y-1">
+              <CardTitle className="text-xl text-slate-950">
+                {formMode === 'create' ? 'Planning' : 'Modifier le planning'}
+              </CardTitle>
+              <p className="text-sm leading-5 text-slate-600">
+                Paramètres du planning regroupés pour une mise à jour rapide.
+              </p>
+            </div>
+
+            <div className="rounded-[22px] border border-slate-200/80 bg-white/88 p-3.5 shadow-sm">
+              <p className={labelClassName}>Sélection</p>
+              <p className="mt-1 text-base font-semibold text-slate-950">
+                {editingSchedule?.name ?? 'Nouveau planning'}
+              </p>
+              <p className="mt-1 text-sm text-slate-600">
+                {editingSchedule
+                  ? formatTimeRange(editingSchedule)
+                  : 'Création rapide'}
+              </p>
+            </div>
+          </CardHeader>
+
+          <CardContent className="pt-4">
+            <form className="space-y-3.5" onSubmit={handleSubmit}>
+              <section className="space-y-3 rounded-[22px] border border-slate-200/80 bg-white/88 p-4 shadow-sm">
+                <div className="space-y-1">
+                  <p className={labelClassName}>Identité</p>
+                  <p className="text-base font-semibold text-slate-950">
+                    Nom du planning
+                  </p>
+                </div>
+
+                <label className="block">
+                  <span className={labelClassName}>Nom</span>
+                  <input
+                    className={inputClassName}
+                    onChange={(event) =>
+                      updateFormValue('name', event.target.value)
+                    }
+                    placeholder="Ex: Planning bureau matin"
+                    required
+                    value={formValues.name}
+                  />
+                </label>
+                {siteContext ? (
+                  <div className="rounded-xl border bg-slate-50 p-3">
+                    <span className={labelClassName}>Site opérationnel</span>
+                    <p className="mt-1 font-semibold">{siteContext.name}</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Le planning reste rattaché à ce site pour préserver les affectations historiques.
+                    </p>
+                  </div>
+                ) : (
+                  <label className="block">
+                    <span className={labelClassName}>Site de présence</span>
+                    <select
+                      className={cn(inputClassName, 'appearance-none')}
+                      disabled={formMode === 'edit'}
+                      onChange={(event) => updateFormValue('siteId', event.target.value)}
+                      required
+                      value={formValues.siteId}
+                    >
+                      <option value="">Sélectionner un site</option>
+                      {sites.filter((site) => site.isActive).map((site) => (
+                        <option key={site.id} value={site.id}>{site.name}</option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Le site est fixé à la création pour préserver les affectations historiques.
+                    </p>
+                  </label>
+                )}
+              </section>
+
+              <section className="space-y-3 rounded-[22px] border border-slate-200/80 bg-white/88 p-4 shadow-sm">
+                <div className="space-y-1">
+                  <p className={labelClassName}>Horaire</p>
+                  <p className="text-base font-semibold text-slate-950">
+                    Fenêtre et marge
+                  </p>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className={labelClassName}>Début</span>
+                    <input
+                      className={inputClassName}
+                      onChange={(event) =>
+                        updateFormValue('startTime', event.target.value)
+                      }
+                      required
+                      type="time"
+                      value={formValues.startTime}
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className={labelClassName}>Fin</span>
+                    <input
+                      className={inputClassName}
+                      onChange={(event) =>
+                        updateFormValue('endTime', event.target.value)
+                      }
+                      required
+                      type="time"
+                      value={formValues.endTime}
+                    />
+                  </label>
+                </div>
+
+                <label className="block">
+                  <span className={labelClassName}>Marge de retard</span>
+                  <input
+                    className={inputClassName}
+                    inputMode="numeric"
+                    max={180}
+                    min={0}
+                    onChange={(event) =>
+                      updateFormValue(
+                        'latenessMarginMinutes',
+                        event.target.value,
+                      )
+                    }
+                    required
+                    type="number"
+                    value={formValues.latenessMarginMinutes}
+                  />
+                </label>
+              </section>
+
+              <section className="space-y-3 rounded-[22px] border border-slate-200/80 bg-white/88 p-4 shadow-sm">
+                <div className="space-y-1">
+                  <p className={labelClassName}>Activation</p>
+                  <p className="text-base font-semibold text-slate-950">
+                    Jours actifs et statut
+                  </p>
+                </div>
+
+                <div className="space-y-2.5">
+                  <span className={labelClassName}>Jours</span>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {WORK_DAY_OPTIONS.map((day) => {
+                      const isChecked = formValues.workDays.includes(day.value);
+
+                      return (
+                        <label
+                          key={day.value}
+                          className={cn(
+                            'flex min-h-11 items-center gap-3 rounded-[18px] border px-3.5 py-2.5 text-sm transition duration-200',
+                            isChecked
+                              ? 'border-accent/25 bg-accent/10 text-slate-950 shadow-sm'
+                              : 'border-slate-200 bg-slate-50/80 text-slate-600 hover:border-accent/20 hover:bg-white',
+                          )}
+                        >
+                          <input
+                            checked={isChecked}
+                            className="h-4 w-4 rounded border-border"
+                            onChange={() => toggleWorkDay(day.value)}
+                            type="checkbox"
+                          />
+                          <span>{day.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <label className="flex min-h-11 items-start gap-3 rounded-[20px] border border-slate-200 bg-slate-50/90 px-4 py-3 text-sm text-slate-600">
+                  <input
+                    checked={formValues.isActive}
+                    className="mt-1 h-4 w-4 rounded border-border"
+                    onChange={(event) =>
+                      updateFormValue('isActive', event.target.checked)
+                    }
+                    type="checkbox"
+                  />
+                  <span>
+                    <span className="block font-semibold text-slate-950">
+                      Planning actif
+                    </span>
+                    <span className="mt-1 block text-sm text-slate-600">
+                      Même statut que l'action rapide de la liste.
+                    </span>
+                  </span>
+                </label>
+              </section>
+
+              <section className="space-y-3 rounded-[22px] border border-slate-200/80 bg-white/88 p-4 shadow-sm">
+                <div className="space-y-1">
+                  <p className={labelClassName}>Résumé</p>
+                  <p className="text-base font-semibold text-slate-950">
+                    Configuration active
+                  </p>
+                </div>
+
+                <div className="grid gap-2">
+                  <div className="rounded-[18px] border border-slate-200 bg-slate-50/90 px-3 py-2">
+                    <p className="text-sm font-bold text-slate-950">
+                      {formValues.name.trim() || 'Nouveau planning'}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {formValues.startTime} - {formValues.endTime} ·{' '}
+                      {formValues.latenessMarginMinutes || '0'} min
+                    </p>
+                  </div>
+                  <div className="rounded-[18px] border border-slate-200 bg-slate-50/90 px-3 py-2">
+                    <p className="text-sm font-bold text-slate-950">
+                      {formValues.workDays.length} jour(s) actif(s)
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {sortWorkDays(formValues.workDays)
+                        .map((day) => formatDayLabel(day))
+                        .join(', ')}
+                    </p>
+                  </div>
+                </div>
+              </section>
+
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <Button
+                  className="min-h-11 rounded-2xl sm:flex-1"
+                  disabled={isSubmitting}
+                  type="submit"
+                >
+                  {isSubmitting
+                    ? formMode === 'create'
+                      ? 'Création...'
+                      : 'Mise à jour...'
+                    : formMode === 'create'
+                      ? 'Créer le planning'
+                      : 'Enregistrer'}
+                </Button>
+                <Button
+                  className="min-h-11 rounded-2xl sm:flex-1"
+                  disabled={isSubmitting}
+                  onClick={resetForm}
+                  type="button"
+                  variant="secondary"
+                >
+                  Réinitialiser
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }

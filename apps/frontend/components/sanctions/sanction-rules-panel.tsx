@@ -5,17 +5,23 @@ import { FormEvent, ReactNode, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ApiRequestError, createSanctionRule } from '@/lib/api';
 import type {
+  CreateSanctionRulePayload,
+  CreatableSanctionRuleType,
   SanctionRuleConfig,
   SanctionRuleType,
   UpdateSanctionRulePayload,
 } from '@/lib/api';
 
 type SanctionRulesPanelProps = {
+  canEdit?: boolean;
   rules: SanctionRuleConfig[];
 };
 
 type RuleFormValues = {
+  type: CreatableSanctionRuleType;
+  code: string;
   name: string;
   description: string;
   active: boolean;
@@ -24,7 +30,11 @@ type RuleFormValues = {
   monthlyTolerance: string;
   amountFcfa: string;
   priority: string;
+  appliedReason: string;
+  toleratedReason: string;
 };
+
+type RuleFormMode = 'create' | 'edit';
 
 const ruleTypeLabels: Record<SanctionRuleType, string> = {
   MINOR_LATENESS: 'Retard mineur',
@@ -89,6 +99,8 @@ function getMaxMinutes(rule: SanctionRuleConfig) {
 
 function buildInitialValues(rule: SanctionRuleConfig): RuleFormValues {
   return {
+    type: rule.type === 'MAJOR_LATENESS' ? 'MAJOR_LATENESS' : 'MINOR_LATENESS',
+    code: rule.code ?? '',
     name: rule.name ?? ruleTypeLabels[rule.type] ?? rule.type,
     description: rule.description ?? '',
     active: rule.active,
@@ -97,6 +109,25 @@ function buildInitialValues(rule: SanctionRuleConfig): RuleFormValues {
     monthlyTolerance: String(rule.monthlyTolerance),
     amountFcfa: String(rule.amount),
     priority: String(rule.priority ?? 100),
+    appliedReason: rule.reason,
+    toleratedReason: rule.toleratedReason ?? '',
+  };
+}
+
+function buildCreateInitialValues(): RuleFormValues {
+  return {
+    type: 'MINOR_LATENESS',
+    code: '',
+    name: '',
+    description: '',
+    active: true,
+    latenessMinMinutes: '0',
+    latenessMaxMinutes: '15',
+    monthlyTolerance: '1',
+    amountFcfa: '2000',
+    priority: '10',
+    appliedReason: '',
+    toleratedReason: '',
   };
 }
 
@@ -160,9 +191,10 @@ function rangesOverlap(
 
 function validateRuleForm(
   values: RuleFormValues,
-  editingRule: SanctionRuleConfig,
+  editingRule: SanctionRuleConfig | null,
   rules: SanctionRuleConfig[],
 ) {
+  const code = values.code.trim();
   const name = values.name.trim();
   const min = parseOptionalInteger(values.latenessMinMinutes);
   const max = parseOptionalInteger(values.latenessMaxMinutes);
@@ -172,6 +204,20 @@ function validateRuleForm(
 
   if (!name) {
     return 'Le nom est obligatoire.';
+  }
+
+  if (!editingRule) {
+    if (!code) {
+      return 'Le code est obligatoire.';
+    }
+
+    if (!/^[A-Z][A-Z0-9_]*$/.test(code)) {
+      return 'Le code doit commencer par une majuscule et ne contenir que des lettres majuscules, chiffres ou underscores.';
+    }
+
+    if (!values.appliedReason.trim()) {
+      return 'Le motif de sanction est obligatoire.';
+    }
   }
 
   for (const [label, value] of [
@@ -193,12 +239,12 @@ function validateRuleForm(
   if (values.active) {
     const nextRange = {
       min,
-      minInclusive: editingRule.latenessMinInclusive ?? true,
+      minInclusive: editingRule?.latenessMinInclusive ?? true,
       max,
-      maxInclusive: editingRule.latenessMaxInclusive ?? false,
+      maxInclusive: editingRule?.latenessMaxInclusive ?? false,
     };
     const hasOverlap = rules.some((rule) => {
-      if (rule.id === editingRule.id || !rule.active) {
+      if ((editingRule && rule.id === editingRule.id) || !rule.active) {
         return false;
       }
 
@@ -213,7 +259,13 @@ function validateRuleForm(
   return null;
 }
 
-function SanctionRuleEmptyState() {
+function SanctionRuleEmptyState({
+  canCreate,
+  onCreate,
+}: {
+  canCreate: boolean;
+  onCreate: () => void;
+}) {
   return (
     <Card className="rounded-[28px] border-dashed border-slate-300 bg-white/95 shadow-[0_18px_44px_rgba(15,45,58,0.06)]">
       <CardContent className="flex flex-col items-center px-5 py-12 text-center">
@@ -226,6 +278,11 @@ function SanctionRuleEmptyState() {
         <p className="mt-2 max-w-md text-sm font-semibold leading-6 text-slate-600">
           Aucune règle disciplinaire n&apos;est actuellement disponible.
         </p>
+        {canCreate ? (
+          <Button className="mt-5" onClick={onCreate} type="button">
+            + Ajouter une règle
+          </Button>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -249,9 +306,11 @@ function FieldLabel({
 }
 
 function SanctionRuleCard({
+  canEdit,
   onEdit,
   rule,
 }: {
+  canEdit: boolean;
   onEdit: (rule: SanctionRuleConfig) => void;
   rule: SanctionRuleConfig;
 }) {
@@ -347,20 +406,19 @@ function SanctionRuleCard({
           </p>
         </div>
 
-        <div className="mt-auto flex flex-wrap gap-2 border-t border-slate-200 pt-4">
-          <Button
-            disabled={!rule.id}
-            onClick={() => onEdit(rule)}
-            size="sm"
-            type="button"
-            variant="secondary"
-          >
-            Modifier
-          </Button>
-          <Button disabled size="sm" variant="secondary">
-            Désactiver
-          </Button>
-        </div>
+        {canEdit ? (
+          <div className="mt-auto flex flex-wrap gap-2 border-t border-slate-200 pt-4">
+            <Button
+              disabled={!rule.id}
+              onClick={() => onEdit(rule)}
+              size="sm"
+              type="button"
+              variant="secondary"
+            >
+              Modifier
+            </Button>
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -370,6 +428,7 @@ function SanctionRuleEditModal({
   error,
   formValues,
   isSaving,
+  mode,
   onCancel,
   onChange,
   onSubmit,
@@ -377,6 +436,7 @@ function SanctionRuleEditModal({
   error: string | null;
   formValues: RuleFormValues;
   isSaving: boolean;
+  mode: RuleFormMode;
   onCancel: () => void;
   onChange: (values: RuleFormValues) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
@@ -386,9 +446,11 @@ function SanctionRuleEditModal({
       <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-[28px] border border-white/70 bg-white p-5 shadow-[0_24px_70px_rgba(15,45,58,0.24)]">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-4">
           <div>
-            <Badge variant="warning">Édition</Badge>
+            <Badge variant="warning">
+              {mode === 'create' ? 'Création' : 'Édition'}
+            </Badge>
             <h3 className="mt-3 text-2xl font-black text-slate-950">
-              Modifier la règle
+              {mode === 'create' ? 'Ajouter une règle' : 'Modifier la règle'}
             </h3>
           </div>
           <Button
@@ -403,6 +465,44 @@ function SanctionRuleEditModal({
 
         <form className="mt-5 space-y-4" onSubmit={onSubmit}>
           <div className="grid gap-4 sm:grid-cols-2">
+            {mode === 'create' ? (
+              <>
+                <div className="space-y-2">
+                  <FieldLabel htmlFor="sanction-rule-type">Type</FieldLabel>
+                  <select
+                    className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-950 shadow-sm outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10"
+                    id="sanction-rule-type"
+                    onChange={(event) =>
+                      onChange({
+                        ...formValues,
+                        type: event.currentTarget
+                          .value as CreatableSanctionRuleType,
+                      })
+                    }
+                    value={formValues.type}
+                  >
+                    <option value="MINOR_LATENESS">Retard mineur</option>
+                    <option value="MAJOR_LATENESS">Retard majeur</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <FieldLabel htmlFor="sanction-rule-code">Code</FieldLabel>
+                  <input
+                    className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold uppercase text-slate-950 shadow-sm outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10"
+                    id="sanction-rule-code"
+                    onChange={(event) =>
+                      onChange({
+                        ...formValues,
+                        code: event.currentTarget.value.toUpperCase(),
+                      })
+                    }
+                    value={formValues.code}
+                  />
+                </div>
+              </>
+            ) : null}
+
             <div className="space-y-2 sm:col-span-2">
               <FieldLabel htmlFor="sanction-rule-name">Nom</FieldLabel>
               <input
@@ -432,6 +532,44 @@ function SanctionRuleEditModal({
               />
             </div>
 
+            {mode === 'create' ? (
+              <>
+                <div className="space-y-2 sm:col-span-2">
+                  <FieldLabel htmlFor="sanction-rule-applied-reason">
+                    Motif de sanction
+                  </FieldLabel>
+                  <textarea
+                    className="min-h-24 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-950 shadow-sm outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10"
+                    id="sanction-rule-applied-reason"
+                    onChange={(event) =>
+                      onChange({
+                        ...formValues,
+                        appliedReason: event.currentTarget.value,
+                      })
+                    }
+                    value={formValues.appliedReason}
+                  />
+                </div>
+
+                <div className="space-y-2 sm:col-span-2">
+                  <FieldLabel htmlFor="sanction-rule-tolerated-reason">
+                    Motif de tolérance (optionnel)
+                  </FieldLabel>
+                  <textarea
+                    className="min-h-24 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-950 shadow-sm outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10"
+                    id="sanction-rule-tolerated-reason"
+                    onChange={(event) =>
+                      onChange({
+                        ...formValues,
+                        toleratedReason: event.currentTarget.value,
+                      })
+                    }
+                    value={formValues.toleratedReason}
+                  />
+                </div>
+              </>
+            ) : null}
+
             <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm font-black text-slate-700">
               <input
                 checked={formValues.active}
@@ -448,9 +586,7 @@ function SanctionRuleEditModal({
             </label>
 
             <div className="space-y-2">
-              <FieldLabel htmlFor="sanction-rule-min">
-                Seuil minimum
-              </FieldLabel>
+              <FieldLabel htmlFor="sanction-rule-min">Seuil minimum</FieldLabel>
               <input
                 className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-950 shadow-sm outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10"
                 id="sanction-rule-min"
@@ -467,9 +603,7 @@ function SanctionRuleEditModal({
             </div>
 
             <div className="space-y-2">
-              <FieldLabel htmlFor="sanction-rule-max">
-                Seuil maximum
-              </FieldLabel>
+              <FieldLabel htmlFor="sanction-rule-max">Seuil maximum</FieldLabel>
               <input
                 className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-950 shadow-sm outline-none transition focus:border-accent focus:ring-4 focus:ring-accent/10"
                 id="sanction-rule-max"
@@ -560,7 +694,7 @@ function SanctionRuleEditModal({
               Annuler
             </Button>
             <Button disabled={isSaving} type="submit">
-              Enregistrer
+              {mode === 'create' ? 'Créer la règle' : 'Enregistrer'}
             </Button>
           </div>
         </form>
@@ -569,12 +703,16 @@ function SanctionRuleEditModal({
   );
 }
 
-export function SanctionRulesPanel({ rules }: SanctionRulesPanelProps) {
+export function SanctionRulesPanel({
+  canEdit = false,
+  rules,
+}: SanctionRulesPanelProps) {
   const router = useRouter();
   const [ruleList, setRuleList] = useState(rules);
   const [editingRule, setEditingRule] = useState<SanctionRuleConfig | null>(
     null,
   );
+  const [formMode, setFormMode] = useState<RuleFormMode | null>(null);
   const [formValues, setFormValues] = useState<RuleFormValues | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -582,8 +720,17 @@ export function SanctionRulesPanel({ rules }: SanctionRulesPanelProps) {
   const displayedRules = useMemo(() => ruleList, [ruleList]);
 
   function openEditModal(rule: SanctionRuleConfig) {
+    setFormMode('edit');
     setEditingRule(rule);
     setFormValues(buildInitialValues(rule));
+    setFormError(null);
+    setToastMessage(null);
+  }
+
+  function openCreateModal() {
+    setFormMode('create');
+    setEditingRule(null);
+    setFormValues(buildCreateInitialValues());
     setFormError(null);
     setToastMessage(null);
   }
@@ -594,6 +741,7 @@ export function SanctionRulesPanel({ rules }: SanctionRulesPanelProps) {
     }
 
     setEditingRule(null);
+    setFormMode(null);
     setFormValues(null);
     setFormError(null);
   }
@@ -601,31 +749,25 @@ export function SanctionRulesPanel({ rules }: SanctionRulesPanelProps) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!editingRule?.id || !formValues) {
+    if (!formValues || (formMode === 'edit' && !editingRule?.id)) {
       return;
     }
 
-    const validationError = validateRuleForm(
-      formValues,
-      editingRule,
-      ruleList,
-    );
+    const validationError = validateRuleForm(formValues, editingRule, ruleList);
 
     if (validationError) {
       setFormError(validationError);
       return;
     }
 
-    const payload: UpdateSanctionRulePayload = {
+    const editingRuleId = editingRule?.id;
+
+    const commonPayload = {
       active: formValues.active,
       name: formValues.name.trim(),
       description: formValues.description.trim() || null,
-      latenessMinMinutes: parseOptionalInteger(
-        formValues.latenessMinMinutes,
-      ),
-      latenessMaxMinutes: parseOptionalInteger(
-        formValues.latenessMaxMinutes,
-      ),
+      latenessMinMinutes: parseOptionalInteger(formValues.latenessMinMinutes),
+      latenessMaxMinutes: parseOptionalInteger(formValues.latenessMaxMinutes),
       monthlyTolerance: parseRequiredInteger(formValues.monthlyTolerance),
       amountFcfa: parseRequiredInteger(formValues.amountFcfa),
       priority: parseRequiredInteger(formValues.priority),
@@ -635,8 +777,32 @@ export function SanctionRulesPanel({ rules }: SanctionRulesPanelProps) {
     setFormError(null);
 
     try {
+      if (formMode === 'create') {
+        const payload: CreateSanctionRulePayload = {
+          ...commonPayload,
+          type: formValues.type,
+          code: formValues.code.trim(),
+          appliedReason: formValues.appliedReason.trim(),
+          toleratedReason: formValues.toleratedReason.trim() || null,
+        };
+        const createdRule = await createSanctionRule(payload);
+
+        setRuleList((currentRules) => [...currentRules, createdRule]);
+        setEditingRule(null);
+        setFormMode(null);
+        setFormValues(null);
+        setToastMessage('Règle créée avec succès.');
+        router.refresh();
+        return;
+      }
+
+      if (!editingRuleId) {
+        return;
+      }
+
+      const payload: UpdateSanctionRulePayload = commonPayload;
       const response = await fetch(
-        `/api/sanctions/rules/${encodeURIComponent(editingRule.id)}`,
+        `/api/sanctions/rules/${encodeURIComponent(editingRuleId)}`,
         {
           body: JSON.stringify(payload),
           headers: {
@@ -664,9 +830,20 @@ export function SanctionRulesPanel({ rules }: SanctionRulesPanelProps) {
         ),
       );
       setEditingRule(null);
+      setFormMode(null);
       setFormValues(null);
       setToastMessage('Règle mise à jour avec succès.');
       router.refresh();
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        setFormError(error.message);
+      } else {
+        setFormError(
+          formMode === 'create'
+            ? 'Création impossible. Vérifiez votre connexion puis réessayez.'
+            : 'Mise à jour impossible. Vérifiez votre connexion puis réessayez.',
+        );
+      }
     } finally {
       setIsSaving(false);
     }
@@ -679,7 +856,9 @@ export function SanctionRulesPanel({ rules }: SanctionRulesPanelProps) {
           Règles de sanctions
         </h2>
         <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-slate-600">
-          Configurez les règles disciplinaires appliquées aux employés.
+          {canEdit
+            ? 'Configurez les règles disciplinaires appliquées aux employés.'
+            : 'Consultez les règles disciplinaires appliquées aux employés.'}
         </p>
       </div>
 
@@ -690,11 +869,15 @@ export function SanctionRulesPanel({ rules }: SanctionRulesPanelProps) {
       ) : null}
 
       {displayedRules.length === 0 ? (
-        <SanctionRuleEmptyState />
+        <SanctionRuleEmptyState
+          canCreate={canEdit}
+          onCreate={openCreateModal}
+        />
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
           {displayedRules.map((rule) => (
             <SanctionRuleCard
+              canEdit={canEdit}
               key={rule.id ?? `${rule.type}-${rule.priority ?? rule.reason}`}
               onEdit={openEditModal}
               rule={rule}
@@ -703,11 +886,12 @@ export function SanctionRulesPanel({ rules }: SanctionRulesPanelProps) {
         </div>
       )}
 
-      {editingRule && formValues ? (
+      {canEdit && formMode && formValues ? (
         <SanctionRuleEditModal
           error={formError}
           formValues={formValues}
           isSaving={isSaving}
+          mode={formMode}
           onCancel={closeEditModal}
           onChange={setFormValues}
           onSubmit={handleSubmit}

@@ -21,6 +21,7 @@ import { CalendarDayDrawer } from './calendar-day-drawer';
 import { CalendarLegend } from './calendar-legend';
 
 type CalendarWorkspaceProps = {
+  canManage?: boolean;
   initialData: CalendarMonthResponse;
   month: string;
 };
@@ -179,6 +180,7 @@ function groupWeeks(days: CalendarDayRecord[]) {
 }
 
 export function CalendarWorkspace({
+  canManage = true,
   initialData,
   month,
 }: CalendarWorkspaceProps) {
@@ -345,6 +347,8 @@ export function CalendarWorkspace({
       });
       setIsDrawerOpen(false);
       resetForm();
+    } catch {
+      setFeedback({ tone: 'error', message: 'Enregistrement du jour RH impossible. Vérifiez votre connexion puis réessayez.' });
     } finally {
       setIsSubmitting(false);
     }
@@ -390,6 +394,8 @@ export function CalendarWorkspace({
       if (editingId === entry.id) {
         closeDrawer();
       }
+    } catch {
+      setFeedback({ tone: 'error', message: 'Suppression impossible. Vérifiez votre connexion puis réessayez.' });
     } finally {
       setIsSubmitting(false);
     }
@@ -401,13 +407,14 @@ export function CalendarWorkspace({
         <CardHeader className="border-b border-slate-200/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] pb-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <Badge variant="outline">Calendrier RH</Badge>
+              <Badge variant="outline">Calendrier global</Badge>
               <CardTitle className="mt-2 text-xl text-slate-950">
                 {viewMode === 'month' ? 'Vue mensuelle' : 'Vue hebdomadaire'}
               </CardTitle>
               <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-slate-600">
-                Les jours fériés publics et internes sont centralisés ici. Les
-                congés et missions restent réservés aux prochains workflows RH.
+                Les jours fériés publics et les dates définies par l’organisation
+                s’appliquent à tous les sites. Les congés et missions restent
+                réservés aux prochains workflows RH.
               </p>
             </div>
 
@@ -629,16 +636,21 @@ export function CalendarWorkspace({
             <div>
               <Badge variant="outline">Jours RH</Badge>
               <CardTitle className="mt-2 text-xl text-slate-950">
-                Gestion des jours fériés
+                {canManage ? 'Gestion des jours fériés' : 'Jours fériés'}
               </CardTitle>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                Créez, modifiez ou supprimez les jours fériés publics et
-                d&apos;entreprise.
+                {canManage
+                  ? 'Créez, modifiez ou supprimez les jours fériés publics et d’entreprise.'
+                  : 'Consultez les jours fériés publics et d’entreprise.'}
               </p>
             </div>
-            <Button className="w-full sm:w-auto" onClick={openCreateDrawer}>
-              + Ajouter un jour RH
-            </Button>
+            {canManage ? (
+              <Button className="w-full sm:w-auto" onClick={openCreateDrawer}>
+                + Ajouter un jour RH
+              </Button>
+            ) : (
+              <Badge variant="outline">Lecture seule</Badge>
+            )}
           </div>
         </CardHeader>
         <CardContent className="space-y-4 p-4">
@@ -694,26 +706,28 @@ export function CalendarWorkspace({
                         />
                       </div>
 
-                      <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-                        <Button
-                          className="h-10 rounded-2xl px-3"
-                          onClick={() => startEdit(entry)}
-                          size="sm"
-                          type="button"
-                          variant="secondary"
-                        >
-                          Modifier
-                        </Button>
-                        <Button
-                          className="h-10 rounded-2xl px-3"
-                          onClick={() => deleteEntry(entry)}
-                          size="sm"
-                          type="button"
-                          variant="ghost"
-                        >
-                          Supprimer
-                        </Button>
-                      </div>
+                      {canManage ? (
+                        <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+                          <Button
+                            className="h-10 rounded-2xl px-3"
+                            onClick={() => startEdit(entry)}
+                            size="sm"
+                            type="button"
+                            variant="secondary"
+                          >
+                            Modifier
+                          </Button>
+                          <Button
+                            className="h-10 rounded-2xl px-3"
+                            onClick={() => deleteEntry(entry)}
+                            size="sm"
+                            type="button"
+                            variant="ghost"
+                          >
+                            Supprimer
+                          </Button>
+                        </div>
+                      ) : null}
                     </article>
                   );
                 })
@@ -737,7 +751,7 @@ export function CalendarWorkspace({
         </CardContent>
       </Card>
 
-      {isDrawerOpen ? (
+      {canManage && isDrawerOpen ? (
         <div
           aria-modal="true"
           className="fixed inset-0 z-50 flex bg-slate-950/45"

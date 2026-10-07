@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import type { AuthenticatedUser } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { clearActiveOfflineAttendanceBootstrap } from '@/lib/offline-attendance-queue';
 
 const PIN_LENGTH = 4;
 const KEYPAD_DIGITS = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
@@ -35,8 +36,12 @@ function toPinDigits(pinCode: string) {
   return Array.from({ length: PIN_LENGTH }, (_, index) => pinCode[index] ?? '');
 }
 
-function resolvePinErrorMessage(message: string) {
+function resolvePinErrorMessage(message: string, status: number) {
   const normalizedMessage = message.trim();
+
+  if (status === 404) {
+    return 'Ce site de pointage est indisponible. Scannez un QR code actif.';
+  }
 
   if (normalizedMessage === 'Identifiants invalides.') {
     return 'Code PIN invalide.';
@@ -46,6 +51,10 @@ function resolvePinErrorMessage(message: string) {
     normalizedMessage === 'Le code PIN doit contenir exactement 4 chiffres.'
   ) {
     return 'Le code PIN doit contenir exactement 4 chiffres.';
+  }
+
+  if (status === 400) {
+    return "Ce lien de pointage n'est pas valide. Scannez de nouveau le QR code du site.";
   }
 
   if (
@@ -82,8 +91,10 @@ function resolveEmployeeConfirmation(
 
 export function AttendanceEntryPinView({
   clearStaleSessionOnMount = false,
+  sitePublicId,
 }: {
   clearStaleSessionOnMount?: boolean;
+  sitePublicId?: string;
 }) {
   const router = useRouter();
   const [pinDigits, setPinDigits] = useState<string[]>(
@@ -99,6 +110,8 @@ export function AttendanceEntryPinView({
     if (!clearStaleSessionOnMount) {
       return;
     }
+
+    clearActiveOfflineAttendanceBootstrap(window.localStorage);
 
     let isMounted = true;
 
@@ -154,6 +167,7 @@ export function AttendanceEntryPinView({
         },
         body: JSON.stringify({
           pinCode: pinCode.trim(),
+          ...(sitePublicId ? { sitePublicId } : {}),
         }),
       });
 
@@ -166,12 +180,18 @@ export function AttendanceEntryPinView({
       if (!response.ok) {
         setFeedback({
           tone: 'error',
-          message: resolvePinErrorMessage(data.error ?? ''),
+          message: resolvePinErrorMessage(data.error ?? '', response.status),
         });
         return;
       }
 
-      redirectTo = data.redirectTo ?? '/attendance-entry';
+      clearActiveOfflineAttendanceBootstrap(window.localStorage);
+
+      redirectTo =
+        data.redirectTo ??
+        (sitePublicId
+          ? `/attendance-entry?sitePublicId=${encodeURIComponent(sitePublicId)}`
+          : '/attendance-entry');
       setFeedback({
         tone: 'success',
         employee: resolveEmployeeConfirmation(data.user),
@@ -212,7 +232,7 @@ export function AttendanceEntryPinView({
                 className="h-auto w-28 object-contain sm:w-32"
                 height={120}
                 priority
-                src="/konatech-logo.png"
+                src="/brand/inout-logo.png"
                 width={240}
               />
             </div>

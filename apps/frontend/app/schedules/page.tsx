@@ -5,8 +5,9 @@ import { PageShell } from '@/components/layout/page-shell';
 import { AdminSchedulesManager } from '@/components/schedules/admin-schedules-manager';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { getSchedulesData } from '@/lib/api';
+import { getAttendanceSites, getSchedulesData } from '@/lib/api';
 import { getSessionToken, requireCurrentUser } from '@/lib/auth';
+import { getDefaultRedirectPath } from '@/lib/redirect';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,8 +23,12 @@ function formatLongDate(value: Date) {
 export default async function SchedulesPage() {
   const user = await requireCurrentUser();
 
-  if (user.accessRole !== 'ADMIN') {
-    redirect('/my-attendance');
+  const membershipRole = user.membership?.role;
+  const canManage = membershipRole
+    ? membershipRole === 'ADMIN'
+    : user.accessRole === 'ADMIN';
+  if (!canManage) {
+    redirect(getDefaultRedirectPath(user.accessRole, user.membership?.role));
   }
 
   const token = await getSessionToken();
@@ -32,18 +37,24 @@ export default async function SchedulesPage() {
     redirect('/login');
   }
 
-  const schedules = await getSchedulesData(token);
+  const [schedules, sites] = await Promise.all([
+    getSchedulesData(token),
+    getAttendanceSites(token),
+  ]);
   const assignedEmployees = schedules.reduce(
     (total, schedule) => total + schedule.employees.length,
     0,
   );
 
   return (
-    <PageShell contentClassName="gap-4 lg:gap-5">
+    <PageShell adminNavLayout contentClassName="gap-4 lg:gap-5">
       <header className="admin-reveal rounded-[30px] border border-white/70 bg-white/95 p-4 shadow-[0_18px_46px_rgba(15,45,58,0.08)] sm:p-5 lg:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex flex-wrap items-center gap-2">
-            <AdminNav current="schedules" />
+            <AdminNav
+              current="schedules"
+              membershipRole={user.membership?.role}
+            />
             <LogoutForm />
           </div>
 
@@ -57,10 +68,14 @@ export default async function SchedulesPage() {
               </h1>
               <div className="space-y-1">
                 <CardTitle className="text-xl text-slate-950 sm:text-2xl">
-                  Gestion des plannings
+                  {canManage
+                    ? 'Gestion des plannings'
+                    : 'Plannings de l’équipe'}
                 </CardTitle>
                 <p className="max-w-xl text-sm leading-5 text-slate-600">
-                  Horaires, jours actifs et affectations.
+                  {canManage
+                    ? 'Horaires, jours actifs et affectations.'
+                    : 'Consultez les horaires, jours actifs et affectations.'}
                 </p>
               </div>
             </div>
@@ -108,7 +123,11 @@ export default async function SchedulesPage() {
         </div>
       </header>
 
-      <AdminSchedulesManager initialSchedules={schedules} />
+      <AdminSchedulesManager
+        canManage={canManage}
+        initialSchedules={schedules}
+        sites={sites}
+      />
     </PageShell>
   );
 }

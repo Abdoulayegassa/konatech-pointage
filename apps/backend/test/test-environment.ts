@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 
 const DEFAULT_TEST_DATABASE_URL =
-  'postgresql://postgres:postgres@localhost:5433/konatech_attendance_test?schema=public';
+  'postgresql://postgres:postgres@127.0.0.1:5433/konatech_attendance_e2e?schema=public';
 
 function loadEnvFile(filePath: string) {
   if (!existsSync(filePath)) {
@@ -49,6 +49,7 @@ export function applyTestEnvironment() {
 
   process.env.PORT ??= '4000';
   process.env.FRONTEND_URL ??= 'http://localhost:3000';
+  process.env.JWT_SECRET ??= 'konatech-e2e-only-jwt-secret-not-for-production';
   process.env.DATABASE_URL =
     process.env.TEST_DATABASE_URL ??
     process.env.DATABASE_URL ??

@@ -1,3 +1,16 @@
+# ⚠️ HISTORICAL DOCUMENT — Initial Scaffold Scope
+
+**Status:** HISTORICAL (2026-05-22)
+
+**Note:** This document describes the initial single-tenant attendance application scaffold. It is no longer the current architecture.
+
+**For current architecture, refer to:**
+- **AGENTS.md** — Role, principles, constraints (authoritative)
+- **PROJECT_PLAN.md** — SaaS architecture, domain model, roadmap (authoritative)
+- **CURRENT_STATUS.md** — Implementation status (current)
+
+---
+
 # Konatech Attendance - Initial Scaffold Scope
 
 ## Product Modules

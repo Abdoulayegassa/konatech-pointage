@@ -9,6 +9,7 @@ import {
   SanctionRuleType,
   UserStatus,
 } from '@prisma/client';
+import { getSafeErrorSummary } from '../src/common/security/sensitive-data.util';
 
 const HISTORICAL_ORGANIZATION_NAME = 'Konatech Pointage';
 const HISTORICAL_ORGANIZATION_SLUG = 'konatech';
@@ -390,7 +391,13 @@ async function assertNoForeignTenantAssignments(
       }),
     ]);
 
-  if (employees || schedules || attendances || calendarEntries || sanctionRules) {
+  if (
+    employees ||
+    schedules ||
+    attendances ||
+    calendarEntries ||
+    sanctionRules
+  ) {
     throw new Error(
       'Foreign tenant assignments already exist; refusing a single-tenant historical backfill.',
     );
@@ -411,10 +418,7 @@ async function assignStableSanctionRuleCodes(
       continue;
     }
 
-    if (
-      rule.type !== mapping.type ||
-      rule.organizationId !== organizationId
-    ) {
+    if (rule.type !== mapping.type || rule.organizationId !== organizationId) {
       throw new Error(
         `Default SanctionRule ${mapping.id} does not match its deterministic mapping.`,
       );
@@ -498,7 +502,9 @@ async function assertTenantConsistency(
   const allCounts = Object.values(await getModelCounts(transaction));
 
   if (tenantCounts.some((count, index) => count !== allCounts[index])) {
-    throw new Error('Not every legacy record belongs to the historical tenant.');
+    throw new Error(
+      'Not every legacy record belongs to the historical tenant.',
+    );
   }
 }
 
@@ -559,9 +565,7 @@ function hasDeterministicLoginIdentity(employee: {
   const email = employee.email.trim();
 
   return Boolean(
-    email &&
-      email.includes('@') &&
-      employee.passwordHash.length > 0,
+    email && email.includes('@') && employee.passwordHash.length > 0,
   );
 }
 
@@ -627,8 +631,7 @@ async function main() {
   try {
     const result = await backfillSaasFoundation(prisma, {
       ownerEmployeeId: process.env.SAAS_OWNER_EMPLOYEE_ID ?? '',
-      timezone:
-        process.env.SAAS_HISTORICAL_ORGANIZATION_TIMEZONE ?? '',
+      timezone: process.env.SAAS_HISTORICAL_ORGANIZATION_TIMEZONE ?? '',
       forceRollback: process.env.SAAS_BACKFILL_FORCE_ROLLBACK === 'true',
     });
 
@@ -641,8 +644,7 @@ async function main() {
 if (require.main === module) {
   void main().catch((error) => {
     console.error(
-      'SaaS foundation backfill failed:',
-      error instanceof Error ? error.message : error,
+      `SaaS foundation backfill failed: ${getSafeErrorSummary(error)}.`,
     );
     process.exitCode = 1;
   });

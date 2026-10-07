@@ -1,9 +1,14 @@
 'use client';
 
 import Image from 'next/image';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { type AttendanceRecord, type AttendanceSecurityPolicy } from '@/lib/api';
+import {
+  type AttendanceRecord,
+  type AttendanceSecurityPolicy,
+  type AttendanceSite,
+} from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { AttendanceLiveClock } from './attendance-live-clock';
 import {
@@ -13,6 +18,21 @@ import {
 } from './attendance-browser-security';
 import { AttendanceEntrySessionButton } from './attendance-entry-session-button';
 import { AttendanceSelfieCapture } from './attendance-selfie-capture';
+import { OfflineAttendanceStatus } from './offline-attendance-status';
+import {
+  enqueueOfflineAttendanceWithEvidence,
+  readOfflineAttendanceQueue,
+  synchronizeOfflineAttendanceQueue,
+  OFFLINE_ATTENDANCE_QUEUE_EVENT,
+  readOfflineAttendanceContext,
+  readActiveOfflineAttendanceBootstrap,
+  deriveOfflineAttendanceActions,
+  getOfflineAttendanceContextBinding,
+  isOfflineContextValidForCapture,
+  offlineContextMatchesOwner,
+  storeOfflineAttendanceBootstrap,
+  storeOfflineAttendanceContext,
+} from '@/lib/offline-attendance-queue';
 
 type AttendanceAction = 'check-in' | 'check-out';
 type TerminalStep =
@@ -24,14 +44,21 @@ type TerminalStep =
   | 'success'
   | 'error';
 
-type LocationStatus = 'pending' | 'recorded' | 'unavailable';
+type LocationStatus = 'pending' | 'recorded' | 'denied' | 'timeout' | 'unavailable';
 
 type EmployeeAttendanceActionsProps = {
+  attendanceEntryRedirectTo?: string;
   canCheckIn: boolean;
   canCheckOut: boolean;
   employeeName?: string;
   securityPolicy?: AttendanceSecurityPolicy | null;
   sessionMode?: 'account' | 'attendance-entry';
+  attendanceSites?: AttendanceSite[];
+  offlineSessionBinding?: string | null;
+  offlineQueueOwner?: { organizationId?: string; employeeId: string };
+  offlineBootstrapSeed?: OfflineBootstrapSeed;
+  requiresSiteSelection?: boolean;
+  timeZone?: string;
 };
 
 type FeedbackState = {
@@ -39,7 +66,78 @@ type FeedbackState = {
   message: string;
 } | null;
 
-const WIZARD_STEPS = ['Action', 'Selfie', 'Commentaire', 'Vérification', 'Succès'];
+type OfflineBootstrapSeed = {
+  employeeId: string;
+  organizationId?: string;
+  employeeName: string;
+  sessionBinding: string;
+  canCheckIn: boolean;
+  canCheckOut: boolean;
+  timeZone?: string;
+  snapshotAt: string;
+};
+
+function persistOfflineContextToken(
+  token: string,
+  seed: OfflineBootstrapSeed | undefined,
+  siteId: string | null,
+  policy: AttendanceSecurityPolicy | null | undefined,
+) {
+  const binding = getOfflineAttendanceContextBinding(token);
+  if (
+    !binding ||
+    !seed ||
+    binding.employeeId !== seed.employeeId ||
+    (seed.organizationId && binding.organizationId !== seed.organizationId) ||
+    (siteId && binding.siteId !== siteId) ||
+    (policy?.siteId && binding.siteId !== policy.siteId)
+  ) return false;
+  const snapshotPolicy = binding.attendancePolicy as Record<string, unknown> | undefined;
+  const snapshotSite = binding.site as Record<string, unknown> | undefined;
+  const enabled = typeof snapshotPolicy?.enabled === 'boolean' ? snapshotPolicy.enabled : policy?.enabled ?? false;
+  const latitude = typeof snapshotSite?.latitude === 'number' ? snapshotSite.latitude : policy?.companyLatitude ?? null;
+  const longitude = typeof snapshotSite?.longitude === 'number' ? snapshotSite.longitude : policy?.companyLongitude ?? null;
+  const radius = typeof snapshotSite?.allowedRadiusMeters === 'number'
+    ? snapshotSite.allowedRadiusMeters
+    : typeof snapshotPolicy?.allowedRadiusMeters === 'number'
+      ? snapshotPolicy.allowedRadiusMeters
+      : policy?.allowedRadiusMeters ?? null;
+  storeOfflineAttendanceContext(window.localStorage, token);
+  storeOfflineAttendanceBootstrap(window.localStorage, {
+    ...seed,
+    version: 1,
+    organizationId: binding.organizationId,
+    timeZone: binding.timeZone ?? seed.timeZone,
+    siteId: binding.siteId,
+    siteName: policy?.siteName ?? binding.siteId,
+    securityPolicy: {
+      enabled,
+      selfieRequired: typeof snapshotPolicy?.selfieRequired === 'boolean' ? snapshotPolicy.selfieRequired : policy?.selfieRequired ?? false,
+      gpsRequired: typeof snapshotPolicy?.gpsRequired === 'boolean' ? snapshotPolicy.gpsRequired : policy?.gpsRequired ?? false,
+      locationConfigured: typeof snapshotPolicy?.locationConfigured === 'boolean' ? snapshotPolicy.locationConfigured : policy?.locationConfigured ?? false,
+      trustedRadiusMeters: typeof snapshotPolicy?.trustedRadiusMeters === 'number' ? snapshotPolicy.trustedRadiusMeters : null,
+      warningRadiusMeters: typeof snapshotPolicy?.warningRadiusMeters === 'number' ? snapshotPolicy.warningRadiusMeters : null,
+      allowedRadiusMeters: radius,
+      maxAccuracyMeters: typeof snapshotPolicy?.maxAccuracyMeters === 'number' ? snapshotPolicy.maxAccuracyMeters : null,
+      companyLatitude: latitude,
+      companyLongitude: longitude,
+      siteId: binding.siteId,
+      siteName: policy?.siteName ?? binding.siteId,
+    },
+    contextToken: token,
+    contextIssuedAt: binding.issuedAt,
+    contextValidUntil: binding.validUntil,
+  });
+  return true;
+}
+
+const WIZARD_STEPS = [
+  'Action',
+  'Selfie',
+  'Commentaire',
+  'Vérification',
+  'Succès',
+];
 const COMMENT_MAX_LENGTH = 120;
 const COMMENT_SUGGESTIONS = [
   'Retard',
@@ -74,7 +172,10 @@ function getActionPath(action: AttendanceAction) {
     : '/api/attendance/me/check-in';
 }
 
-function formatActionTime(value: Date | string | null | undefined) {
+function formatActionTime(
+  value: Date | string | null | undefined,
+  timeZone?: string,
+) {
   if (!value) {
     return '--:--';
   }
@@ -89,10 +190,14 @@ function formatActionTime(value: Date | string | null | undefined) {
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
+    timeZone,
   });
 }
 
-function formatActionDate(value: Date | string | null | undefined) {
+function formatActionDate(
+  value: Date | string | null | undefined,
+  timeZone?: string,
+) {
   if (!value) {
     return '--/--/----';
   }
@@ -103,7 +208,7 @@ function formatActionDate(value: Date | string | null | undefined) {
     return '--/--/----';
   }
 
-  return date.toLocaleDateString('fr-FR');
+  return date.toLocaleDateString('fr-FR', { timeZone });
 }
 
 function formatMinutesAsHours(totalMinutes: number) {
@@ -125,9 +230,10 @@ function formatMinutesAsHours(totalMinutes: number) {
 function getSuccessSummary(
   action: AttendanceAction | null,
   attendance: Partial<AttendanceRecord> | null,
+  timeZone?: string,
 ) {
   if (action === 'check-out') {
-    const time = formatActionTime(attendance?.clockOutAt);
+    const time = formatActionTime(attendance?.clockOutAt, timeZone);
     const earlyExitMinutes = Math.max(0, attendance?.earlyExitMinutes ?? 0);
     const overtimeMinutes = Math.max(0, attendance?.overtimeMinutes ?? 0);
 
@@ -153,7 +259,7 @@ function getSuccessSummary(
     };
   }
 
-  const time = formatActionTime(attendance?.clockInAt);
+  const time = formatActionTime(attendance?.clockInAt, timeZone);
   const minutesLate = Math.max(0, attendance?.minutesLate ?? 0);
 
   if (minutesLate > 0) {
@@ -237,8 +343,14 @@ function getPositionStatusLabel(input: {
 }) {
   const { comment, locationStatus, securityPayload, securityPolicy } = input;
 
+  if (locationStatus === 'denied') return 'Autorisation GPS refusée';
+  if (locationStatus === 'timeout') return 'Délai GPS dépassé';
+  if (locationStatus === 'unavailable') {
+    return 'GPS indisponible';
+  }
+
   if (locationStatus !== 'recorded' || !hasLocation(securityPayload)) {
-    return 'Position enregistrée';
+    return 'Position non vérifiée';
   }
 
   if (
@@ -315,9 +427,7 @@ function SummaryRow({
 }) {
   return (
     <div className="flex items-start justify-between gap-4 border-b border-slate-100 py-2.5 last:border-b-0">
-      <p className="shrink-0 text-sm font-bold text-slate-500">
-        {label}
-      </p>
+      <p className="shrink-0 text-sm font-bold text-slate-500">{label}</p>
       <p
         className={cn(
           'min-w-0 break-words text-right text-sm font-black leading-5 text-slate-950',
@@ -332,12 +442,23 @@ function SummaryRow({
 }
 
 export function EmployeeAttendanceActions({
+  attendanceEntryRedirectTo,
+  attendanceSites = [],
+  offlineSessionBinding,
+  offlineQueueOwner,
+  offlineBootstrapSeed,
   canCheckIn,
   canCheckOut,
   employeeName = 'Employé',
-  securityPolicy,
+  securityPolicy: baseSecurityPolicy,
   sessionMode = 'account',
+  requiresSiteSelection = false,
+  timeZone,
 }: EmployeeAttendanceActionsProps) {
+  const router = useRouter();
+  const [selectedSiteId, setSelectedSiteId] = useState(
+    baseSecurityPolicy?.siteId ?? '',
+  );
   const [step, setStep] = useState<TerminalStep>('action');
   const [pendingAction, setPendingAction] = useState<AttendanceAction | null>(
     null,
@@ -345,6 +466,15 @@ export function EmployeeAttendanceActions({
   const [selfieDataUrl, setSelfieDataUrl] = useState<string | null>(null);
   const [comment, setComment] = useState('');
   const [capturedAt, setCapturedAt] = useState<Date | null>(null);
+  const [locallyQueued, setLocallyQueued] = useState(false);
+  const [offlineContextToken, setOfflineContextToken] = useState<string | null>(null);
+  const [deviceOnline, setDeviceOnline] = useState(true);
+  const [offlineActionState, setOfflineActionState] = useState({
+    canCheckIn,
+    canCheckOut,
+    blocked: false,
+    contextValid: false,
+  });
   const [locationStatus, setLocationStatus] =
     useState<LocationStatus>('pending');
   const [securityPayload, setSecurityPayload] =
@@ -352,15 +482,126 @@ export function EmployeeAttendanceActions({
   const [feedback, setFeedback] = useState<FeedbackState>(null);
   const [successAttendance, setSuccessAttendance] =
     useState<Partial<AttendanceRecord> | null>(null);
+  const selectedSite = attendanceSites.find(
+    (site) => site.id === selectedSiteId,
+  );
+  const securityPolicy =
+    selectedSite && baseSecurityPolicy
+      ? {
+          ...baseSecurityPolicy,
+          allowedRadiusMeters: selectedSite.allowedRadiusMeters,
+          companyLatitude: selectedSite.latitude,
+          companyLongitude: selectedSite.longitude,
+          locationConfigured: true,
+          siteId: selectedSite.id,
+          siteName: selectedSite.name,
+        }
+      : baseSecurityPolicy;
+  const attendanceSiteId = (securityPolicy?.siteId ?? selectedSiteId) || null;
+
+  useEffect(() => {
+    const refresh = () => {
+      const online = navigator.onLine;
+      setDeviceOnline(online);
+      if (online) {
+        setOfflineActionState({ canCheckIn, canCheckOut, blocked: false, contextValid: true });
+        return;
+      }
+      const bootstrap = readActiveOfflineAttendanceBootstrap(window.localStorage);
+      if (
+        !bootstrap ||
+        !offlineQueueOwner ||
+        bootstrap.employeeId !== offlineQueueOwner.employeeId ||
+        (offlineQueueOwner.organizationId && bootstrap.organizationId !== offlineQueueOwner.organizationId) ||
+        bootstrap.siteId !== attendanceSiteId
+      ) {
+        setOfflineActionState({ canCheckIn: false, canCheckOut: false, blocked: true, contextValid: false });
+        return;
+      }
+      const actionState = deriveOfflineAttendanceActions(
+        bootstrap,
+        readOfflineAttendanceQueue(window.localStorage),
+      );
+      setOfflineActionState({
+        ...actionState,
+        contextValid: isOfflineContextValidForCapture(bootstrap, new Date()),
+      });
+    };
+    refresh();
+    window.addEventListener('online', refresh);
+    window.addEventListener('offline', refresh);
+    window.addEventListener('storage', refresh);
+    window.addEventListener(OFFLINE_ATTENDANCE_QUEUE_EVENT, refresh);
+    const contextExpiryTimer = window.setInterval(refresh, 30_000);
+    return () => {
+      window.clearInterval(contextExpiryTimer);
+      window.removeEventListener('online', refresh);
+      window.removeEventListener('offline', refresh);
+      window.removeEventListener('storage', refresh);
+      window.removeEventListener(OFFLINE_ATTENDANCE_QUEUE_EVENT, refresh);
+    };
+  }, [
+    canCheckIn,
+    canCheckOut,
+    offlineQueueOwner?.employeeId,
+    offlineQueueOwner?.organizationId,
+    attendanceSiteId,
+  ]);
+
+  useEffect(() => {
+    const cachedContext = readOfflineAttendanceContext(window.localStorage);
+    if (cachedContext && offlineQueueOwner && offlineContextMatchesOwner(cachedContext, offlineQueueOwner)) {
+      const binding = getOfflineAttendanceContextBinding(cachedContext);
+      if (binding?.siteId === attendanceSiteId) setOfflineContextToken(cachedContext);
+    }
+    if (!navigator.onLine || !offlineSessionBinding) return;
+    const contextPath = attendanceSiteId
+      ? `/api/attendance/me/offline-context?siteId=${encodeURIComponent(attendanceSiteId)}&authMode=${sessionMode}`
+      : `/api/attendance/me/offline-context?authMode=${sessionMode}`;
+    void fetch(contextPath, { method: 'GET' })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const payload = (await response.json()) as { contextToken?: string };
+        if (payload.contextToken) {
+          if (persistOfflineContextToken(payload.contextToken, offlineBootstrapSeed, attendanceSiteId, securityPolicy)) {
+            setOfflineContextToken(payload.contextToken);
+          }
+        }
+      })
+      .catch(() => undefined);
+  }, [
+    sessionMode,
+    attendanceSiteId,
+    offlineSessionBinding,
+    offlineQueueOwner?.employeeId,
+    offlineQueueOwner?.organizationId,
+    offlineBootstrapSeed?.employeeId,
+    offlineBootstrapSeed?.organizationId,
+    offlineBootstrapSeed?.canCheckIn,
+    offlineBootstrapSeed?.canCheckOut,
+    offlineBootstrapSeed?.snapshotAt,
+    securityPolicy?.enabled,
+    securityPolicy?.selfieRequired,
+    securityPolicy?.gpsRequired,
+    securityPolicy?.locationConfigured,
+    securityPolicy?.allowedRadiusMeters,
+    securityPolicy?.companyLatitude,
+    securityPolicy?.companyLongitude,
+    securityPolicy?.siteName,
+  ]);
 
   const isBusy = step === 'submitting';
   const actionLabel = getActionLabel(pendingAction);
-  const successSummary = getSuccessSummary(pendingAction, successAttendance);
+  const successSummary = getSuccessSummary(
+    pendingAction,
+    successAttendance,
+    timeZone,
+  );
   const currentStep = getStepIndex(step);
   const validationDate = capturedAt
     ? capturedAt.toLocaleDateString('fr-FR')
     : '--/--/----';
-  const validationTime = formatActionTime(capturedAt);
+  const validationTime = formatActionTime(capturedAt, timeZone);
   const successRecordedAt =
     pendingAction === 'check-out'
       ? successAttendance?.clockOutAt
@@ -373,7 +614,124 @@ export function EmployeeAttendanceActions({
     securityPolicy,
   });
 
-  function beginAction(action: AttendanceAction) {
+  useEffect(() => {
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let synchronizationRunning = false;
+
+    function scheduleNextRetry() {
+      clearTimeout(retryTimer);
+      const nextAttemptTime = readOfflineAttendanceQueue(window.localStorage)
+        .filter(({ state }) => state === 'pending' || state === 'syncing')
+        .map(({ nextAttemptAt }) =>
+          nextAttemptAt ? new Date(nextAttemptAt).getTime() : Date.now(),
+        )
+        .filter(Number.isFinite)
+        .sort((left, right) => left - right)[0];
+
+      if (nextAttemptTime !== undefined && navigator.onLine) {
+        retryTimer = setTimeout(
+          synchronize,
+          Math.max(0, nextAttemptTime - Date.now()),
+        );
+      }
+    }
+
+    async function synchronize() {
+      if (!navigator.onLine || synchronizationRunning || !offlineSessionBinding) {
+        return;
+      }
+      synchronizationRunning = true;
+      try {
+        await synchronizeOfflineAttendanceQueue(
+          window.localStorage,
+          offlineSessionBinding,
+          (item) =>
+            fetch('/api/attendance/me/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                clientRequestId: item.clientRequestId,
+                sessionBinding: item.sessionBinding,
+                contextToken: item.contextToken,
+                action: item.action,
+                capturedAt: item.capturedAt,
+                ...(item.siteId ? { siteId: item.siteId } : {}),
+                ...(item.notes ? { notes: item.notes } : {}),
+                ...(item.security ? { security: item.security } : {}),
+              }),
+            }),
+          undefined,
+          offlineQueueOwner,
+        );
+      } finally {
+        synchronizationRunning = false;
+      }
+      router.refresh();
+      scheduleNextRetry();
+    }
+
+    const handleOnline = () => void synchronize();
+    const handleQueueChanged = () => {
+      if (navigator.onLine) void synchronize();
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener(OFFLINE_ATTENDANCE_QUEUE_EVENT, handleQueueChanged);
+    if (navigator.onLine) void synchronize();
+    return () => {
+      clearTimeout(retryTimer);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener(OFFLINE_ATTENDANCE_QUEUE_EVENT, handleQueueChanged);
+    };
+  }, [offlineSessionBinding, offlineQueueOwner, router]);
+
+  async function beginAction(action: AttendanceAction) {
+    if (!navigator.onLine) {
+      const bootstrap = readActiveOfflineAttendanceBootstrap(window.localStorage);
+      const eventTime = new Date();
+      const actionState = bootstrap
+        ? deriveOfflineAttendanceActions(bootstrap, readOfflineAttendanceQueue(window.localStorage))
+        : { canCheckIn: false, canCheckOut: false, blocked: true };
+      const requestedActionAllowed = action === 'check-in'
+        ? actionState.canCheckIn
+        : actionState.canCheckOut;
+      if (
+        !bootstrap ||
+        !offlineQueueOwner ||
+        bootstrap.employeeId !== offlineQueueOwner.employeeId ||
+        (offlineQueueOwner.organizationId && bootstrap.organizationId !== offlineQueueOwner.organizationId) ||
+        bootstrap.siteId !== attendanceSiteId ||
+        actionState.blocked ||
+        !requestedActionAllowed ||
+        !isOfflineContextValidForCapture(bootstrap, eventTime)
+      ) {
+        setFeedback({
+          tone: 'error',
+          message: 'Le contexte de pointage hors ligne est absent ou expiré. Reconnectez-vous pour le renouveler.',
+        });
+        setStep('error');
+        return;
+      }
+      setOfflineContextToken(bootstrap.contextToken);
+    }
+    if (navigator.onLine) {
+      const contextPath = attendanceSiteId
+        ? `/api/attendance/me/offline-context?siteId=${encodeURIComponent(attendanceSiteId)}&authMode=${sessionMode}`
+        : `/api/attendance/me/offline-context?authMode=${sessionMode}`;
+      try {
+        const response = await fetch(contextPath, { method: 'GET' });
+        if (response.ok) {
+          const payload = (await response.json()) as { contextToken?: string };
+          if (payload.contextToken) {
+            if (persistOfflineContextToken(payload.contextToken, offlineBootstrapSeed, attendanceSiteId, securityPolicy)) {
+              setOfflineContextToken(payload.contextToken);
+            }
+          }
+        }
+      } catch {
+        // Online attendance can proceed; a current cached context remains
+        // available for offline queuing if its signed validity has not ended.
+      }
+    }
     setPendingAction(action);
     setSelfieDataUrl(null);
     setComment('');
@@ -382,7 +740,8 @@ export function EmployeeAttendanceActions({
     setLocationStatus('pending');
     setFeedback(null);
     setSuccessAttendance(null);
-    setStep('selfie');
+    setLocallyQueued(false);
+    setStep(securityPolicy?.selfieRequired ? 'selfie' : 'comment');
   }
 
   function resetToAction() {
@@ -395,6 +754,7 @@ export function EmployeeAttendanceActions({
     setLocationStatus('pending');
     setFeedback(null);
     setSuccessAttendance(null);
+    setLocallyQueued(false);
   }
 
   function applyCommentSuggestion(suggestion: string) {
@@ -415,7 +775,7 @@ export function EmployeeAttendanceActions({
       setComment(normalizedComment);
     }
 
-    if (!selfieDataUrl) {
+    if (securityPolicy?.selfieRequired && !selfieDataUrl) {
       setFeedback({
         tone: 'error',
         message: 'Le selfie est obligatoire pour valider ce pointage.',
@@ -427,19 +787,32 @@ export function EmployeeAttendanceActions({
     setFeedback(null);
     setLocationStatus('pending');
 
-    const security: AttendanceSecurityPayload = {
-      verificationPhotoDataUrl: selfieDataUrl,
-    };
+    const security: AttendanceSecurityPayload = {};
+    if (securityPolicy?.enabled) {
+      security.evidenceCapturedAt = new Date().toISOString();
+    }
+    if (selfieDataUrl) {
+      security.verificationPhotoDataUrl = selfieDataUrl;
+    }
 
-    try {
-      const location = await getCurrentLocation();
+    if (securityPolicy?.gpsRequired) {
+      try {
+        const location = await getCurrentLocation();
 
-      security.latitude = location.latitude;
-      security.longitude = location.longitude;
-      security.accuracyMeters = location.accuracyMeters;
-      setLocationStatus('recorded');
-    } catch {
-      setLocationStatus('unavailable');
+        security.latitude = location.latitude;
+        security.longitude = location.longitude;
+        security.accuracyMeters = location.accuracyMeters;
+        setLocationStatus('recorded');
+      } catch (error) {
+        const geolocationError = error as GeolocationPositionError;
+        setLocationStatus(
+          geolocationError.code === 1
+            ? 'denied'
+            : geolocationError.code === 3
+              ? 'timeout'
+              : 'unavailable',
+        );
+      }
     }
 
     setSecurityPayload(security);
@@ -451,8 +824,76 @@ export function EmployeeAttendanceActions({
       return;
     }
 
+    if (securityPolicy?.gpsRequired && locationStatus !== 'recorded') {
+      setFeedback({
+        tone: 'error',
+        message:
+          'La localisation est obligatoire pour ce pointage. Autorisez la position puis réessayez.',
+      });
+      return;
+    }
+
     setStep('submitting');
     setFeedback(null);
+    const offlinePayload = {
+      action: pendingAction,
+      capturedAt: capturedAt.toISOString(),
+      ...(offlineContextToken ? { contextToken: offlineContextToken } : {}),
+      ...(attendanceSiteId ? { siteId: attendanceSiteId } : {}),
+      ...(comment.trim() ? { notes: comment.trim() } : {}),
+      security: securityPayload,
+    };
+
+    const queueForSynchronization = async () => {
+      if (!offlineSessionBinding || !offlineContextToken) {
+        setFeedback({
+          tone: 'error',
+          message:
+            'La session nécessaire au pointage hors ligne est indisponible. Reconnectez-vous puis réessayez.',
+        });
+        setStep('validation');
+        return;
+      }
+      if (
+        securityPayload.verificationPhotoDataUrl &&
+        securityPayload.verificationPhotoDataUrl.length > 1_000_000
+      ) {
+        setFeedback({
+          tone: 'error',
+          message: 'La photo dépasse la taille acceptée. Reprenez le selfie avant de valider.',
+        });
+        setStep('validation');
+        return;
+      }
+      try {
+        await enqueueOfflineAttendanceWithEvidence(window.localStorage, {
+          ...offlinePayload,
+          sessionBinding: offlineSessionBinding,
+        });
+      } catch {
+        setFeedback({
+          tone: 'error',
+          message: 'Le pointage et ses preuves n’ont pas pu être enregistrés sur cet appareil. Libérez de l’espace puis réessayez.',
+        });
+        setStep('validation');
+        return;
+      }
+      setLocallyQueued(true);
+      if (navigator.onLine) {
+        window.dispatchEvent(new Event(OFFLINE_ATTENDANCE_QUEUE_EVENT));
+      }
+      setFeedback({
+        tone: 'success',
+        message:
+          'Pointage enregistré sur cet appareil — synchronisation en attente.',
+      });
+      setStep('validation');
+    };
+
+    if (!navigator.onLine) {
+      await queueForSynchronization();
+      return;
+    }
 
     try {
       const response = await fetch(getActionPath(pendingAction), {
@@ -461,7 +902,7 @@ export function EmployeeAttendanceActions({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          occurredAt: capturedAt.toISOString(),
+          ...(attendanceSiteId ? { siteId: attendanceSiteId } : {}),
           ...(comment.trim() ? { notes: comment.trim() } : {}),
           security: securityPayload,
         }),
@@ -472,6 +913,10 @@ export function EmployeeAttendanceActions({
       } & Partial<AttendanceRecord>;
 
       if (!response.ok) {
+        if (response.status >= 500 || response.status === 429) {
+          await queueForSynchronization();
+          return;
+        }
         setFeedback({
           tone: 'error',
           message: data.error ?? 'Impossible de valider ce pointage.',
@@ -481,13 +926,10 @@ export function EmployeeAttendanceActions({
       }
 
       setSuccessAttendance(data);
+      router.refresh();
       setStep('success');
     } catch {
-      setFeedback({
-        tone: 'error',
-        message: 'Connexion indisponible. Réessayez dans quelques instants.',
-      });
-      setStep('validation');
+      await queueForSynchronization();
     }
   }
 
@@ -513,7 +955,12 @@ export function EmployeeAttendanceActions({
               <h2 className="text-[2rem] font-black leading-tight text-slate-950">
                 Pointage enregistré !
               </h2>
-              <p className={cn('mt-3 text-lg font-black', successStatus.className)}>
+              <p
+                className={cn(
+                  'mt-3 text-lg font-black',
+                  successStatus.className,
+                )}
+              >
                 {successStatus.label === 'Statut'
                   ? successStatus.value
                   : `${successStatus.label} : ${successStatus.value}`}
@@ -529,8 +976,14 @@ export function EmployeeAttendanceActions({
                 }
               />
               <SummaryRow label="Employé" value={employeeName} />
-              <SummaryRow label="Date" value={formatActionDate(successRecordedAt)} />
-              <SummaryRow label="Heure" value={formatActionTime(successRecordedAt)} />
+              <SummaryRow
+                label="Date"
+                value={formatActionDate(successRecordedAt, timeZone)}
+              />
+              <SummaryRow
+                label="Heure"
+                value={formatActionTime(successRecordedAt, timeZone)}
+              />
               <div className="flex items-start justify-between gap-4 border-b border-slate-100 py-2.5">
                 <p className="shrink-0 text-sm font-bold text-slate-500">GPS</p>
                 <p className="inline-flex items-center gap-2 text-sm font-black text-success">
@@ -552,6 +1005,7 @@ export function EmployeeAttendanceActions({
               label="Nouveau pointage"
               onLoggedOut={resetToAction}
               pendingLabel="Préparation..."
+              redirectTo={attendanceEntryRedirectTo}
               variant="default"
             />
           ) : (
@@ -572,23 +1026,65 @@ export function EmployeeAttendanceActions({
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden sm:gap-4">
+      <OfflineAttendanceStatus />
+      {!deviceOnline ? (
+        <p aria-live="polite" className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-950">
+          {!offlineActionState.contextValid
+            ? 'Contexte hors ligne expiré ou absent : reconnectez-vous avant un nouveau pointage.'
+            : offlineActionState.blocked
+              ? 'Un pointage précédent nécessite une résolution. Les actions suivantes sont bloquées.'
+              : 'Vous êtes hors connexion. Les pointages valides seront conservés sur cet appareil.'}
+        </p>
+      ) : null}
       {step === 'action' || step === 'comment' ? null : (
         <StepIndicator currentStep={currentStep} />
       )}
 
       {step === 'action' ? (
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
-          <AttendanceLiveClock />
+          <AttendanceLiveClock timeZone={timeZone} />
 
           <section className="rounded-[22px] border border-slate-200/80 bg-white px-4 py-3 shadow-[0_14px_34px_rgba(15,45,58,0.07)]">
+            {requiresSiteSelection ? (
+              <label className="mb-3 block space-y-2 text-sm font-bold text-slate-700">
+                Site de pointage
+                <select
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3"
+                  onChange={(event) => setSelectedSiteId(event.target.value)}
+                  value={selectedSiteId}
+                >
+                  <option value="">Sélectionner un site</option>
+                  {attendanceSites
+                    .filter((site) => site.isActive)
+                    .map((site) => (
+                      <option key={site.id} value={site.id}>
+                        {site.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+            ) : null}
+            {securityPolicy?.siteName ? (
+              <p className="mb-3 rounded-xl bg-primary/5 px-3 py-2 text-sm font-bold text-primary">
+                Site de pointage : {securityPolicy.siteName}
+              </p>
+            ) : null}
             <div className="grid gap-2 text-sm font-black text-slate-800">
               <div className="flex items-center gap-3">
                 <span className="h-2.5 w-2.5 rounded-full bg-primary/70" />
-                <span>GPS obligatoire</span>
+                <span>
+                  {securityPolicy?.gpsRequired
+                    ? 'GPS obligatoire'
+                    : 'GPS non requis'}
+                </span>
               </div>
               <div className="flex items-center gap-3">
                 <span className="h-2.5 w-2.5 rounded-full bg-accent/80" />
-                <span>Selfie obligatoire</span>
+                <span>
+                  {securityPolicy?.selfieRequired
+                    ? 'Selfie obligatoire'
+                    : 'Selfie non requis'}
+                </span>
               </div>
             </div>
           </section>
@@ -606,7 +1102,11 @@ export function EmployeeAttendanceActions({
             <div className="grid gap-4">
               <Button
                 className="min-h-[144px] w-full justify-between rounded-[24px] border border-success/40 bg-success/15 px-5 text-left shadow-[0_20px_46px_rgba(25,135,84,0.16)] transition duration-200 hover:bg-success/20 active:scale-[0.99] disabled:border-success/15 disabled:bg-success/5 disabled:text-slate-400 disabled:opacity-55 disabled:shadow-none"
-                disabled={!canCheckIn}
+                disabled={
+                  !(deviceOnline ? canCheckIn : offlineActionState.canCheckIn) ||
+                  (!deviceOnline && (!offlineActionState.contextValid || offlineActionState.blocked)) ||
+                  (requiresSiteSelection && !selectedSiteId)
+                }
                 onClick={() => beginAction('check-in')}
                 type="button"
                 variant="secondary"
@@ -631,7 +1131,11 @@ export function EmployeeAttendanceActions({
 
               <Button
                 className="min-h-[144px] w-full justify-between rounded-[24px] border border-accent/40 bg-accent/15 px-5 text-left shadow-[0_20px_46px_rgba(249,115,22,0.15)] transition duration-200 hover:bg-accent/20 active:scale-[0.99] disabled:border-accent/15 disabled:bg-accent/5 disabled:text-slate-400 disabled:opacity-55 disabled:shadow-none"
-                disabled={!canCheckOut}
+                disabled={
+                  !(deviceOnline ? canCheckOut : offlineActionState.canCheckOut) ||
+                  (!deviceOnline && (!offlineActionState.contextValid || offlineActionState.blocked)) ||
+                  (requiresSiteSelection && !selectedSiteId)
+                }
                 onClick={() => beginAction('check-out')}
                 type="button"
                 variant="secondary"
@@ -693,7 +1197,6 @@ export function EmployeeAttendanceActions({
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col justify-between gap-4 overflow-y-auto pt-5">
-
               {selfieDataUrl ? (
                 <div className="flex min-h-0 flex-1 flex-col items-center justify-between gap-4">
                   <div className="relative flex w-full justify-center">
@@ -752,7 +1255,9 @@ export function EmployeeAttendanceActions({
             <header className="flex shrink-0 items-center">
               <Button
                 className="h-12 rounded-full px-4 text-sm font-black"
-                onClick={() => setStep('selfie')}
+                onClick={() =>
+                  setStep(securityPolicy?.selfieRequired ? 'selfie' : 'action')
+                }
                 type="button"
                 variant="secondary"
               >
@@ -842,7 +1347,7 @@ export function EmployeeAttendanceActions({
             <header className="flex shrink-0 items-center">
               <Button
                 className="h-12 rounded-full px-4 text-sm font-black"
-                disabled={isBusy}
+                disabled={isBusy || locallyQueued}
                 onClick={() => setStep('comment')}
                 type="button"
                 variant="secondary"
@@ -927,7 +1432,7 @@ export function EmployeeAttendanceActions({
             <div className="sticky bottom-0 shrink-0 bg-white/95 pb-[calc(env(safe-area-inset-bottom)+0.875rem)] pt-3">
               <Button
                 className="h-[60px] w-full rounded-[24px] bg-success text-base font-black text-white opacity-100 shadow-[0_20px_42px_rgba(25,135,84,0.24)] hover:bg-success/95 disabled:bg-success disabled:text-white disabled:opacity-100 disabled:shadow-[0_18px_38px_rgba(25,135,84,0.2)]"
-                disabled={isBusy}
+                disabled={isBusy || locallyQueued}
                 onClick={submitAttendance}
                 type="button"
               >
@@ -936,18 +1441,30 @@ export function EmployeeAttendanceActions({
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
                     Enregistrement...
                   </span>
+                ) : locallyQueued ? (
+                  'Pointage mis en attente'
                 ) : (
                   'Valider le pointage'
                 )}
               </Button>
-              <button
-                className="mt-3 h-11 w-full text-center text-base font-medium text-slate-500"
-                disabled={isBusy}
-                onClick={() => setStep('comment')}
-                type="button"
-              >
-                Modifier
-              </button>
+              {locallyQueued ? (
+                <button
+                  className="mt-3 h-11 w-full text-center text-base font-bold text-success"
+                  onClick={resetToAction}
+                  type="button"
+                >
+                  Continuer vers le prochain pointage
+                </button>
+              ) : (
+                <button
+                  className="mt-3 h-11 w-full text-center text-base font-medium text-slate-500"
+                  disabled={isBusy}
+                  onClick={() => setStep('comment')}
+                  type="button"
+                >
+                  Modifier
+                </button>
+              )}
             </div>
           </div>
         </div>

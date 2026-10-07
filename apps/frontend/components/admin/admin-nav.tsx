@@ -1,118 +1,26 @@
-import Link from 'next/link';
-import { buttonVariants } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { getAttendanceSites, type MembershipRole } from '@/lib/api';
+import { getSessionToken } from '@/lib/auth';
+import { AdminNavClient } from './admin-nav-client';
 
-type AdminNavSection =
-  | 'dashboard'
-  | 'attendance-history'
-  | 'employees'
-  | 'schedules'
-  | 'sanctions'
-  | 'calendar'
-  | 'reports';
+export type AdminNavSection =
+  | 'dashboard' | 'my-attendance' | 'attendance-history' | 'team-employees'
+  | 'team-members' | 'team-invitations' | 'schedules' | 'sanctions'
+  | 'calendar' | 'reports' | 'attendance-sites' | 'qr-access'
+  | 'organization-settings' | 'subscription' | 'support' | 'reconciliation';
 
-type AdminNavProps = {
+export async function AdminNav({ current, membershipRole }: {
   current: AdminNavSection;
-};
-
-const navGroups: Array<{
-  label: string;
-  links: Array<{
-    href: string;
-    label: string;
-    section: AdminNavSection;
-  }>;
-}> = [
-  {
-    label: 'Pilotage',
-    links: [
-      {
-        href: '/',
-        label: 'Tableau de bord',
-        section: 'dashboard',
-      },
-    ],
-  },
-  {
-    label: 'Pointages',
-    links: [
-      {
-        href: '/attendance-history',
-        label: 'Historique RH',
-        section: 'attendance-history',
-      },
-      {
-        href: '/exports',
-        label: 'Exports PDF',
-        section: 'reports',
-      },
-    ],
-  },
-  {
-    label: 'Équipe',
-    links: [
-      {
-        href: '/employees',
-        label: 'Employés',
-        section: 'employees',
-      },
-      {
-        href: '/schedules',
-        label: 'Plannings',
-        section: 'schedules',
-      },
-    ],
-  },
-  {
-    label: 'Règles RH',
-    links: [
-      {
-        href: '/calendar',
-        label: 'Calendrier RH',
-        section: 'calendar',
-      },
-      {
-        href: '/sanctions',
-        label: 'Sanctions RH',
-        section: 'sanctions',
-      },
-    ],
-  },
-];
-
-export function AdminNav({ current }: AdminNavProps) {
-  return (
-    <nav
-      aria-label="Navigation administrateur"
-      className="flex flex-wrap items-end gap-x-4 gap-y-3"
-    >
-      {navGroups.map((group) => (
-        <div className="flex flex-col gap-1.5" key={group.label}>
-          <span className="px-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
-            {group.label}
-          </span>
-          <div className="flex flex-wrap gap-2">
-            {group.links.map((link) => {
-              const isActive = link.section === current;
-
-              return (
-                <Link
-                  className={cn(
-                    buttonVariants({
-                      variant: isActive ? 'default' : 'secondary',
-                    }),
-                    'px-4 py-2.5',
-                  )}
-                  href={link.href}
-                  key={link.href}
-                >
-                  {link.label}
-                </Link>
-              );
-            })}
-          </div>
-        </div>
-      ))}
-    </nav>
-  );
+  membershipRole?: MembershipRole;
+}) {
+  if (membershipRole === 'EMPLOYEE') {
+    return <AdminNavClient current={current} employee sites={[]} />;
+  }
+  const token = await getSessionToken();
+  let sites: Awaited<ReturnType<typeof getAttendanceSites>> = [];
+  let sitesUnavailable = false;
+  if (token) {
+    try { sites = await getAttendanceSites(token); }
+    catch { sitesUnavailable = true; }
+  }
+  return <AdminNavClient current={current} sites={sites} sitesUnavailable={sitesUnavailable} />;
 }

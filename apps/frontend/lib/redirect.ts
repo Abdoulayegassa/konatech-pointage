@@ -1,4 +1,4 @@
-import { AccessRole } from './api';
+import type { AccessRole, MembershipRole } from './api';
 
 function isSafeInternalPath(value: string) {
   return (
@@ -24,18 +24,45 @@ export function normalizeRedirectTarget(value: unknown) {
   return trimmedValue;
 }
 
-export function getDefaultRedirectPath(accessRole: AccessRole) {
-  return accessRole === 'ADMIN' ? '/' : '/my-attendance';
+export function getDefaultRedirectPath(
+  accessRole: AccessRole,
+  membershipRole?: MembershipRole,
+) {
+  if (membershipRole === 'ADMIN') {
+    return '/dashboard';
+  }
+
+  return accessRole === 'ADMIN' ? '/dashboard' : '/my-attendance';
+}
+
+function canAccessRequestedTarget(
+  target: string,
+  accessRole: AccessRole,
+  membershipRole?: MembershipRole,
+) {
+  if (target === '/platform' || target.startsWith('/platform/')) return false;
+
+  if (membershipRole === 'ADMIN') return true;
+
+  if (membershipRole === 'EMPLOYEE' || accessRole === 'EMPLOYEE') {
+    return target === '/my-attendance' || target.startsWith('/my-attendance?');
+  }
+
+  return accessRole === 'ADMIN';
 }
 
 export function resolvePostLoginRedirect(
   accessRole: AccessRole,
   requestedTarget?: unknown,
+  membershipRole?: MembershipRole,
 ) {
   const normalizedTarget = normalizeRedirectTarget(requestedTarget);
 
-  if (!normalizedTarget) {
-    return getDefaultRedirectPath(accessRole);
+  if (
+    !normalizedTarget ||
+    !canAccessRequestedTarget(normalizedTarget, accessRole, membershipRole)
+  ) {
+    return getDefaultRedirectPath(accessRole, membershipRole);
   }
 
   if (
@@ -43,7 +70,7 @@ export function resolvePostLoginRedirect(
     (normalizedTarget === '/attendance-entry' ||
       normalizedTarget.startsWith('/attendance-entry?'))
   ) {
-    return '/';
+    return '/dashboard';
   }
 
   return normalizedTarget;

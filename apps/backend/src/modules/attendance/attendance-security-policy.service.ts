@@ -9,6 +9,8 @@ export type SecurityLocation = {
 
 export type AttendanceSecurityPolicy = {
   enabled: boolean;
+  selfieRequired: boolean;
+  gpsRequired: boolean;
   locationConfigured: boolean;
   trustedRadiusMeters: number | null;
   warningRadiusMeters: number | null;
@@ -43,9 +45,19 @@ export class AttendanceSecurityPolicyService {
     );
     const locationConfigured =
       companyLatitude !== null && companyLongitude !== null;
-    const enabled =
-      this.getBoolean('ATTENDANCE_SECURITY_ENABLED', false) &&
-      locationConfigured;
+    const legacySecurityEnabled = this.getBoolean(
+      'ATTENDANCE_SECURITY_ENABLED',
+      false,
+    );
+    const selfieRequired = this.getBoolean(
+      'ATTENDANCE_SELFIE_REQUIRED',
+      legacySecurityEnabled,
+    );
+    const gpsRequired = this.getBoolean(
+      'ATTENDANCE_GPS_REQUIRED',
+      legacySecurityEnabled,
+    );
+    const enabled = selfieRequired || gpsRequired;
     const trustedRadiusMeters =
       configuredTrustedRadiusMeters ??
       configuredAllowedRadiusMeters ??
@@ -63,15 +75,17 @@ export class AttendanceSecurityPolicyService {
 
     return {
       enabled,
+      selfieRequired,
+      gpsRequired,
       locationConfigured,
-      trustedRadiusMeters: enabled ? trustedRadiusMeters : null,
-      warningRadiusMeters: enabled ? warningRadiusMeters : null,
-      allowedRadiusMeters: enabled ? allowedRadiusMeters : null,
-      maxAccuracyMeters: enabled
+      trustedRadiusMeters: gpsRequired ? trustedRadiusMeters : null,
+      warningRadiusMeters: gpsRequired ? warningRadiusMeters : null,
+      allowedRadiusMeters: gpsRequired ? allowedRadiusMeters : null,
+      maxAccuracyMeters: gpsRequired
         ? (configuredMaxAccuracyMeters ?? this.defaultMaxAccuracyMeters)
         : null,
-      companyLatitude: enabled ? companyLatitude : null,
-      companyLongitude: enabled ? companyLongitude : null,
+      companyLatitude: gpsRequired ? companyLatitude : null,
+      companyLongitude: gpsRequired ? companyLongitude : null,
     };
   }
 

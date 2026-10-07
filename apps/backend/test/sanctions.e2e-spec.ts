@@ -8,12 +8,12 @@ import { SanctionsService } from '../src/modules/sanctions/sanctions.service';
 type MockPrisma = {
   sanctionRule: {
     findMany: jest.Mock;
-    findUnique: jest.Mock;
+    findFirst: jest.Mock;
     update: jest.Mock;
   };
   attendance: {
     findMany: jest.Mock;
-    findUnique: jest.Mock;
+    findFirst: jest.Mock;
   };
 };
 
@@ -58,18 +58,24 @@ describe('SanctionsService', () => {
     const prisma: MockPrisma = {
       sanctionRule: {
         findMany: jest.fn(),
-        findUnique: jest.fn(),
+        findFirst: jest.fn(),
         update: jest.fn(),
       },
       attendance: {
         findMany: jest.fn(),
-        findUnique: jest.fn(),
+        findFirst: jest.fn(),
       },
     };
 
+    const calendar = {
+      getNonWorkingDateKeys: jest.fn().mockResolvedValue(new Set<number>()),
+      isNonWorkingDay: jest.fn().mockResolvedValue(false),
+    };
+
     return {
+      calendar,
       prisma,
-      service: new SanctionsService(prisma as never),
+      service: new SanctionsService(prisma as never, calendar as never),
     };
   }
 
@@ -332,14 +338,78 @@ describe('SanctionsService', () => {
     ).toBe(7_000);
   });
 
+  it('does not sanction stored lateness on a holiday', async () => {
+    const { calendar, prisma, service } = createService();
+    const holidayDate = new Date('2026-04-10T00:00:00.000Z');
+    prisma.sanctionRule.findMany.mockResolvedValue(defaultDbRules);
+    prisma.attendance.findMany.mockResolvedValue([
+      attendance(30, holidayDate.toISOString()),
+    ]);
+    calendar.getNonWorkingDateKeys.mockResolvedValue(
+      new Set([holidayDate.getTime()]),
+    );
+
+    const [result] = await service.getMonthlySanctions('2026-04');
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ruleType: null,
+        status: SanctionStatus.NOT_APPLICABLE,
+        amount: 0,
+      }),
+    );
+  });
+
+  it('does not reapply sanctions when the same attendance is evaluated concurrently', async () => {
+    const { prisma, service } = createService();
+    const currentAttendance = attendance(15, '2026-04-12T00:00:00.000Z');
+    prisma.sanctionRule.findMany.mockResolvedValue(defaultDbRules);
+    prisma.attendance.findFirst.mockResolvedValue(currentAttendance);
+    prisma.attendance.findMany.mockResolvedValue([]);
+
+    const results = await Promise.all([
+      service.getAttendanceSanction(currentAttendance.id),
+      service.getAttendanceSanction(currentAttendance.id),
+    ]);
+
+    expect(results[0]).toEqual(results[1]);
+    expect(results[0]).toEqual(
+      expect.objectContaining({
+        status: SanctionStatus.APPLIED,
+        amount: 5_000,
+      }),
+    );
+    expect(prisma.sanctionRule.update).not.toHaveBeenCalled();
+  });
+
+  it('does not consume monthly tolerance with an earlier holiday attendance', async () => {
+    const { calendar, prisma, service } = createService();
+    const holidayDate = new Date('2026-04-10T00:00:00.000Z');
+    const currentAttendance = attendance(10, '2026-04-11T00:00:00.000Z');
+    prisma.sanctionRule.findMany.mockResolvedValue(defaultDbRules);
+    prisma.attendance.findFirst.mockResolvedValue(currentAttendance);
+    prisma.attendance.findMany.mockResolvedValue([
+      { date: holidayDate, minutesLate: 8 },
+    ]);
+    calendar.getNonWorkingDateKeys.mockResolvedValue(
+      new Set([holidayDate.getTime()]),
+    );
+
+    await expect(
+      service.getAttendanceSanction(currentAttendance.id),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        status: SanctionStatus.TOLERATED,
+        amount: 0,
+      }),
+    );
+  });
+
   it('attendance endpoint shape remains unchanged', async () => {
     const { prisma, service } = createService();
-    const currentAttendance = attendance(
-      10,
-      '2026-04-11T00:00:00.000Z',
-    );
+    const currentAttendance = attendance(10, '2026-04-11T00:00:00.000Z');
     prisma.sanctionRule.findMany.mockResolvedValue(defaultDbRules);
-    prisma.attendance.findUnique.mockResolvedValue({
+    prisma.attendance.findFirst.mockResolvedValue({
       id: currentAttendance.id,
       employeeId: currentAttendance.employeeId,
       date: currentAttendance.date,
@@ -347,11 +417,22 @@ describe('SanctionsService', () => {
     });
     prisma.attendance.findMany.mockResolvedValue([
       {
+        date: new Date('2026-04-10T00:00:00.000Z'),
         minutesLate: 8,
       },
     ]);
 
     const result = await service.getAttendanceSanction(currentAttendance.id);
+
+    expect(prisma.attendance.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: currentAttendance.id,
+          organizationId: null,
+          employee: { is: { organizationId: null, userId: null } },
+        }),
+      }),
+    );
 
     expect(Object.keys(result).sort()).toEqual(
       [
@@ -377,7 +458,7 @@ describe('SanctionsService', () => {
 
   it('updates a sanction rule amount', async () => {
     const { prisma, service } = createService();
-    prisma.sanctionRule.findUnique.mockResolvedValue(defaultDbRules[0]);
+    prisma.sanctionRule.findFirst.mockResolvedValue(defaultDbRules[0]);
     prisma.sanctionRule.findMany.mockResolvedValue([defaultDbRules[1]]);
     prisma.sanctionRule.update.mockResolvedValue({
       ...defaultDbRules[0],
@@ -404,7 +485,7 @@ describe('SanctionsService', () => {
 
   it('updates a sanction rule monthly tolerance', async () => {
     const { prisma, service } = createService();
-    prisma.sanctionRule.findUnique.mockResolvedValue(defaultDbRules[0]);
+    prisma.sanctionRule.findFirst.mockResolvedValue(defaultDbRules[0]);
     prisma.sanctionRule.findMany.mockResolvedValue([defaultDbRules[1]]);
     prisma.sanctionRule.update.mockResolvedValue({
       ...defaultDbRules[0],
@@ -424,7 +505,7 @@ describe('SanctionsService', () => {
 
   it('updates sanction rule thresholds', async () => {
     const { prisma, service } = createService();
-    prisma.sanctionRule.findUnique.mockResolvedValue(defaultDbRules[0]);
+    prisma.sanctionRule.findFirst.mockResolvedValue(defaultDbRules[0]);
     prisma.sanctionRule.findMany.mockResolvedValue([defaultDbRules[1]]);
     prisma.sanctionRule.update.mockResolvedValue({
       ...defaultDbRules[0],
@@ -455,7 +536,7 @@ describe('SanctionsService', () => {
 
   it('deactivates a sanction rule', async () => {
     const { prisma, service } = createService();
-    prisma.sanctionRule.findUnique.mockResolvedValue(defaultDbRules[0]);
+    prisma.sanctionRule.findFirst.mockResolvedValue(defaultDbRules[0]);
     prisma.sanctionRule.update.mockResolvedValue({
       ...defaultDbRules[0],
       active: false,
@@ -475,7 +556,7 @@ describe('SanctionsService', () => {
 
   it('rejects overlapping active sanction ranges', async () => {
     const { prisma, service } = createService();
-    prisma.sanctionRule.findUnique.mockResolvedValue(defaultDbRules[0]);
+    prisma.sanctionRule.findFirst.mockResolvedValue(defaultDbRules[0]);
     prisma.sanctionRule.findMany.mockResolvedValue([defaultDbRules[1]]);
 
     await expect(
@@ -488,7 +569,7 @@ describe('SanctionsService', () => {
 
   it('rejects invalid sanction thresholds', async () => {
     const { prisma, service } = createService();
-    prisma.sanctionRule.findUnique.mockResolvedValue(defaultDbRules[0]);
+    prisma.sanctionRule.findFirst.mockResolvedValue(defaultDbRules[0]);
 
     await expect(
       service.updateRule(defaultDbRules[0].id, {
@@ -503,7 +584,7 @@ describe('SanctionsService', () => {
 
   it('updates sanction rule priority', async () => {
     const { prisma, service } = createService();
-    prisma.sanctionRule.findUnique.mockResolvedValue(defaultDbRules[0]);
+    prisma.sanctionRule.findFirst.mockResolvedValue(defaultDbRules[0]);
     prisma.sanctionRule.findMany.mockResolvedValue([defaultDbRules[1]]);
     prisma.sanctionRule.update.mockResolvedValue({
       ...defaultDbRules[0],

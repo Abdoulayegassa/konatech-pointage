@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AuthenticatedUser } from '../../modules/auth/interfaces/authenticated-user.interface';
+import { AuthorizationActor } from '../../modules/auth/interfaces/authorization-actor.interface';
+import { sanitizeAuditMetadata } from '../security/sensitive-data.util';
 
 type AuditLogInput = {
-  actor: AuthenticatedUser;
+  actor: AuthorizationActor;
   action: string;
   resource: string;
   resourceId?: string | null;
@@ -18,13 +19,15 @@ export class AuditLogService {
       JSON.stringify({
         event: 'admin_audit',
         occurredAt: new Date().toISOString(),
-        actorId: input.actor.id,
-        actorEmail: input.actor.email,
-        actorRole: input.actor.accessRole,
+        actorType: input.actor.actorType,
+        actorId: input.actor.actorId,
+        organizationId: input.actor.organizationId,
+        actorRole: input.actor.role,
+        employeeId: input.actor.employeeId,
         action: input.action,
         resource: input.resource,
         resourceId: input.resourceId ?? null,
-        metadata: input.metadata ?? {},
+        metadata: sanitizeAuditMetadata(input.metadata),
       }),
     );
   }

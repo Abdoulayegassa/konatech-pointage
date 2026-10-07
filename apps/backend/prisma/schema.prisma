@@ -33,10 +33,8 @@ enum UserStatus {
 }
 
 enum MembershipRole {
-  OWNER
   ADMIN
-  MANAGER
-  MEMBER
+  EMPLOYEE
 }
 
 enum MembershipStatus {
@@ -78,37 +76,203 @@ enum SanctionPeriod {
   MONTHLY
 }
 
+enum SubscriptionPlan {
+  STARTER
+  PRO
+  BUSINESS
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+  PENDING_DOWNGRADE
+  CANCELLED
+}
+
+enum SubscriptionEventType {
+  TRIAL_STARTED
+  ACTIVATED
+  REACTIVATED
+  EXPIRED
+  SUSPENDED
+  DOWNGRADE_SCHEDULED
+  DOWNGRADE_APPLIED
+  CANCELLED
+}
+
+enum OfflineAttendanceSyncStatus {
+  PROCESSING
+  ACCEPTED
+  REJECTED
+  RECONCILIATION_REQUIRED
+  EXPIRED
+}
+
+enum OfflineAttendanceReconciliationStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  RESOLVED
+  EXPIRED
+}
+
+enum OfflineAttendanceReconciliationDecisionType {
+  APPROVE
+  REJECT
+  RESOLVE
+  EXPIRE
+}
+
+enum V1OperationalScopeStatus {
+  OPERATIONAL
+  REVIEW_REQUIRED
+  LEGACY_EXCLUDED
+}
+
+enum V1ScopeReasonCode {
+  MIGRATION_PENDING
+  MISSING_ORGANIZATION
+  NO_OPERATIONAL_SITE
+  AMBIGUOUS_CURRENT_PRIMARY_SITE
+  ATTENDANCE_MISSING_SCOPE
+  ATTENDANCE_SCOPE_MISMATCH
+  ASSIGNMENT_EFFECTIVE_DATE_UNPROVEN
+  SCHEDULE_SCOPE_UNPROVEN
+  CALENDAR_SCOPE_UNPROVEN
+  SANCTION_SCOPE_OR_CODE_UNPROVEN
+  LEGACY_EXCLUDED
+  OTHER_REVIEW_REQUIRED
+}
+
+enum MigrationReviewResourceType {
+  ORGANIZATION
+  EMPLOYEE
+  ATTENDANCE
+  SCHEDULE
+  CALENDAR_ENTRY
+  SANCTION_RULE
+}
+
+enum MigrationReviewAction {
+  CLASSIFIED
+  MAPPING_PROPOSED
+  MAPPING_APPROVED
+  EXCLUDED
+  RESOLVED
+}
+
 model Organization {
-  id              String             @id @default(uuid())
-  name            String
-  slug            String             @unique
-  status          OrganizationStatus @default(ACTIVE)
-  timezone        String
-  logoUrl         String?
-  primaryColor    String?
-  employees       Employee[]
-  schedules       Schedule[]
-  attendances     Attendance[]
-  calendarEntries CalendarEntry[]
-  sanctionRules   SanctionRule[]
-  attendanceSites AttendanceSite[]
-  memberships     Membership[]
-  invitations     Invitation[]
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  id                 String                          @id @default(uuid())
+  name               String
+  slug               String                          @unique
+  status             OrganizationStatus              @default(ACTIVE)
+  timezone           String
+  logoUrl            String?
+  primaryColor       String?
+  v1ScopeStatus      V1OperationalScopeStatus      @default(REVIEW_REQUIRED)
+  v1ScopeReasonCode  V1ScopeReasonCode?
+  v1ScopeReviewedAt  DateTime?
+  employees          Employee[]
+  employeeSiteAssignments EmployeeSiteAssignment[]
+  schedules          Schedule[]
+  employeeScheduleAssignments EmployeeScheduleAssignment[]
+  attendances        Attendance[]
+  offlineAttendanceSyncRequests OfflineAttendanceSyncRequest[]
+  offlineAttendanceReconciliations OfflineAttendanceReconciliation[]
+  calendarEntries    CalendarEntry[]
+  sanctionRules      SanctionRule[]
+  attendanceSites    AttendanceSite[]
+  siteAttendanceSettings SiteAttendanceSettings[]
+  migrationReviewEvents MigrationReviewEvent[]
+  platformAuditEvents PlatformAuditEvent[]
+  offlineAttendanceReconciliationDecisions OfflineAttendanceReconciliationDecision[]
+  memberships        Membership[]
+  invitations        Invitation[]
+  attendanceSettings OrganizationAttendanceSettings?
+  subscription       OrganizationSubscription?
+  createdAt          DateTime                        @default(now())
+  updatedAt          DateTime                        @updatedAt
+
+  @@index([v1ScopeStatus])
+}
+
+model OrganizationAttendanceSettings {
+  id                           String       @id @default(uuid())
+  organizationId               String       @unique
+  organization                 Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  gpsRequired                  Boolean?
+  selfieRequired               Boolean?
+  allowedRadiusMeters          Int?
+  defaultLatenessMarginMinutes Int?
+  defaultWorkDays              Json?
+  createdAt                    DateTime     @default(now())
+  updatedAt                    DateTime     @updatedAt
 }
 
 model User {
-  id              String       @id @default(uuid())
-  normalizedEmail String       @unique
+  id              String         @id @default(uuid())
+  normalizedEmail String         @unique
   passwordHash    String
-  status          UserStatus   @default(ACTIVE)
-  userVersion     Int          @default(1)
+  status          UserStatus     @default(ACTIVE)
+  userVersion     Int            @default(1)
   memberships     Membership[]
   employees       Employee[]
   invitationsSent Invitation[]
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  platformAdmin   PlatformAdmin?
+  createdSiteAssignments EmployeeSiteAssignment[] @relation("EmployeeSiteAssignmentCreatedBy")
+  createdScheduleAssignments EmployeeScheduleAssignment[] @relation("EmployeeScheduleAssignmentCreatedBy")
+  migrationReviewEvents MigrationReviewEvent[] @relation("MigrationReviewEventActor")
+  platformAuditEvents PlatformAuditEvent[] @relation("PlatformAuditEventActor")
+  offlineAttendanceReconciliationDecisions OfflineAttendanceReconciliationDecision[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+model PlatformAdmin {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  isActive  Boolean  @default(true)
+  version   Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model OrganizationSubscription {
+  organizationId String              @id
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  plan           SubscriptionPlan    @default(PRO)
+  status         SubscriptionStatus  @default(TRIALING)
+  startsAt       DateTime
+  endsAt         DateTime
+  graceEndsAt    DateTime
+  trialUsedAt    DateTime?
+  pendingPlan    SubscriptionPlan?
+  pendingPlanAt  DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  events         SubscriptionEvent[]
+
+  @@index([status, endsAt])
+  @@index([status, graceEndsAt])
+}
+
+model SubscriptionEvent {
+  id             String                   @id
+  subscriptionId String
+  subscription   OrganizationSubscription @relation(fields: [subscriptionId], references: [organizationId], onDelete: Restrict)
+  type           SubscriptionEventType
+  previousPlan   SubscriptionPlan?
+  nextPlan       SubscriptionPlan?
+  previousStatus SubscriptionStatus?
+  nextStatus     SubscriptionStatus?
+  occurredAt     DateTime                 @default(now())
+  actorUserId    String?
+  metadata       Json?
+
+  @@index([subscriptionId, occurredAt])
 }
 
 model Membership {
@@ -136,6 +300,7 @@ model Invitation {
   invitedByUserId String
   invitedByUser   User         @relation(fields: [invitedByUserId], references: [id], onDelete: Restrict)
   email           String
+  role            MembershipRole @default(EMPLOYEE)
   tokenHash       String       @unique
   expiresAt       DateTime
   acceptedAt      DateTime?
@@ -157,48 +322,125 @@ model AttendanceSite {
   longitude           Float
   allowedRadiusMeters Int
   isActive            Boolean      @default(true)
+  statusChangedAt     DateTime     @default(now())
+  attendances         Attendance[]
+  primaryEmployees    Employee[]   @relation("EmployeePrimarySite")
+  employeeSiteAssignments EmployeeSiteAssignment[]
+  schedules           Schedule[]
+  employeeScheduleAssignments EmployeeScheduleAssignment[]
+  calendarEntries     CalendarEntry[]
+  sanctionRules       SanctionRule[]
+  attendanceSettings  SiteAttendanceSettings?
+  offlineAttendanceSyncRequests OfflineAttendanceSyncRequest[]
+  offlineAttendanceReconciliations OfflineAttendanceReconciliation[]
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 
   @@unique([organizationId, name])
+  @@unique([organizationId, id])
   @@index([organizationId, isActive])
 }
 
 model Employee {
   id                 String          @id @default(uuid())
-  employeeCode       String?         @unique
-  employeeIdentifier String          @unique
+  employeeCode       String?
+  employeeIdentifier String
   pinCode            String?         @unique
   pinCodeHash        String?
   firstName          String
   lastName           String
-  email              String          @unique
+  email              String
   role               String
   accessRole         AccessRole      @default(EMPLOYEE)
   passwordHash       String
   department         String?
   isActive           Boolean         @default(true)
+  v1ScopeStatus      V1OperationalScopeStatus @default(REVIEW_REQUIRED)
+  v1ScopeReasonCode  V1ScopeReasonCode?
+  v1ScopeReviewedAt  DateTime?
   userId             String?
   user               User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
   organizationId     String?
   organization       Organization?   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  primarySiteId      String?
+  primarySite        AttendanceSite? @relation("EmployeePrimarySite", fields: [organizationId, primarySiteId], references: [organizationId, id], onDelete: Restrict)
   scheduleId         String?
   schedule           Schedule?       @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
   attendances        Attendance[]
   calendarEntries    CalendarEntry[]
+  siteAssignments    EmployeeSiteAssignment[]
+  scheduleAssignments EmployeeScheduleAssignment[]
+  offlineAttendanceSyncRequests OfflineAttendanceSyncRequest[]
+  offlineAttendanceReconciliations OfflineAttendanceReconciliation[]
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
 
   @@unique([organizationId, employeeIdentifier])
+  @@unique([organizationId, email])
   @@unique([organizationId, employeeCode])
   @@unique([organizationId, userId])
   @@unique([organizationId, id])
   @@index([organizationId, isActive])
+  @@index([organizationId, primarySiteId, isActive])
+  @@index([organizationId, v1ScopeStatus])
+}
+
+model EmployeeSiteAssignment {
+  id              String       @id @default(uuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  employeeId      String
+  employee        Employee     @relation(fields: [organizationId, employeeId], references: [organizationId, id], onDelete: Restrict)
+  siteId          String
+  site            AttendanceSite @relation(fields: [organizationId, siteId], references: [organizationId, id], onDelete: Restrict)
+  effectiveFrom   DateTime
+  effectiveTo     DateTime?
+  transferReason  String?
+  createdByUserId String?
+  createdByUser   User?        @relation("EmployeeSiteAssignmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  attendances     Attendance[] @relation("AttendanceHistoricalAssignment")
+  scheduleAssignments EmployeeScheduleAssignment[]
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@unique([organizationId, id])
+  @@unique([organizationId, employeeId, siteId, id])
+  @@index([organizationId, employeeId, effectiveFrom])
+  @@index([organizationId, siteId, effectiveFrom])
+}
+
+model EmployeeScheduleAssignment {
+  id                       String                   @id @default(uuid())
+  organizationId           String
+  organization             Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  employeeId               String
+  employee                 Employee                 @relation(fields: [organizationId, employeeId], references: [organizationId, id], onDelete: Restrict)
+  siteId                   String
+  site                     AttendanceSite           @relation(fields: [organizationId, siteId], references: [organizationId, id], onDelete: Restrict)
+  scheduleId               String
+  schedule                 Schedule                 @relation(fields: [organizationId, siteId, scheduleId], references: [organizationId, siteId, id], onDelete: Restrict)
+  employeeSiteAssignmentId String
+  employeeSiteAssignment   EmployeeSiteAssignment   @relation(fields: [organizationId, employeeId, siteId, employeeSiteAssignmentId], references: [organizationId, employeeId, siteId, id], onDelete: Restrict)
+  effectiveFrom            DateTime
+  effectiveTo              DateTime?
+  reason                   String?
+  createdByUserId          String?
+  createdByUser            User?                    @relation("EmployeeScheduleAssignmentCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  v1ScopeStatus            V1OperationalScopeStatus @default(REVIEW_REQUIRED)
+  v1ScopeReasonCode        V1ScopeReasonCode?
+  v1ScopeReviewedAt        DateTime?
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt
+
+  @@unique([organizationId, id])
+  @@index([organizationId, employeeId, effectiveFrom])
+  @@index([organizationId, siteId, effectiveFrom])
+  @@index([organizationId, scheduleId, effectiveFrom])
 }
 
 model Schedule {
   id                    String        @id @default(uuid())
-  name                  String        @unique
+  name                  String
   startTime             String
   endTime               String
   latenessMarginMinutes Int           @default(0)
@@ -206,13 +448,22 @@ model Schedule {
   workDays              Json
   organizationId        String?
   organization          Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  siteId                String?
+  site                  AttendanceSite? @relation(fields: [organizationId, siteId], references: [organizationId, id], onDelete: Restrict)
+  v1ScopeStatus         V1OperationalScopeStatus @default(REVIEW_REQUIRED)
+  v1ScopeReasonCode     V1ScopeReasonCode?
+  v1ScopeReviewedAt     DateTime?
   employees             Employee[]
+  employeeScheduleAssignments EmployeeScheduleAssignment[]
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
 
   @@unique([organizationId, name])
   @@unique([organizationId, id])
+  @@unique([organizationId, siteId, id])
   @@index([organizationId, isActive])
+  @@index([organizationId, siteId, isActive])
+  @@index([organizationId, v1ScopeStatus])
 }
 
 model Attendance {
@@ -221,7 +472,18 @@ model Attendance {
   employee                          Employee                     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   organizationId                    String?
   organization                      Organization?                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  attendanceSiteId                  String?
+  attendanceSite                    AttendanceSite?              @relation(fields: [organizationId, attendanceSiteId], references: [organizationId, id], onDelete: Restrict)
+  employeeSiteAssignmentId          String?
+  employeeSiteAssignment            EmployeeSiteAssignment?      @relation("AttendanceHistoricalAssignment", fields: [organizationId, employeeId, attendanceSiteId, employeeSiteAssignmentId], references: [organizationId, employeeId, siteId, id], onDelete: Restrict)
+  offlineAttendanceSyncRequests     OfflineAttendanceSyncRequest[]
+  v1ScopeStatus                     V1OperationalScopeStatus     @default(REVIEW_REQUIRED)
+  v1ScopeReasonCode                 V1ScopeReasonCode?
+  v1ScopeReviewedAt                 DateTime?
   date                              DateTime
+  /// Calendar interpretation applied when this attendance was recorded.
+  /// Null on historical rows created before this snapshot existed.
+  calendarNonWorkingDaySnapshot     Boolean?
   clockInAt                         DateTime?
   clockOutAt                        DateTime?
   outsideScheduleWork               Boolean                      @default(false)
@@ -249,8 +511,11 @@ model Attendance {
   checkInVerificationMethod         AttendanceVerificationMethod @default(NONE)
   checkInVerificationLevel          AttendanceVerificationLevel  @default(OK)
   checkInVerificationReason         String?
+  checkInSelfieSha256                String?
   checkInVerificationPhoto          String?
   checkInVerificationPhotoPublicId  String?
+  checkInVerificationPhotoDeletedAt DateTime?
+  checkInVerificationPhotoDeletionFailedAt DateTime?
   checkOutLatitude                  Float?
   checkOutLongitude                 Float?
   checkOutAccuracyMeters            Float?
@@ -258,15 +523,24 @@ model Attendance {
   checkOutVerificationMethod        AttendanceVerificationMethod @default(NONE)
   checkOutVerificationLevel         AttendanceVerificationLevel  @default(OK)
   checkOutVerificationReason        String?
+  checkOutSelfieSha256               String?
   checkOutVerificationPhoto         String?
   checkOutVerificationPhotoPublicId String?
+  checkOutVerificationPhotoDeletedAt DateTime?
+  checkOutVerificationPhotoDeletionFailedAt DateTime?
   createdAt                         DateTime                     @default(now())
   updatedAt                         DateTime                     @updatedAt
 
   @@unique([employeeId, date])
   @@unique([organizationId, employeeId, date])
+  @@unique([organizationId, id])
   @@index([date])
   @@index([organizationId, date])
+  @@index([organizationId, attendanceSiteId, date])
+  @@index([organizationId, employeeId, attendanceSiteId, employeeSiteAssignmentId])
+  @@index([organizationId, v1ScopeStatus, date])
+  @@index([organizationId, checkInSelfieSha256])
+  @@index([organizationId, checkOutSelfieSha256])
   @@index([checkInDistanceMeters])
   @@index([checkInVerificationLevel])
   @@index([checkOutDistanceMeters])
@@ -275,6 +549,88 @@ model Attendance {
   @@index([lateExit])
   @@index([overtimeHours])
   @@index([absenceCount])
+}
+
+model OfflineAttendanceSyncRequest {
+  id              String                      @id @default(uuid())
+  organizationId  String
+  organization    Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  employeeId      String
+  employee        Employee                    @relation(fields: [organizationId, employeeId], references: [organizationId, id], onDelete: Restrict)
+  clientRequestId String
+  action          String
+  siteId          String?
+  site            AttendanceSite?             @relation(fields: [organizationId, siteId], references: [organizationId, id], onDelete: Restrict)
+  payloadHash     String
+  capturedAt      DateTime
+  receivedAt      DateTime
+  contextSnapshot Json?
+  status          OfflineAttendanceSyncStatus @default(PROCESSING)
+  attendanceId    String?
+  attendance      Attendance?                 @relation(fields: [organizationId, attendanceId], references: [organizationId, id], onDelete: Restrict)
+  rejectionReason String?
+  reconciliation OfflineAttendanceReconciliation?
+  createdAt       DateTime                    @default(now())
+  updatedAt       DateTime                    @updatedAt
+
+  @@unique([organizationId, clientRequestId])
+  @@unique([organizationId, id])
+  @@index([organizationId, employeeId, capturedAt])
+  @@index([status, updatedAt])
+}
+
+/// Review state is separate from transport/application state on the sync ledger.
+model OfflineAttendanceReconciliation {
+  id                    String                                @id @default(uuid())
+  organizationId        String
+  organization          Organization                          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  syncRequestId         String                                @unique
+  syncRequest           OfflineAttendanceSyncRequest          @relation(fields: [organizationId, syncRequestId], references: [organizationId, id], onDelete: Restrict)
+  employeeId            String
+  employee              Employee                              @relation(fields: [organizationId, employeeId], references: [organizationId, id], onDelete: Restrict)
+  siteId                String?
+  site                  AttendanceSite?                       @relation(fields: [organizationId, siteId], references: [organizationId, id], onDelete: Restrict)
+  reasonCode            String
+  reason                String
+  comments              String?
+  evidenceSnapshot      Json?
+  selfiePublicId        String?
+  selfieMimeType         String?
+  selfieByteSize         Int?
+  selfieSha256           String?
+  selfieDeletedAt        DateTime?
+  selfieDeletionFailedAt DateTime?
+  status                 OfflineAttendanceReconciliationStatus @default(PENDING_REVIEW)
+  decidedByUserId        String?
+  decidedAt              DateTime?
+  decisionReason         String?
+  resultingAttendanceId  String?
+  decisions              OfflineAttendanceReconciliationDecision[]
+  createdAt              DateTime                              @default(now())
+  updatedAt              DateTime                              @updatedAt
+
+  @@unique([organizationId, syncRequestId])
+  @@unique([organizationId, id])
+  @@unique([organizationId, selfieSha256])
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, employeeId, createdAt])
+  @@index([organizationId, siteId, createdAt])
+}
+
+model OfflineAttendanceReconciliationDecision {
+  id                String                                      @id @default(uuid())
+  organizationId    String
+  organization      Organization                                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  reconciliationId  String
+  reconciliation    OfflineAttendanceReconciliation             @relation(fields: [organizationId, reconciliationId], references: [organizationId, id], onDelete: Restrict)
+  actorUserId       String
+  actor             User                                        @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+  decision          OfflineAttendanceReconciliationDecisionType
+  reason            String
+  decidedAt         DateTime                                    @default(now())
+
+  @@index([organizationId, reconciliationId, decidedAt])
+  @@index([actorUserId, decidedAt])
 }
 
 model CalendarEntry {
@@ -287,12 +643,19 @@ model CalendarEntry {
   employee       Employee?         @relation(fields: [employeeId], references: [id], onDelete: SetNull)
   organizationId String?
   organization   Organization?     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  siteId         String?
+  site           AttendanceSite?   @relation(fields: [organizationId, siteId], references: [organizationId, id], onDelete: Restrict)
+  v1ScopeStatus  V1OperationalScopeStatus @default(REVIEW_REQUIRED)
+  v1ScopeReasonCode V1ScopeReasonCode?
+  v1ScopeReviewedAt DateTime?
   isActive       Boolean           @default(true)
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
   @@index([date])
   @@index([organizationId, date])
+  @@index([organizationId, siteId, date])
+  @@index([organizationId, v1ScopeStatus, date])
   @@index([type])
   @@index([employeeId])
 }
@@ -316,11 +679,86 @@ model SanctionRule {
   toleratedReason      String?
   organizationId       String?
   organization         Organization?    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  siteId               String?
+  site                 AttendanceSite?  @relation(fields: [organizationId, siteId], references: [organizationId, id], onDelete: Restrict)
+  v1ScopeStatus        V1OperationalScopeStatus @default(REVIEW_REQUIRED)
+  v1ScopeReasonCode    V1ScopeReasonCode?
+  v1ScopeReviewedAt    DateTime?
   createdAt            DateTime         @default(now())
   updatedAt            DateTime         @updatedAt
 
   @@unique([organizationId, code])
+  @@unique([organizationId, id])
   @@index([type, active])
   @@index([organizationId, type, active])
+  @@index([organizationId, siteId, type, active])
+  @@index([organizationId, v1ScopeStatus])
   @@index([priority])
+}
+
+model SiteAttendanceSettings {
+  id                           String       @id @default(uuid())
+  organizationId               String
+  organization                 Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  siteId                       String
+  site                         AttendanceSite @relation(fields: [organizationId, siteId], references: [organizationId, id], onDelete: Restrict)
+  gpsRequired                  Boolean?
+  selfieRequired               Boolean?
+  defaultLatenessMarginMinutes Int?
+  defaultWorkDays              Json?
+  createdAt                    DateTime     @default(now())
+  updatedAt                    DateTime     @updatedAt
+
+  @@unique([organizationId, siteId])
+}
+
+model MigrationReviewEvent {
+  id                  String                       @id @default(uuid())
+  resourceType        MigrationReviewResourceType
+  resourceId          String
+  organizationId      String?
+  organization        Organization?                @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  previousScopeStatus V1OperationalScopeStatus?
+  nextScopeStatus     V1OperationalScopeStatus
+  action              MigrationReviewAction
+  reasonCode          V1ScopeReasonCode?
+  mappingDecision     Json?
+  manifestVersion     String?
+  actorUserId         String?
+  actorUser           User?                         @relation("MigrationReviewEventActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  metadata            Json?
+  occurredAt          DateTime                      @default(now())
+
+  @@index([resourceType, resourceId, occurredAt])
+  @@index([organizationId, occurredAt])
+  @@index([actorUserId, occurredAt])
+}
+
+/// Durable record for high-impact platform actions. Database triggers make it
+/// append-only; tenant operational audit logging remains intentionally separate.
+model PlatformAuditEvent {
+  id             String        @id @default(uuid())
+  actorUserId    String
+  actorUser      User          @relation("PlatformAuditEventActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  action         String
+  resource       String
+  resourceId     String?
+  metadata       Json?
+  occurredAt     DateTime      @default(now())
+
+  @@index([actorUserId, occurredAt])
+  @@index([organizationId, occurredAt])
+  @@index([resource, resourceId, occurredAt])
+}
+
+/// Durable upload intent written before contacting the provider. Cleared atomically
+/// with reconciliation intake; abandoned intents are retried by evidence retention.
+model ReconciliationEvidenceUpload {
+  id             String   @id @default(uuid())
+  publicId       String   @unique
+  createdAt      DateTime @default(now())
+
+  @@index([createdAt])
 }

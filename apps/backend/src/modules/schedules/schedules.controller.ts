@@ -7,12 +7,12 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
-import { AccessRole } from '@prisma/client';
+import { AccessRole, MembershipRole } from '@prisma/client';
 import { AuditLogService } from '../../common/audit/audit-log.service';
-import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { CurrentActor } from '../auth/decorators/current-actor.decorator';
 import { CurrentAuthentication } from '../auth/decorators/current-authentication.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
+import { AuthorizationActor } from '../auth/interfaces/authorization-actor.interface';
 import { AuthenticationContext } from '../auth/interfaces/authentication-context.interface';
 import { CreateScheduleDto } from './dto/create-schedule.dto';
 import { UpdateScheduleDto } from './dto/update-schedule.dto';
@@ -28,11 +28,13 @@ export class SchedulesController {
   ) {}
 
   @Get()
+  @Roles(AccessRole.ADMIN, MembershipRole.ADMIN)
   findAll(@CurrentAuthentication() authentication: AuthenticationContext) {
     return this.schedulesService.findAll(authentication);
   }
 
   @Get(':id')
+  @Roles(AccessRole.ADMIN, MembershipRole.ADMIN)
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentAuthentication() authentication: AuthenticationContext,
@@ -42,14 +44,17 @@ export class SchedulesController {
 
   @Post()
   async create(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentActor() actor: AuthorizationActor,
     @CurrentAuthentication() authentication: AuthenticationContext,
     @Body() createScheduleDto: CreateScheduleDto,
   ) {
-    const schedule = await this.schedulesService.create(createScheduleDto, authentication);
+    const schedule = await this.schedulesService.create(
+      createScheduleDto,
+      authentication,
+    );
 
     this.auditLogService.logAdminAction({
-      actor: user,
+      actor,
       action: 'schedule.create',
       resource: 'schedule',
       resourceId: schedule.id,
@@ -67,15 +72,19 @@ export class SchedulesController {
 
   @Patch(':id')
   async update(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentActor() actor: AuthorizationActor,
     @CurrentAuthentication() authentication: AuthenticationContext,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateScheduleDto: UpdateScheduleDto,
   ) {
-    const schedule = await this.schedulesService.update(id, updateScheduleDto, authentication);
+    const schedule = await this.schedulesService.update(
+      id,
+      updateScheduleDto,
+      authentication,
+    );
 
     this.auditLogService.logAdminAction({
-      actor: user,
+      actor,
       action: 'schedule.update',
       resource: 'schedule',
       resourceId: id,
@@ -89,7 +98,7 @@ export class SchedulesController {
 
   @Patch(':id/status')
   async updateStatus(
-    @CurrentUser() user: AuthenticatedUser,
+    @CurrentActor() actor: AuthorizationActor,
     @CurrentAuthentication() authentication: AuthenticationContext,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateScheduleStatusDto: UpdateScheduleStatusDto,
@@ -101,7 +110,7 @@ export class SchedulesController {
     );
 
     this.auditLogService.logAdminAction({
-      actor: user,
+      actor,
       action: 'schedule.status.update',
       resource: 'schedule',
       resourceId: id,

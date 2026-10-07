@@ -1,6 +1,4 @@
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { cn } from '@/lib/utils';
+import { Card, CardContent } from '@/components/ui/card';
 
 type MetricCardProps = {
   label: string;
@@ -10,87 +8,22 @@ type MetricCardProps = {
   tone: 'default' | 'outline' | 'success' | 'warning' | 'danger' | 'purple';
 };
 
-export function MetricCard({
-  hint,
-  label,
-  periodLabel = "Aujourd'hui",
-  tone,
-  value,
-}: MetricCardProps) {
-  const toneMeta = {
-    default: {
-      label: 'Operations',
-      panel: 'border-primary/15 bg-primary/10 text-primary',
-      surface: 'border-primary/10 bg-white/95',
-      accent: 'bg-primary',
-    },
-    outline: {
-      label: 'Coverage',
-      panel: 'border-slate-200 bg-slate-100 text-slate-600',
-      surface: 'border-slate-200 bg-white/95',
-      accent: 'bg-slate-400',
-    },
-    success: {
-      label: 'Healthy',
-      panel: 'border-success/15 bg-success/10 text-success',
-      surface: 'border-success/15 bg-white/95',
-      accent: 'bg-success',
-    },
-    warning: {
-      label: 'Attention',
-      panel: 'border-accent/15 bg-accent/10 text-accent',
-      surface: 'border-accent/15 bg-white/95',
-      accent: 'bg-accent',
-    },
-    danger: {
-      label: 'Alerte',
-      panel: 'border-red-500/15 bg-red-50 text-red-700',
-      surface: 'border-red-500/15 bg-white/95',
-      accent: 'bg-red-600',
-    },
-    purple: {
-      label: 'Sorties',
-      panel: 'border-purple-500/15 bg-purple-50 text-purple-700',
-      surface: 'border-purple-500/15 bg-white/95',
-      accent: 'bg-purple-600',
-    },
-  }[tone];
+const valueTone = {
+  default: 'text-slate-950',
+  outline: 'text-slate-950',
+  success: 'text-emerald-700',
+  warning: 'text-amber-700',
+  danger: 'text-red-700',
+  purple: 'text-purple-700',
+};
 
+export function MetricCard({ hint, label, periodLabel = "Aujourd'hui", tone, value }: MetricCardProps) {
   return (
-    <Card
-      className={cn(
-        'group overflow-hidden rounded-[22px] border shadow-[0_12px_28px_rgba(15,45,58,0.06)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_18px_36px_rgba(15,45,58,0.10)]',
-        toneMeta.surface,
-      )}
-    >
-      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0 p-4 pb-2">
-        <div className="space-y-1">
-          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500">
-            {label}
-          </p>
-          <CardTitle className="text-xs font-semibold leading-5 text-slate-500">
-            {periodLabel}
-          </CardTitle>
-        </div>
-        <Badge className={toneMeta.panel} variant="outline">
-          {toneMeta.label}
-        </Badge>
-      </CardHeader>
-
-      <CardContent className="space-y-2 px-4 pb-4 pt-0">
-        <div className="text-3xl font-black tracking-tight text-slate-950">
-          {value}
-        </div>
-        <div className="h-1 w-14 overflow-hidden rounded-full bg-slate-200">
-          <div
-            className={cn(
-              'h-full rounded-full transition-all duration-300 group-hover:w-full',
-              toneMeta.accent,
-              tone === 'outline' ? 'w-5' : 'w-9',
-            )}
-          />
-        </div>
-        <p className="text-sm leading-5 text-slate-600">{hint}</p>
+    <Card className="rounded-xl border-slate-200 bg-white shadow-none">
+      <CardContent className="p-3">
+        <p className="text-xs font-medium text-slate-500">{label} · {periodLabel}</p>
+        <p className={`mt-1 text-2xl font-bold leading-none ${valueTone[tone]}`}>{value}</p>
+        <p className="mt-1 text-xs text-slate-500">{hint}</p>
       </CardContent>
     </Card>
   );

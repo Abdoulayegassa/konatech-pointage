@@ -23,15 +23,15 @@ export default function EmployeesErrorPage({
           <CardHeader className="space-y-4 border-b border-slate-200/80 pb-5">
             <div className="flex flex-wrap items-center gap-3">
               <Badge variant="warning">Erreur de rendu</Badge>
-              <Badge variant="outline">Employés</Badge>
+              <Badge variant="outline">Équipe</Badge>
             </div>
             <CardTitle className="text-2xl text-slate-950">
-              La gestion des employés n&apos;a pas pu s&apos;afficher
+              La gestion de l&apos;équipe n&apos;a pas pu s&apos;afficher
               correctement
             </CardTitle>
             <p className="max-w-2xl text-sm leading-6 text-slate-600">
-              Une erreur inattendue a interrompu le chargement des données des
-              employés. Aucune action n&apos;a été appliquée.
+              Une erreur inattendue a interrompu le chargement des membres,
+              invitations ou employés. Aucune action n&apos;a été appliquée.
             </p>
           </CardHeader>
           <CardContent className="space-y-5 pt-5 text-sm leading-6 text-slate-600">

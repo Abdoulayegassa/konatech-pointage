@@ -11,6 +11,7 @@ import {
   Max,
   MaxLength,
   Min,
+  IsUUID,
 } from 'class-validator';
 
 const workDays = [
@@ -24,6 +25,10 @@ const workDays = [
 ] as const;
 
 export class CreateScheduleDto {
+  @IsOptional()
+  @IsUUID()
+  siteId?: string;
+
   @IsString()
   @MaxLength(80)
   name!: string;
@@ -44,6 +49,7 @@ export class CreateScheduleDto {
   @IsBoolean()
   isActive?: boolean;
 
+  @IsOptional()
   @IsArray()
   @ArrayMinSize(1)
   @ArrayUnique()

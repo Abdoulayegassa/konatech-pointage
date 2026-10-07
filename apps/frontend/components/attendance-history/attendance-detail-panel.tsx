@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 type AttendanceDetailPanelProps = {
   onClose: () => void;
   record: AttendanceRecord | null;
+  timeZone?: string;
 };
 
 type Tone = 'success' | 'warning' | 'danger' | 'purple' | 'info' | 'muted';
@@ -119,10 +120,11 @@ function formatDate(value: string) {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
+    timeZone: 'UTC',
   });
 }
 
-function formatDateTime(value?: string | null) {
+function formatDateTime(value?: string | null, timeZone?: string) {
   if (!value) {
     return '--';
   }
@@ -133,10 +135,11 @@ function formatDateTime(value?: string | null) {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone,
   });
 }
 
-function formatTime(value: string | null) {
+function formatTime(value: string | null, timeZone?: string) {
   if (!value) {
     return '--';
   }
@@ -144,6 +147,7 @@ function formatTime(value: string | null) {
   return new Date(value).toLocaleTimeString('fr-FR', {
     hour: '2-digit',
     minute: '2-digit',
+    timeZone,
   });
 }
 
@@ -183,7 +187,9 @@ function formatSanctionReason(reason: string) {
     return 'Tolérance mensuelle déjà utilisée.';
   }
 
-  if (normalizedReason === 'Prepared for future configuration; inactive in V1.') {
+  if (
+    normalizedReason === 'Prepared for future configuration; inactive in V1.'
+  ) {
     return 'Règle prévue pour une configuration ultérieure.';
   }
 
@@ -241,7 +247,10 @@ function getStatusMeta(record: AttendanceRecord): {
     return { label: 'Absent', tone: 'danger' };
   }
 
-  if (record.status === 'INCOMPLETE' || (record.clockInAt && !record.clockOutAt)) {
+  if (
+    record.status === 'INCOMPLETE' ||
+    (record.clockInAt && !record.clockOutAt)
+  ) {
     return { label: 'Pointage incomplet', tone: 'muted' };
   }
 
@@ -349,7 +358,8 @@ function hasGpsVerification(record: AttendanceRecord) {
 function getGpsDetails(record: AttendanceRecord) {
   const latitude = record.checkInLatitude ?? record.checkOutLatitude;
   const longitude = record.checkInLongitude ?? record.checkOutLongitude;
-  const accuracy = record.checkInAccuracyMeters ?? record.checkOutAccuracyMeters;
+  const accuracy =
+    record.checkInAccuracyMeters ?? record.checkOutAccuracyMeters;
 
   return { accuracy, latitude, longitude };
 }
@@ -402,8 +412,11 @@ function getGpsEvidenceState(record: AttendanceRecord): {
   };
 }
 
-function getSelfieUrl(record: AttendanceRecord) {
-  return record.checkInVerificationPhoto ?? record.checkOutVerificationPhoto;
+function hasSelfieEvidence(record: AttendanceRecord) {
+  return Boolean(
+    record.checkInVerificationReason?.includes('SELFIE') ||
+      record.checkOutVerificationReason?.includes('SELFIE'),
+  );
 }
 
 function DetailSection({
@@ -430,13 +443,7 @@ function DetailSection({
   );
 }
 
-function DetailRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: ReactNode;
-}) {
+function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-4 border-b border-slate-100 py-2 last:border-b-0">
       <p className="text-sm font-bold text-slate-500">{label}</p>
@@ -447,13 +454,7 @@ function DetailRow({
   );
 }
 
-function MetricBadge({
-  children,
-  tone,
-}: {
-  children: string;
-  tone: Tone;
-}) {
+function MetricBadge({ children, tone }: { children: string; tone: Tone }) {
   return (
     <span
       className={cn(
@@ -581,7 +582,10 @@ function SanctionDetailCard({ sanction }: { sanction: SanctionResult }) {
           value={getSanctionDecisionLabel(sanction.status)}
         />
         <DetailRow label="Montant" value={formatMoney(sanction.amount)} />
-        <DetailRow label="Règle" value={formatSanctionReason(sanction.reason)} />
+        <DetailRow
+          label="Règle"
+          value={formatSanctionReason(sanction.reason)}
+        />
         <DetailRow
           label="Statut"
           value={getSanctionStatusLabel(sanction.status)}
@@ -594,11 +598,17 @@ function SanctionDetailCard({ sanction }: { sanction: SanctionResult }) {
 export function AttendanceDetailPanel({
   onClose,
   record,
+  timeZone,
 }: AttendanceDetailPanelProps) {
   const [sanctionState, setSanctionState] = useState<SanctionRequestState>({
     status: 'idle',
     data: null,
   });
+  const [selfieUnavailable, setSelfieUnavailable] = useState(false);
+
+  useEffect(() => {
+    setSelfieUnavailable(false);
+  }, [record?.id]);
 
   useEffect(() => {
     if (!record?.id) {
@@ -670,12 +680,13 @@ export function AttendanceDetailPanel({
   const gpsEvidence = getGpsEvidenceState(record);
   const compliance = getComplianceLevel(record);
   const gpsDetails = getGpsDetails(record);
-  const selfieUrl = getSelfieUrl(record);
+  const selfieAvailable = hasSelfieEvidence(record) && !selfieUnavailable;
+  const selfieUrl = `/api/attendance/history/${record.id}/selfie`;
   const hasScheduleInfo = Boolean(
     record.scheduleNameSnapshot ||
-      record.scheduleStartTimeSnapshot ||
-      record.scheduleEndTimeSnapshot ||
-      typeof record.scheduleLatenessMarginSnapshot === 'number',
+    record.scheduleStartTimeSnapshot ||
+    record.scheduleEndTimeSnapshot ||
+    typeof record.scheduleLatenessMarginSnapshot === 'number',
   );
 
   return (
@@ -807,8 +818,14 @@ export function AttendanceDetailPanel({
 
           <DetailSection title="Horaires de pointage">
             <DetailRow label="Type" value={getAttendanceType(record)} />
-            <DetailRow label="Heure d'entrée" value={formatTime(record.clockInAt)} />
-            <DetailRow label="Heure de sortie" value={formatTime(record.clockOutAt)} />
+            <DetailRow
+              label="Heure d'entrée"
+              value={formatTime(record.clockInAt, timeZone)}
+            />
+            <DetailRow
+              label="Heure de sortie"
+              value={formatTime(record.clockOutAt, timeZone)}
+            />
           </DetailSection>
 
           <DetailSection title="Planning appliqué">
@@ -827,7 +844,7 @@ export function AttendanceDetailPanel({
                   value={
                     record.scheduleEndTimeSnapshot ??
                     (record.scheduledExitTime
-                      ? formatTime(record.scheduledExitTime)
+                      ? formatTime(record.scheduledExitTime, timeZone)
                       : 'Indisponible')
                   }
                 />
@@ -891,11 +908,12 @@ export function AttendanceDetailPanel({
             <p className="text-sm font-black text-slate-700">
               Selfie de vérification
             </p>
-            {selfieUrl ? (
+            {selfieAvailable ? (
               <img
                 alt="Selfie de vérification du pointage"
                 className="max-h-[360px] w-full rounded-[22px] object-cover shadow-[0_18px_42px_rgba(15,45,58,0.12)]"
                 src={selfieUrl}
+                onError={() => setSelfieUnavailable(true)}
               />
             ) : (
               <p className="rounded-[18px] border border-dashed border-slate-300 bg-slate-50/80 px-4 py-8 text-center text-sm font-bold text-slate-600">
@@ -905,10 +923,13 @@ export function AttendanceDetailPanel({
           </DetailSection>
 
           <DetailSection title="Audit technique">
-            <DetailRow label="Date de création" value={formatDateTime(record.createdAt)} />
+            <DetailRow
+              label="Date de création"
+              value={formatDateTime(record.createdAt, timeZone)}
+            />
             <DetailRow
               label="Dernière mise à jour"
-              value={formatDateTime(record.updatedAt)}
+              value={formatDateTime(record.updatedAt, timeZone)}
             />
             <DetailRow label="Identifiant du pointage" value={record.id} />
           </DetailSection>

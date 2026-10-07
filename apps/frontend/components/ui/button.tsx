@@ -3,7 +3,7 @@ import type { ButtonHTMLAttributes } from 'react';
 import { cn } from '@/lib/utils';
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center rounded-2xl text-sm font-semibold transition-all duration-300 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20 focus-visible:ring-offset-2 active:scale-[0.985] disabled:pointer-events-none disabled:opacity-55 motion-reduce:transform-none motion-reduce:transition-none',
+  'admin-button inline-flex items-center justify-center rounded-2xl text-sm font-semibold transition-all duration-300 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/20 focus-visible:ring-offset-2 active:scale-[0.985] disabled:pointer-events-none disabled:opacity-55 motion-reduce:transform-none motion-reduce:transition-none',
   {
     variants: {
       variant: {
@@ -13,11 +13,13 @@ const buttonVariants = cva(
           'border border-border bg-white/92 text-foreground shadow-[0_10px_24px_rgba(15,45,58,0.07)] hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_16px_30px_rgba(15,45,58,0.12)]',
         ghost:
           'border border-transparent bg-transparent text-slate-600 shadow-none hover:-translate-y-0.5 hover:bg-white/80 hover:text-slate-950 hover:shadow-[0_10px_24px_rgba(15,45,58,0.08)]',
+        destructive: 'border border-transparent bg-danger text-white hover:bg-danger/90',
       },
       size: {
         default: 'px-5 py-3',
         sm: 'px-3.5 py-2.5 text-xs',
         lg: 'px-5 py-4 text-base',
+        icon: 'h-10 w-10 p-0',
       },
     },
     defaultVariants: {
@@ -28,14 +30,17 @@ const buttonVariants = cva(
 );
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> &
-  VariantProps<typeof buttonVariants>;
+  VariantProps<typeof buttonVariants> & { loading?: boolean };
 
-function Button({ className, size, variant, ...props }: ButtonProps) {
+function Button({ className, size, variant, loading = false, children, disabled, ...props }: ButtonProps) {
   return (
     <button
+      data-variant={variant ?? 'default'}
       className={cn(buttonVariants({ size, variant }), className)}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
       {...props}
-    />
+    >{loading ? <><span aria-hidden="true" className="mr-2 inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-r-transparent" />{children ?? 'Chargement…'}</> : children}</button>
   );
 }
 

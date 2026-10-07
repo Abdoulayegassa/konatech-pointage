@@ -10,6 +10,7 @@ export type LegacyJwtPayload = JwtBasePayload & {
 export type AccountJwtPayload = JwtBasePayload & {
   membershipId: string;
   organizationId: string;
+  sessionBinding: string;
   purpose: 'account';
   userVersion: number;
   membershipVersion: number;
@@ -18,18 +19,48 @@ export type AccountJwtPayload = JwtBasePayload & {
 export type AttendanceEntryJwtPayload = JwtBasePayload & {
   organizationId: string;
   attendanceSiteId: string;
+  sessionBinding: string;
   purpose: 'attendance_entry';
+};
+
+export type OrganizationSelectionJwtPayload = JwtBasePayload & {
+  sub: string;
+  purpose: 'organization_selection';
+  userVersion: number;
+  candidates: Array<{
+    organizationId: string;
+    membershipId: string;
+    membershipVersion: number;
+  }>;
+};
+
+export type PlatformJwtPayload = JwtBasePayload & {
+  purpose: 'platform';
+  platformAdminId: string;
+  userVersion: number;
+  platformAdminVersion: number;
+};
+
+export type OfflineAttendanceContextJwtPayload = JwtBasePayload & {
+  purpose: 'offline_attendance_context';
+  context: Record<string, unknown>;
 };
 
 export type JwtPayload =
   | LegacyJwtPayload
   | AccountJwtPayload
-  | AttendanceEntryJwtPayload;
+  | AttendanceEntryJwtPayload
+  | OrganizationSelectionJwtPayload
+  | PlatformJwtPayload
+  | OfflineAttendanceContextJwtPayload;
 
 export type SignableJwtPayload =
   | Omit<LegacyJwtPayload, 'iat' | 'exp'>
   | Omit<AccountJwtPayload, 'iat' | 'exp'>
-  | Omit<AttendanceEntryJwtPayload, 'iat' | 'exp'>;
+  | Omit<AttendanceEntryJwtPayload, 'iat' | 'exp'>
+  | Omit<OrganizationSelectionJwtPayload, 'iat' | 'exp'>
+  | Omit<PlatformJwtPayload, 'iat' | 'exp'>
+  | Omit<OfflineAttendanceContextJwtPayload, 'iat' | 'exp'>;
 
 const DURATION_MULTIPLIERS: Record<string, number> = {
   s: 1,
@@ -90,7 +121,7 @@ function isPositiveInteger(value: unknown): value is number {
   return Number.isInteger(value) && Number(value) > 0;
 }
 
-function parseAndValidatePayload(value: string): JwtPayload {
+function parseAndValidatePayload(value: string, allowExpired = false): JwtPayload {
   const payload: unknown = JSON.parse(decodeBase64Url(value));
 
   if (
@@ -102,7 +133,7 @@ function parseAndValidatePayload(value: string): JwtPayload {
     throw new Error('Invalid JWT payload.');
   }
 
-  if (payload.exp <= Math.floor(Date.now() / 1000)) {
+  if (!allowExpired && payload.exp <= Math.floor(Date.now() / 1000)) {
     throw new Error('JWT token has expired.');
   }
 
@@ -118,6 +149,7 @@ function parseAndValidatePayload(value: string): JwtPayload {
     if (
       !isNonEmptyString(payload.membershipId) ||
       !isNonEmptyString(payload.organizationId) ||
+      !isNonEmptyString(payload.sessionBinding) ||
       !isPositiveInteger(payload.userVersion) ||
       !isPositiveInteger(payload.membershipVersion)
     ) {
@@ -130,12 +162,62 @@ function parseAndValidatePayload(value: string): JwtPayload {
   if (payload.purpose === 'attendance_entry') {
     if (
       !isNonEmptyString(payload.organizationId) ||
-      !isNonEmptyString(payload.attendanceSiteId)
+      !isNonEmptyString(payload.attendanceSiteId) ||
+      !isNonEmptyString(payload.sessionBinding)
     ) {
       throw new Error('Invalid attendance-entry JWT payload.');
     }
 
     return payload as AttendanceEntryJwtPayload;
+  }
+
+  if (payload.purpose === 'platform') {
+    if (
+      !isNonEmptyString(payload.platformAdminId) ||
+      !isPositiveInteger(payload.userVersion) ||
+      !isPositiveInteger(payload.platformAdminVersion)
+    ) {
+      throw new Error('Invalid platform JWT payload.');
+    }
+    return payload as PlatformJwtPayload;
+  }
+
+  if (payload.purpose === 'offline_attendance_context') {
+    if (!isRecord(payload.context) || payload.exp <= payload.iat) {
+      throw new Error('Invalid offline-attendance context payload.');
+    }
+    return payload as OfflineAttendanceContextJwtPayload;
+  }
+
+  if (payload.purpose === 'organization_selection') {
+    if (
+      !isPositiveInteger(payload.userVersion) ||
+      !Array.isArray(payload.candidates) ||
+      payload.candidates.length < 2 ||
+      payload.exp <= payload.iat
+    ) {
+      throw new Error('Invalid organization-selection JWT payload.');
+    }
+
+    const candidateKeys = new Set<string>();
+    for (const candidate of payload.candidates) {
+      if (
+        !isRecord(candidate) ||
+        !isNonEmptyString(candidate.organizationId) ||
+        !isNonEmptyString(candidate.membershipId) ||
+        !isPositiveInteger(candidate.membershipVersion)
+      ) {
+        throw new Error('Invalid organization-selection JWT payload.');
+      }
+
+      const candidateKey = `${candidate.organizationId}\u0000${candidate.membershipId}`;
+      if (candidateKeys.has(candidateKey)) {
+        throw new Error('Invalid organization-selection JWT payload.');
+      }
+      candidateKeys.add(candidateKey);
+    }
+
+    return payload as OrganizationSelectionJwtPayload;
   }
 
   throw new Error('Invalid JWT purpose.');
@@ -151,6 +233,18 @@ export function isAccountJwtPayload(
   payload: JwtPayload,
 ): payload is AccountJwtPayload {
   return payload.purpose === 'account';
+}
+
+export function isPlatformJwtPayload(
+  payload: JwtPayload,
+): payload is PlatformJwtPayload {
+  return payload.purpose === 'platform';
+}
+
+export function isOrganizationSelectionJwtPayload(
+  payload: JwtPayload,
+): payload is OrganizationSelectionJwtPayload {
+  return payload.purpose === 'organization_selection';
 }
 
 export function signJwtToken(
@@ -172,7 +266,11 @@ export function signJwtToken(
   return `${header}.${body}.${signature}`;
 }
 
-export function verifyJwtToken(token: string, secret: string): JwtPayload {
+export function verifyJwtToken(
+  token: string,
+  secret: string,
+  options: { allowExpired?: boolean } = {},
+): JwtPayload {
   const segments = token.split('.');
 
   if (segments.length !== 3 || segments.some((segment) => !segment)) {
@@ -201,5 +299,5 @@ export function verifyJwtToken(token: string, secret: string): JwtPayload {
     throw new Error('Invalid JWT header.');
   }
 
-  return parseAndValidatePayload(payload);
+  return parseAndValidatePayload(payload, options.allowExpired);
 }

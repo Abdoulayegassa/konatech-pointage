@@ -69,6 +69,7 @@ function createService(prisma = createPrismaMock()) {
     get: jest.fn((key: string) => {
       if (key === 'JWT_EXPIRES_IN') return '1d';
       if (key === 'ATTENDANCE_ENTRY_JWT_EXPIRES_IN') return '15m';
+      if (key === 'ORGANIZATION_SELECTION_JWT_EXPIRES_IN') return '5m';
       return undefined;
     }),
   };
@@ -103,6 +104,7 @@ function accountToken(overrides: Record<string, unknown> = {}) {
       purpose: 'account',
       userVersion: 1,
       membershipVersion: 1,
+      sessionBinding: '11111111-1111-4111-8111-111111111111',
       ...overrides,
     } as unknown as SignableJwtPayload,
     secret,
@@ -117,10 +119,36 @@ function attendanceEntryToken(overrides: Record<string, unknown> = {}) {
       organizationId: 'organization-1',
       attendanceSiteId: 'site-1',
       purpose: 'attendance_entry',
+      sessionBinding: '22222222-2222-4222-8222-222222222222',
       ...overrides,
     } as unknown as SignableJwtPayload,
     secret,
     '15m',
+  );
+}
+
+function organizationSelectionToken(overrides: Record<string, unknown> = {}) {
+  return signJwtToken(
+    {
+      sub: 'user-1',
+      purpose: 'organization_selection',
+      userVersion: 1,
+      candidates: [
+        {
+          organizationId: 'organization-1',
+          membershipId: 'membership-1',
+          membershipVersion: 1,
+        },
+        {
+          organizationId: 'organization-2',
+          membershipId: 'membership-2',
+          membershipVersion: 2,
+        },
+      ],
+      ...overrides,
+    } as unknown as SignableJwtPayload,
+    secret,
+    '5m',
   );
 }
 
@@ -146,7 +174,7 @@ function prepareValidAccount(prisma: ReturnType<typeof createPrismaMock>) {
     id: 'membership-1',
     userId: 'user-1',
     organizationId: 'organization-1',
-    role: MembershipRole.OWNER,
+    role: MembershipRole.ADMIN,
     status: MembershipStatus.ACTIVE,
     membershipVersion: 1,
   });
@@ -175,7 +203,7 @@ function createRolesGuard(requiredRole: AccessRole) {
 
 describe('Phase 1C.2 authentication foundation', () => {
   describe('JWT validation', () => {
-    it('accepts valid legacy, account and attendance-entry payloads', () => {
+    it('accepts valid session and organization-selection payloads', () => {
       expect(verifyJwtToken(legacyToken(), secret)).toMatchObject({
         sub: 'employee-1',
         email: 'awa@example.com',
@@ -188,6 +216,88 @@ describe('Phase 1C.2 authentication foundation', () => {
         purpose: 'attendance_entry',
         attendanceSiteId: 'site-1',
       });
+      expect(
+        verifyJwtToken(organizationSelectionToken(), secret),
+      ).toMatchObject({
+        purpose: 'organization_selection',
+        sub: 'user-1',
+        userVersion: 1,
+        candidates: expect.arrayContaining([
+          expect.objectContaining({ membershipId: 'membership-1' }),
+        ]),
+      });
+    });
+
+    it.each([
+      ['invalid userVersion', { userVersion: 0 }],
+      ['missing candidates', { candidates: undefined }],
+      ['too few candidates', { candidates: [] }],
+      [
+        'malformed candidate',
+        {
+          candidates: [
+            {
+              organizationId: '',
+              membershipId: 'membership-1',
+              membershipVersion: 1,
+            },
+            {
+              organizationId: 'organization-2',
+              membershipId: 'membership-2',
+              membershipVersion: 2,
+            },
+          ],
+        },
+      ],
+      [
+        'duplicate candidates',
+        {
+          candidates: [
+            {
+              organizationId: 'organization-1',
+              membershipId: 'membership-1',
+              membershipVersion: 1,
+            },
+            {
+              organizationId: 'organization-1',
+              membershipId: 'membership-1',
+              membershipVersion: 1,
+            },
+          ],
+        },
+      ],
+    ])('rejects organization-selection payload with %s', (_label, override) => {
+      expect(() =>
+        verifyJwtToken(organizationSelectionToken(override), secret),
+      ).toThrow('Invalid organization-selection JWT payload.');
+    });
+
+    it('rejects an organization-selection challenge whose exp is not after iat', () => {
+      const now = Math.floor(Date.now() / 1000);
+      expect(() =>
+        verifyJwtToken(
+          forgeToken({
+            sub: 'user-1',
+            purpose: 'organization_selection',
+            userVersion: 1,
+            candidates: [
+              {
+                organizationId: 'organization-1',
+                membershipId: 'membership-1',
+                membershipVersion: 1,
+              },
+              {
+                organizationId: 'organization-2',
+                membershipId: 'membership-2',
+                membershipVersion: 1,
+              },
+            ],
+            iat: now + 60,
+            exp: now + 30,
+          }),
+          secret,
+        ),
+      ).toThrow('Invalid organization-selection JWT payload.');
     });
 
     it.each([
@@ -205,13 +315,23 @@ describe('Phase 1C.2 authentication foundation', () => {
 
       expect(() =>
         verifyJwtToken(
-          forgeToken({ sub: 'user-1', iat: now, exp: 'later', purpose: 'account' }),
+          forgeToken({
+            sub: 'user-1',
+            iat: now,
+            exp: 'later',
+            purpose: 'account',
+          }),
           secret,
         ),
       ).toThrow();
       expect(() =>
         verifyJwtToken(
-          forgeToken({ sub: 'user-1', iat: now, exp: now + 60, purpose: 'admin' }),
+          forgeToken({
+            sub: 'user-1',
+            iat: now,
+            exp: now + 60,
+            purpose: 'admin',
+          }),
           secret,
         ),
       ).toThrow('Invalid JWT purpose.');
@@ -240,7 +360,7 @@ describe('Phase 1C.2 authentication foundation', () => {
       'preserves the legacy %s role',
       async (accessRole) => {
         const { prisma, service } = createService();
-        prisma.employee.findUnique.mockResolvedValue(employee({ accessRole }));
+        prisma.employee.findFirst.mockResolvedValue(employee({ accessRole }));
 
         const result = await service.getAuthenticationFromToken(legacyToken());
 
@@ -257,13 +377,31 @@ describe('Phase 1C.2 authentication foundation', () => {
       'rejects a missing or inactive Employee',
       async (record) => {
         const { prisma, service } = createService();
-        prisma.employee.findUnique.mockResolvedValue(record);
+        prisma.employee.findFirst.mockResolvedValue(record);
 
         await expect(
           service.getAuthenticationFromToken(legacyToken()),
         ).rejects.toBeInstanceOf(UnauthorizedException);
       },
     );
+
+    it('revalidates the Legacy namespace from the current Employee state', async () => {
+      const { prisma, service } = createService();
+      prisma.employee.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.getAuthenticationFromToken(legacyToken()),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(prisma.employee.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            id: 'employee-1',
+            organizationId: null,
+            userId: null,
+          },
+        }),
+      );
+    });
 
     it('rejects an invalid legacy token', async () => {
       const { service } = createService();
@@ -292,9 +430,11 @@ describe('Phase 1C.2 authentication foundation', () => {
         userId: 'user-1',
         membershipId: 'membership-1',
         organizationId: 'organization-1',
-        membershipRole: MembershipRole.OWNER,
+        membershipRole: MembershipRole.ADMIN,
         employeeId: 'employee-1',
         attendanceSiteId: null,
+        sessionBinding: '11111111-1111-4111-8111-111111111111',
+        platformAdminId: null,
       });
     });
 
@@ -312,11 +452,26 @@ describe('Phase 1C.2 authentication foundation', () => {
     it.each([
       ['disabled User', () => ({ user: { status: UserStatus.DISABLED } })],
       ['user version mismatch', () => ({ user: { userVersion: 2 } })],
-      ['suspended Membership', () => ({ membership: { status: MembershipStatus.SUSPENDED } })],
-      ['membership version mismatch', () => ({ membership: { membershipVersion: 2 } })],
-      ['Membership for another User', () => ({ membership: { userId: 'user-2' } })],
-      ['Membership for another Organization', () => ({ membership: { organizationId: 'organization-2' } })],
-      ['inactive Organization', () => ({ organization: { status: OrganizationStatus.SUSPENDED } })],
+      [
+        'suspended Membership',
+        () => ({ membership: { status: MembershipStatus.SUSPENDED } }),
+      ],
+      [
+        'membership version mismatch',
+        () => ({ membership: { membershipVersion: 2 } }),
+      ],
+      [
+        'Membership for another User',
+        () => ({ membership: { userId: 'user-2' } }),
+      ],
+      [
+        'Membership for another Organization',
+        () => ({ membership: { organizationId: 'organization-2' } }),
+      ],
+      [
+        'inactive Organization',
+        () => ({ organization: { status: OrganizationStatus.SUSPENDED } }),
+      ],
     ])('rejects %s', async (_label, buildOverride) => {
       const { prisma, service } = createService();
       prepareValidAccount(prisma);
@@ -324,14 +479,21 @@ describe('Phase 1C.2 authentication foundation', () => {
 
       if ('user' in override) {
         prisma.user.findUnique.mockResolvedValue({
-          id: 'user-1', status: UserStatus.ACTIVE, userVersion: 1, ...override.user,
+          id: 'user-1',
+          status: UserStatus.ACTIVE,
+          userVersion: 1,
+          ...override.user,
         });
       }
       if ('membership' in override) {
         prisma.membership.findUnique.mockResolvedValue({
-          id: 'membership-1', userId: 'user-1', organizationId: 'organization-1',
-          role: MembershipRole.OWNER, status: MembershipStatus.ACTIVE,
-          membershipVersion: 1, ...override.membership,
+          id: 'membership-1',
+          userId: 'user-1',
+          organizationId: 'organization-1',
+          role: MembershipRole.ADMIN,
+          status: MembershipStatus.ACTIVE,
+          membershipVersion: 1,
+          ...override.membership,
         });
       }
       if ('organization' in override) {
@@ -361,6 +523,14 @@ describe('Phase 1C.2 authentication foundation', () => {
   });
 
   describe('purpose isolation', () => {
+    it('rejects organization-selection challenges as authentication', async () => {
+      const { service } = createService();
+      await expect(
+        service.getAuthenticationFromToken(organizationSelectionToken()),
+      ).rejects.toThrow(
+        'Organization-selection challenges cannot authenticate requests.',
+      );
+    });
     it('rejects account tokens in attendance-entry context', async () => {
       const { service } = createService();
       await expect(
@@ -377,7 +547,9 @@ describe('Phase 1C.2 authentication foundation', () => {
 
     it('keeps purpose-less legacy tokens compatible with either context', async () => {
       const { prisma, service } = createService();
-      prisma.employee.findUnique.mockResolvedValue(employee({ accessRole: AccessRole.EMPLOYEE }));
+      prisma.employee.findFirst.mockResolvedValue(
+        employee({ accessRole: AccessRole.EMPLOYEE }),
+      );
 
       await expect(
         service.getAuthenticationFromToken(legacyToken(), 'account'),
@@ -404,7 +576,7 @@ describe('Phase 1C.2 authentication foundation', () => {
       ).toThrow('Insufficient permissions');
     });
 
-    it.each([MembershipRole.OWNER, MembershipRole.ADMIN])(
+    it.each([MembershipRole.ADMIN])(
       'allows SaaS %s Membership on legacy ADMIN routes',
       (membershipRole) => {
         const guard = createRolesGuard(AccessRole.ADMIN);
@@ -424,6 +596,48 @@ describe('Phase 1C.2 authentication foundation', () => {
         ).toBe(true);
       },
     );
+
+    it('allows a SaaS EMPLOYEE only on employee-authorized routes with an active profile', () => {
+      const guard = createRolesGuard(AccessRole.EMPLOYEE);
+      const authentication: AuthenticationContext = {
+        generation: 'saas',
+        purpose: 'account',
+        userId: 'user-1',
+        membershipId: 'membership-1',
+        organizationId: 'organization-1',
+        membershipRole: MembershipRole.EMPLOYEE,
+        employeeId: 'employee-1',
+        attendanceSiteId: null,
+      };
+
+      expect(
+        guard.canActivate(
+          roleExecutionContext({
+            authentication,
+            user: { id: 'employee-1', isActive: true },
+          }),
+        ),
+      ).toBe(true);
+    });
+
+    it('does not treat a SUPER ADMIN platform session as a tenant account session', () => {
+      const guard = createRolesGuard(AccessRole.ADMIN);
+      const authentication: AuthenticationContext = {
+        generation: 'saas',
+        purpose: 'platform',
+        userId: 'user-1',
+        membershipId: null,
+        organizationId: null,
+        membershipRole: null,
+        employeeId: null,
+        attendanceSiteId: null,
+        platformAdminId: 'platform-admin-1',
+      };
+
+      expect(() =>
+        guard.canActivate(roleExecutionContext({ authentication })),
+      ).toThrow('This session cannot access account resources.');
+    });
 
     it('denies attendance-entry purpose on account-authorized routes', () => {
       const guard = createRolesGuard(AccessRole.EMPLOYEE);
@@ -455,20 +669,42 @@ describe('Phase 1C.2 authentication foundation', () => {
 
     it('discovers only active organizations for the authenticated user', async () => {
       const { prisma, service } = createService();
-      prisma.user.findUnique.mockResolvedValue({ id: 'user-1', status: UserStatus.ACTIVE });
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        status: UserStatus.ACTIVE,
+      });
       prisma.membership.findMany.mockResolvedValue([
         {
-          id: 'membership-a', role: MembershipRole.OWNER,
-          organization: { id: 'organization-a', name: 'A', slug: 'a', status: OrganizationStatus.ACTIVE },
+          id: 'membership-a',
+          role: MembershipRole.ADMIN,
+          organization: {
+            id: 'organization-a',
+            name: 'A',
+            slug: 'a',
+            status: OrganizationStatus.ACTIVE,
+          },
         },
         {
-          id: 'membership-suspended', role: MembershipRole.ADMIN,
-          organization: { id: 'organization-c', name: 'C', slug: 'c', status: OrganizationStatus.SUSPENDED },
+          id: 'membership-suspended',
+          role: MembershipRole.ADMIN,
+          organization: {
+            id: 'organization-c',
+            name: 'C',
+            slug: 'c',
+            status: OrganizationStatus.SUSPENDED,
+          },
         },
       ]);
 
-      await expect(service.getAvailableOrganizations('user-1')).resolves.toEqual([
-        { id: 'organization-a', name: 'A', slug: 'a', role: MembershipRole.OWNER },
+      await expect(
+        service.getAvailableOrganizations('user-1'),
+      ).resolves.toEqual([
+        {
+          id: 'organization-a',
+          name: 'A',
+          slug: 'a',
+          role: MembershipRole.ADMIN,
+        },
       ]);
     });
 
@@ -476,19 +712,31 @@ describe('Phase 1C.2 authentication foundation', () => {
       const { prisma, service } = createService();
       prisma.user.findUnique
         .mockResolvedValueOnce({ id: 'user-1', status: UserStatus.ACTIVE })
-        .mockResolvedValueOnce({ userVersion: 1 });
+        .mockResolvedValueOnce({
+          id: 'user-1',
+          normalizedEmail: 'admin@example.com',
+          userVersion: 1,
+          createdAt: new Date('2026-01-01T00:00:00Z'),
+          updatedAt: new Date('2026-01-01T00:00:00Z'),
+        });
       prisma.membership.findUnique
-        .mockResolvedValueOnce(activeMembership('organization-a', 'membership-a'))
+        .mockResolvedValueOnce(
+          activeMembership('organization-a', 'membership-a'),
+        )
         .mockResolvedValueOnce({
           membershipVersion: 3,
           organization: { id: 'organization-a', name: 'A', slug: 'a' },
         });
       prisma.organization.findUnique.mockResolvedValue({
-        id: 'organization-a', status: OrganizationStatus.ACTIVE,
+        id: 'organization-a',
+        status: OrganizationStatus.ACTIVE,
       });
       prisma.employee.findFirst.mockResolvedValue(null);
 
-      const result = await service.selectOrganization('user-1', 'organization-a');
+      const result = await service.selectOrganization(
+        'user-1',
+        'organization-a',
+      );
       expect(result).toMatchObject({
         tokenType: 'Bearer',
         organization: { id: 'organization-a' },
@@ -496,13 +744,16 @@ describe('Phase 1C.2 authentication foundation', () => {
         employeeId: null,
       });
       expect(verifyJwtToken(result.accessToken, secret)).toMatchObject({
-        sub: 'user-1', membershipId: 'membership-a',
-        organizationId: 'organization-a', purpose: 'account',
-        userVersion: 1, membershipVersion: 3,
+        sub: 'user-1',
+        membershipId: 'membership-a',
+        organizationId: 'organization-a',
+        purpose: 'account',
+        userVersion: 1,
+        membershipVersion: 3,
       });
     });
 
-    it('resolves one active organization and supports an owner without Employee', async () => {
+    it('resolves one active organization and supports an ADMIN without Employee', async () => {
       const { prisma, service } = createService();
       prisma.user.findUnique.mockResolvedValue({
         id: 'user-1',
@@ -586,8 +837,24 @@ describe('Phase 1C.2 authentication foundation', () => {
 
     it.each([
       ['zero memberships', []],
-      ['suspended membership', [{ ...activeMembership('organization-a', 'membership-a'), status: MembershipStatus.SUSPENDED }]],
-      ['revoked membership', [{ ...activeMembership('organization-a', 'membership-a'), status: MembershipStatus.REVOKED }]],
+      [
+        'suspended membership',
+        [
+          {
+            ...activeMembership('organization-a', 'membership-a'),
+            status: MembershipStatus.SUSPENDED,
+          },
+        ],
+      ],
+      [
+        'revoked membership',
+        [
+          {
+            ...activeMembership('organization-a', 'membership-a'),
+            status: MembershipStatus.REVOKED,
+          },
+        ],
+      ],
     ])('rejects %s', async (_label, memberships) => {
       const { prisma, service } = createService();
       prisma.user.findUnique.mockResolvedValue({
@@ -627,7 +894,7 @@ describe('Phase 1C.2 authentication foundation', () => {
         userId: 'user-1',
         membershipId: 'membership-a',
         organizationId: 'organization-a',
-        membershipRole: MembershipRole.OWNER,
+        membershipRole: MembershipRole.ADMIN,
         employeeId: null,
         attendanceSiteId: null,
       };
@@ -653,6 +920,172 @@ describe('Phase 1C.2 authentication foundation', () => {
       );
       expect(() => requireOrganizationContext(legacy)).toThrow();
       expect(() => requireOrganizationContext(attendance)).toThrow();
+    });
+  });
+
+  describe('initial organization selection', () => {
+    function prepareValidSelection(
+      prisma: ReturnType<typeof createPrismaMock>,
+      overrides: {
+        user?: Record<string, unknown>;
+        membership?: Record<string, unknown>;
+        organization?: Record<string, unknown>;
+        employee?: ReturnType<typeof employee> | null;
+      } = {},
+    ) {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        normalizedEmail: 'admin@example.com',
+        status: UserStatus.ACTIVE,
+        userVersion: 1,
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+        updatedAt: new Date('2026-01-01T00:00:00Z'),
+        ...overrides.user,
+      });
+      prisma.membership.findUnique.mockResolvedValue({
+        id: 'membership-1',
+        userId: 'user-1',
+        organizationId: 'organization-1',
+        role: MembershipRole.ADMIN,
+        status: MembershipStatus.ACTIVE,
+        membershipVersion: 1,
+        ...overrides.membership,
+      });
+      prisma.organization.findUnique.mockResolvedValue({
+        id: 'organization-1',
+        name: 'Organization 1',
+        slug: 'organization-1',
+        status: OrganizationStatus.ACTIVE,
+        ...overrides.organization,
+      });
+      prisma.employee.findFirst.mockResolvedValue(
+        overrides.employee === undefined ? employee() : overrides.employee,
+      );
+    }
+
+    it('creates a final account token from a valid challenge and selection', async () => {
+      const { prisma, service } = createService();
+      prepareValidSelection(prisma);
+
+      const result = await service.completeInitialOrganizationSelection(
+        organizationSelectionToken(),
+        'organization-1',
+      );
+
+      expect(prisma.membership.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'membership-1' } }),
+      );
+      expect(prisma.employee.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-1', organizationId: 'organization-1' },
+        }),
+      );
+      expect(verifyJwtToken(result.accessToken, secret)).toMatchObject({
+        sub: 'user-1',
+        purpose: 'account',
+        organizationId: 'organization-1',
+        membershipId: 'membership-1',
+        userVersion: 1,
+        membershipVersion: 1,
+      });
+    });
+
+    it('supports an ADMIN without an Employee profile', async () => {
+      const { prisma, service } = createService();
+      prepareValidSelection(prisma, { employee: null });
+
+      const result = await service.completeInitialOrganizationSelection(
+        organizationSelectionToken(),
+        'organization-1',
+      );
+
+      expect(result.employeeId).toBeNull();
+      expect(result.user).toMatchObject({
+        id: 'user-1',
+        accessRole: AccessRole.ADMIN,
+      });
+    });
+
+    it('rejects an organization absent from the signed candidates before database lookup', async () => {
+      const { prisma, service } = createService();
+
+      await expect(
+        service.completeInitialOrganizationSelection(
+          organizationSelectionToken(),
+          'organization-foreign',
+        ),
+      ).rejects.toThrow('Organization access denied.');
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+      expect(prisma.organization.findUnique).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['inactive User', { user: { status: UserStatus.DISABLED } }],
+      ['changed userVersion', { user: { userVersion: 2 } }],
+      ['foreign Membership user', { membership: { userId: 'user-2' } }],
+      [
+        'Membership organization mismatch',
+        { membership: { organizationId: 'organization-2' } },
+      ],
+      [
+        'inactive Membership',
+        { membership: { status: MembershipStatus.SUSPENDED } },
+      ],
+      ['changed membershipVersion', { membership: { membershipVersion: 2 } }],
+      [
+        'inactive Organization',
+        { organization: { status: OrganizationStatus.SUSPENDED } },
+      ],
+    ])('rejects %s during finalization', async (_label, overrides) => {
+      const { prisma, service } = createService();
+      prepareValidSelection(prisma, overrides);
+
+      await expect(
+        service.completeInitialOrganizationSelection(
+          organizationSelectionToken(),
+          'organization-1',
+        ),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+
+    it('rejects an expired, tampered, or wrong-purpose challenge', async () => {
+      const { service } = createService();
+      const now = Math.floor(Date.now() / 1000);
+      const expired = forgeToken({
+        sub: 'user-1',
+        purpose: 'organization_selection',
+        userVersion: 1,
+        candidates: [
+          {
+            organizationId: 'organization-1',
+            membershipId: 'membership-1',
+            membershipVersion: 1,
+          },
+          {
+            organizationId: 'organization-2',
+            membershipId: 'membership-2',
+            membershipVersion: 1,
+          },
+        ],
+        iat: now - 120,
+        exp: now - 60,
+      });
+
+      await expect(
+        service.completeInitialOrganizationSelection(expired, 'organization-1'),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      await expect(
+        service.completeInitialOrganizationSelection(
+          `${organizationSelectionToken()}tampered`,
+          'organization-1',
+        ),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      await expect(
+        service.completeInitialOrganizationSelection(
+          accountToken(),
+          'organization-1',
+        ),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });
 });

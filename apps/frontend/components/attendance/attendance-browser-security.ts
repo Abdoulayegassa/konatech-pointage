@@ -5,6 +5,7 @@ export type BrowserLocation = {
 };
 
 export type AttendanceSecurityPayload = {
+  evidenceCapturedAt?: string;
   latitude?: number;
   longitude?: number;
   accuracyMeters?: number;

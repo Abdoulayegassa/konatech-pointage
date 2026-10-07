@@ -1,7 +1,7 @@
 import type { MembershipRole } from '@prisma/client';
 import type { PublicEmployee } from '../../../common/prisma/selects';
 
-export type AuthenticationPurpose = 'account' | 'attendance_entry';
+export type AuthenticationPurpose = 'account' | 'attendance_entry' | 'platform';
 export type AuthenticationGeneration = 'legacy' | 'saas';
 
 export type AuthenticationContext = {
@@ -13,6 +13,9 @@ export type AuthenticationContext = {
   membershipRole: MembershipRole | null;
   employeeId: string | null;
   attendanceSiteId: string | null;
+  /** Opaque, signed JWT value used to bind offline work to this session. */
+  sessionBinding?: string | null;
+  platformAdminId?: string | null;
 };
 
 export type OrganizationContext = AuthenticationContext & {

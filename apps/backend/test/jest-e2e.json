@@ -6,5 +6,8 @@
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
   },
+  "moduleNameMapper": {
+    "^puppeteer$": "<rootDir>/test/puppeteer-compat.cjs"
+  },
   "testEnvironment": "node"
 }

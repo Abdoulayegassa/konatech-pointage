@@ -42,20 +42,23 @@ export class MonthlyAttendanceCsvExporterService {
     );
 
     return {
-      fileName:
-        report.reportingMode === 'custom'
-          ? `attendance-export-${this.slugify(report.employeeReport?.fullName ?? 'équipe')}-${this.slugify(report.periodLabel)}.csv`
-          : `attendance-export-${report.year}-${String(report.month).padStart(2, '0')}.csv`,
+      fileName: `${report.scope === 'SITE' ? `${this.slugify(report.siteName ?? 'site')}-` : ''}${report.reportingMode === 'custom'
+        ? `attendance-export-${this.slugify(report.employeeReport?.fullName ?? 'équipe')}-${this.slugify(report.periodLabel)}`
+        : `attendance-export-${report.year}-${String(report.month).padStart(2, '0')}`}.csv`,
       mimeType: 'text/csv; charset=utf-8',
       content: [
-        '\uFEFFFull Name,Employee Identifier,Department,Assigned Schedule,Working Days,Scheduled Presence Days,Total Worked Days,Outside Schedule Work Days,Entries,Exits,Late Days,Absent Days,Absence Count,Incomplete Attendance Days,Total Worked Hours,Depart anticipe (jours),Depart anticipe (min),Scheduled Overtime Hours,Outside Schedule Overtime Hours,Heures supplementaires',
+        ...(report.scope === 'SITE'
+          ? [`\uFEFF${this.escapeCsvCell(`Organization: ${report.organizationName ?? ''}`)},${this.escapeCsvCell(`Site: ${report.siteName ?? ''}`)},Scope: SITE,Period: ${report.period.startDate} → ${report.period.endDate}`]
+          : []),
+        `${report.scope === 'ORGANIZATION' ? '\uFEFF' : ''}Full Name,Employee Identifier,Department,Assigned Schedule,Working Days,Scheduled Presence Days,Total Worked Days,Outside Schedule Work Days,Entries,Exits,Late Days,Absent Days,Absence Count,Incomplete Attendance Days,Total Worked Hours,Depart anticipe (jours),Depart anticipe (min),Scheduled Overtime Hours,Outside Schedule Overtime Hours,Heures supplementaires`,
         ...rows,
       ].join('\r\n'),
     };
   }
 
   private escapeCsvCell(value: string) {
-    const normalizedValue = value.replace(/"/g, '""');
+    const safeValue = /^[\s]*[=+@-]/.test(value) ? `'${value}` : value;
+    const normalizedValue = safeValue.replace(/"/g, '""');
 
     if (/[",\r\n]/.test(normalizedValue)) {
       return `"${normalizedValue}"`;

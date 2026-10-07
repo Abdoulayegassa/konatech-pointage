@@ -58,16 +58,20 @@ If PowerShell blocks the `pnpm` shim on your machine, use `pnpm.cmd` instead.
 2. Create local environment files:
 
 ```bash
-cp apps/backend/.env.example apps/backend/.env
+cp apps/backend/.env.example apps/backend/.env.local
 cp apps/frontend/.env.example apps/frontend/.env.local
 ```
 
 PowerShell:
 
 ```powershell
-Copy-Item apps/backend/.env.example apps/backend/.env
+Copy-Item apps/backend/.env.example apps/backend/.env.local
 Copy-Item apps/frontend/.env.example apps/frontend/.env.local
 ```
+
+Set `LOCAL_SAAS_POSTGRES_PASSWORD` in the ignored backend `.env.local` and use
+the same password in its `DATABASE_URL`. Local SaaS bootstrap credentials also
+belong only in this ignored file.
 
 3. Start PostgreSQL:
 
@@ -75,14 +79,17 @@ Copy-Item apps/frontend/.env.example apps/frontend/.env.local
 pnpm db:up
 ```
 
-4. Generate the Prisma client, apply migrations, and seed demo data:
+4. Generate the Prisma client and deploy the versioned migrations to the local
+   SaaS validation database:
 
 ```bash
 pnpm prisma:generate
-pnpm prisma:status
-pnpm prisma:migrate
-pnpm prisma:seed
+pnpm prisma:saas:migrate:deploy
 ```
+
+`pnpm prisma:saas:bootstrap` is an explicit, guarded validation bootstrap. It
+requires `SAAS_VALIDATION_BOOTSTRAP=true` and the validation account variables
+documented in `apps/backend/.env.example`; it is not a production seed.
 
 5. Start the full stack:
 
@@ -99,19 +106,21 @@ pnpm dev
 
 Local Compose note:
 
-- `pnpm db:up` still starts PostgreSQL only
+- `pnpm db:up` starts only the isolated local SaaS PostgreSQL service on
+  `127.0.0.1:5434`
 - frontend and backend containers now live behind the Compose profile `app`
 - production-style startup uses `docker compose --profile app ...`, not `pnpm db:up`
 
 ## Environment Files
 
-Backend local env: `apps/backend/.env`
+Backend local env: `apps/backend/.env.local` (ignored by Git)
 
 - `PORT=4000`
 - `FRONTEND_URL=http://localhost:3000` public frontend origin used by backend CORS and `/attendance/entry`
 - `JWT_SECRET=...`
 - `JWT_EXPIRES_IN=1d`
-- `DATABASE_URL=postgresql://postgres:postgres@localhost:5433/konatech_attendance?schema=public`
+- `DATABASE_URL=postgresql://postgres:<local-password>@127.0.0.1:5434/konatech_attendance_saas_validation?schema=public`
+- `LOCAL_SAAS_POSTGRES_PASSWORD=<same-local-password>`
 - `JSON_BODY_LIMIT=10mb` reserved for legacy payloads that may still include verification photos
 - `RATE_LIMIT_TTL_MS=60000` and `RATE_LIMIT_MAX=300` for global API throttling
 - `LOGIN_RATE_LIMIT_TTL_MS=60000` and `LOGIN_RATE_LIMIT_MAX=20` for the login endpoint
@@ -159,15 +168,15 @@ Production Docker env: `.env.production`
 
 Required production variables:
 
-- `POSTGRES_DB`
-- `POSTGRES_USER`
-- `POSTGRES_PASSWORD`
+- `DATABASE_URL`
 - `FRONTEND_URL`
 - `NEXT_PUBLIC_APP_URL`
 - `NEXT_PUBLIC_API_BASE_URL`
 - `API_BASE_URL` recommended for server-side frontend calls on hosted platforms
+- `FRONTEND_HOST` and `BACKEND_HOST` for the Compose Traefik routes
 - `JWT_SECRET`
-- `TRUST_PROXY_HOPS`
+- `TRUST_PROXY_CIDRS`
+- `RATE_LIMIT_REDIS_URL` for multi-instance production deployments
 
 Production-conditional variables:
 
@@ -220,11 +229,15 @@ pnpm --dir apps/backend run prisma:migrate:deploy
 pnpm --dir apps/backend run admin:create
 ```
 
-Backend test env: `apps/backend/.env.test`
+Backend E2E environment:
 
-- Uses the dedicated database `konatech_attendance_test`
-- Tests never reuse the development database
-- Optional override file: `apps/backend/.env.test.local`
+- `docker-compose.test-db.yml` defines a separate PostgreSQL service on
+  `127.0.0.1:5433`.
+- The test harness accepts only the database
+  `konatech_attendance_e2e` on that exact host and port.
+- `apps/backend/.env.test` and `.env.test.local` are local-only and ignored.
+- A clean clone can use the safe default test URL or an ignored local override;
+  tests never reuse the local SaaS validation database.
 
 ## Workspace Commands
 
@@ -300,12 +313,13 @@ and frontend `NEXT_PUBLIC_APP_URL` resolve to the same public attendance URL.
 
 The Compose setup now separates local DB usage from production-style app orchestration:
 
-- `postgres` remains the default local service
-- `backend` and `frontend` run behind the Compose profile `app`
-- PostgreSQL now exposes a native `pg_isready` healthcheck
-- backend waits for a healthy database before starting
+- local PostgreSQL is defined only in the dedicated local/test Compose files
+- production `backend` and `frontend` run behind the Compose profile `app`
+- production PostgreSQL and Redis are external managed services
 - frontend waits for a healthy backend before starting
-- backend runs `prisma migrate deploy` on container startup
+- Prisma Client generation happens while building the backend image
+- schema migrations are an explicit one-off deployment step; application startup never mutates the schema
+- both application containers run as the unprivileged `node` user with a read-only root filesystem
 - backend sets `ATTENDANCE_PDF_RENDERER=premium` and `ATTENDANCE_PDF_EXECUTABLE_PATH=/usr/bin/chromium` for Puppeteer PDF rendering inside the container
 
 ## Production Deployment with Docker Compose
@@ -314,76 +328,90 @@ The Compose setup now separates local DB usage from production-style app orchest
 
 ```bash
 cp .env.production.example .env.production
+chmod 600 .env.production
 ```
 
 2. Replace every placeholder value in `.env.production`, especially:
 
-- `POSTGRES_PASSWORD`
+- `DATABASE_URL`
 - `JWT_SECRET`
-- `FRONTEND_URL`
-- `NEXT_PUBLIC_APP_URL`
-- `NEXT_PUBLIC_API_BASE_URL`
-- `API_BASE_URL` if you want an explicit server-only frontend API origin
+- `RATE_LIMIT_REDIS_URL`
 
-3. Build and start the full stack:
+Also verify the public URL/host variables: `FRONTEND_URL`,
+`NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_API_BASE_URL`, `FRONTEND_HOST`, and
+`BACKEND_HOST`. `API_BASE_URL` stays on the internal Docker URL shown in the
+example unless the deployment topology requires a different server-only URL.
 
-```bash
-docker compose --env-file .env.production --profile app up -d --build
-```
-
-4. Inspect container health:
+3. Validate the resolved Compose model and build both images:
 
 ```bash
-docker compose --env-file .env.production ps
+docker compose --env-file .env.production --profile app config
+docker compose --env-file .env.production --profile app build backend-migrate backend frontend
 ```
 
-5. Read application logs when needed:
+4. Apply versioned migrations as an explicit, one-off deployment operation:
 
 ```bash
-docker compose --env-file .env.production logs -f backend frontend postgres
+docker compose --env-file .env.production --profile app run --rm --no-deps backend-migrate
 ```
+
+This uses the migration image and does not start the application. It exits
+non-zero on migration failure. Run it only after validating the target
+database and taking any backup required by your managed PostgreSQL provider.
+
+5. Start the application stack:
+
+```bash
+docker compose --env-file .env.production --profile app up -d --no-build
+```
+
+The `backend-migrate` service is also a completion dependency of `backend`.
+If the stack is started directly, Compose must observe a successful migration
+service exit before starting the backend. A failed migration prevents the
+backend from being promoted by the Compose dependency graph.
+
+6. Inspect container health:
+
+```bash
+docker compose --env-file .env.production --profile app ps
+```
+
+7. Read application logs when needed:
+
+```bash
+docker compose --env-file .env.production --profile app logs backend frontend
+```
+
+### Staging rollback expectations
+
+If `backend-migrate` fails, stop the deployment and keep the currently
+running application image in place; do not start or promote the new backend.
+After a successful migration, an application-image rollback is safe only when
+the previous application version is compatible with the resulting schema.
+Prisma migrations are forward-only by default: database rollback requires a
+separately reviewed recovery or backward-compatible migration plan.
 
 Production notes:
 
 - expose `3000` and `4000` only if your reverse proxy or hosting model requires them
-- if you deploy behind Nginx, Traefik, or a cloud load balancer, set `TRUST_PROXY_HOPS` to the correct trusted hop count
+- set `TRUST_PROXY_CIDRS` to the actual trusted reverse-proxy network; keep `TRUST_PROXY_HOPS=0` unless the topology has been explicitly audited
 - the public frontend origin must stay identical between `FRONTEND_URL` and `NEXT_PUBLIC_APP_URL`
 - the public API origin in `NEXT_PUBLIC_API_BASE_URL` must be reachable from user browsers, not just from the Docker network
-- if `API_BASE_URL` is set for the frontend container, keep it identical to `NEXT_PUBLIC_API_BASE_URL`
+- the default Compose `API_BASE_URL` is the internal `http://backend:4000/api/v1` service URL
+- `konatech-network` must exist before validation or deployment because Compose declares it as external
 - the Compose flow is intended for stable single-host deployment; HA, managed backups, and external monitoring still need infra-level handling
 
 ## PostgreSQL Backup and Restore
 
-Create a plain SQL backup:
-
-```bash
-docker compose --env-file .env.production exec -T postgres sh -lc 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > backup.sql
-```
-
-Create a compressed backup:
-
-```bash
-docker compose --env-file .env.production exec -T postgres sh -lc 'pg_dump -Fc -U "$POSTGRES_USER" "$POSTGRES_DB"' > backup.dump
-```
-
-Restore a plain SQL backup:
-
-```bash
-cat backup.sql | docker compose --env-file .env.production exec -T postgres sh -lc 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
-```
-
-Restore a compressed backup:
-
-```bash
-cat backup.dump | docker compose --env-file .env.production exec -T postgres sh -lc 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists'
-```
+Production Compose does not contain a PostgreSQL container or volume. Use the
+backup, point-in-time recovery, and restore procedures supplied by the managed
+PostgreSQL provider referenced by `DATABASE_URL`.
 
 Backup guidance:
 
 - run backups before schema changes, host maintenance, or manual data corrections
 - store backups outside the Docker host
-- test restore regularly on a non-production database
-- do not rely on the Docker volume alone as a backup strategy
+- test restore regularly against an isolated non-production database
 
 ## Build and Verification Flow
 
@@ -405,6 +433,10 @@ Before opening or merging a change, run the full validation command:
 ```bash
 pnpm validate
 ```
+
+For the disposable E2E database, do not start separate database-resetting Jest
+commands concurrently. Use `pnpm test:backend:serial` for a deterministic
+suite-by-suite run; it stops on the first failure and holds a local runner lock.
 
 `next build` is intentionally not used as a lint gate in this repository
 because Next.js build linting is disabled in
@@ -511,7 +543,8 @@ For local environments that also need database verification before a demo:
 - Login: `http://localhost:3000/login`
 - Employee attendance: `http://localhost:3000/my-attendance`
 - Fixed attendance entry: `http://localhost:3000/attendance-entry`
-- Admin dashboard: `http://localhost:3000/`
+- Organization dashboard (aggregated): `http://localhost:3000/dashboard`
+- Site dashboard: `http://localhost:3000/site/<siteId>/dashboard`
 - Employees: `http://localhost:3000/employees`
 - Schedules: `http://localhost:3000/schedules`
 - Backend redirect entry: `http://localhost:4000/api/v1/attendance/entry`
@@ -529,6 +562,16 @@ For local environments that also need database verification before a demo:
 - smart attendance security with GPS-only geofencing for employee self-service
 - dashboard analytics now prioritize GPS validations and zone-compliance metrics
 - legacy Cloudinary-hosted verification photo evidence remains readable for historical records
+
+## SaaS Product Structure
+
+Current product roles are SUPER ADMIN SAAS, ADMIN ENTREPRISE, and EMPLOYEE. The platform manages organizations and subscriptions. Each organization represents a customer company and has an aggregated organization overview; each site has its own site-scoped operational context and dashboard. A URL `siteId` is navigation context only and does not grant authorization.
+
+STARTER, PRO, and BUSINESS provide the same available product functionality, differentiated by approved employee, administrator-capacity, and site quotas. All include custom-period exports where supported and equal access to historical data still retained by the platform. See [the canonical V1 plan contract](docs/product/INOUT_V1_PLAN_CONTRACT.md).
+
+The V1 Platform workspace has four sections: Dashboard, Organizations, Plans, and Subscriptions. Global statistics appear on Dashboard; approved plan entitlements appear on Plans. Platform Users, separate global-statistics, feature-management, supervision, and Platform Settings screens are not part of the current V1 scope. Platform organization provisioning is implemented behind `PlatformAdminGuard`: the Organizations workflow creates the organization and first ADMIN invitation, then presents an invitation-acceptance link. The first ADMIN becomes an organization member only after accepting that invitation. Tenant data and membership remain organization-scoped.
+
+The PWA is primarily the employee attendance/clock-in experience. Administration is not the employee PWA. Advanced offline synchronization is on standby, even though queue-related code exists.
 
 ## Smart Attendance GPS Security
 

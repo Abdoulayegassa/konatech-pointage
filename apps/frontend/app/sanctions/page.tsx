@@ -1,9 +1,8 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { AdminNav } from '@/components/admin/admin-nav';
-import { LogoutForm } from '@/components/auth/logout-form';
+import { OrganizationShell } from '@/components/layout/organization-shell';
 import { MetricCard } from '@/components/dashboard/metric-card';
-import { PageShell } from '@/components/layout/page-shell';
+import { AdminPageHeader } from '@/components/layout/page-shell';
 import { SanctionsMonthSelector } from '@/components/sanctions/sanctions-month-selector';
 import { SanctionRulesPanel } from '@/components/sanctions/sanction-rules-panel';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +16,9 @@ import {
   type SanctionStatus,
 } from '@/lib/api';
 import { getSessionToken, requireCurrentUser } from '@/lib/auth';
+import { getDefaultRedirectPath } from '@/lib/redirect';
 import { cn } from '@/lib/utils';
+import { getOrganizationMonth } from '@/lib/organization-time';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,29 +43,14 @@ type DashboardData =
       sanctions: [];
     };
 
-const futureRuleLabels: Partial<Record<SanctionRuleType, string>> = {
-  EARLY_DEPARTURE: 'Départ anticipé',
-  UNJUSTIFIED_ABSENCE: 'Absence non justifiée',
-  JUSTIFIED_ABSENCE: 'Absence justifiée',
-  LEAVE: 'Congé',
-  EXTERNAL_MISSION: 'Mission externe',
-};
-
 function normalizeTab(value?: string): SanctionsTab {
-  return value === 'rules' ? 'rules' : 'monthly';
+  return value === 'monthly' ? 'monthly' : 'rules';
 }
 
-function getCurrentMonth() {
-  const now = new Date();
-
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(
-    2,
-    '0',
-  )}`;
-}
-
-function normalizeMonth(value?: string) {
-  return value && /^\d{4}-\d{2}$/.test(value) ? value : getCurrentMonth();
+function normalizeMonth(value: string | undefined, timeZone?: string) {
+  return value && /^\d{4}-\d{2}$/.test(value)
+    ? value
+    : getOrganizationMonth(new Date(), timeZone);
 }
 
 function formatMonthLabel(month: string) {
@@ -79,6 +65,7 @@ function formatDate(value: string) {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
+    timeZone: 'UTC',
   });
 }
 
@@ -114,7 +101,9 @@ function formatSanctionReason(reason: string) {
     return 'Tolérance mensuelle déjà utilisée.';
   }
 
-  if (normalizedReason === 'Prepared for future configuration; inactive in V1.') {
+  if (
+    normalizedReason === 'Prepared for future configuration; inactive in V1.'
+  ) {
     return 'Règle prévue pour une configuration ultérieure.';
   }
 
@@ -163,7 +152,7 @@ function getStatusTone(status: SanctionStatus) {
   }
 
   if (status === 'TOLERATED') {
-    return 'border-accent/15 bg-accent/10 text-accent';
+    return 'border-warning/20 bg-warning-subtle text-warning';
   }
 
   return 'border-success/15 bg-success/10 text-success';
@@ -283,63 +272,6 @@ function SanctionsTabs({
   );
 }
 
-function RulesCard({ rules }: { rules: SanctionRuleConfig[] }) {
-  const inactiveRules = rules.filter((rule) => !rule.active);
-
-  return (
-    <Card className="rounded-[28px] border-slate-200/80 bg-white/95 shadow-[0_18px_44px_rgba(15,45,58,0.07)]">
-      <CardHeader className="border-b border-slate-200/70 pb-4">
-        <Badge variant="outline">Règles</Badge>
-        <CardTitle className="mt-2 text-xl text-slate-950">
-          Règles disciplinaires
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4 p-4">
-        <div className="grid gap-3 lg:grid-cols-2">
-          <div className="rounded-[22px] border border-accent/15 bg-accent/10 p-4">
-            <Badge className="bg-accent/15 text-accent" variant="warning">
-              Active
-            </Badge>
-            <h3 className="mt-3 text-base font-black text-slate-950">
-              Retard mineur
-            </h3>
-            <ul className="mt-3 space-y-2 text-sm font-semibold leading-6 text-slate-700">
-              <li>1er retard mineur du mois : tolérance</li>
-              <li>À partir du 2e : 2 000 FCFA</li>
-            </ul>
-          </div>
-
-          <div className="rounded-[22px] border border-red-500/15 bg-red-50 p-4">
-            <Badge className="bg-red-100 text-red-700" variant="danger">
-              Active
-            </Badge>
-            <h3 className="mt-3 text-base font-black text-slate-950">
-              Retard majeur
-            </h3>
-            <ul className="mt-3 space-y-2 text-sm font-semibold leading-6 text-slate-700">
-              <li>Retard ≥ 15 min : 5 000 FCFA</li>
-            </ul>
-          </div>
-        </div>
-
-        <div className="rounded-[22px] border border-slate-200 bg-slate-50/80 p-4">
-          <Badge variant="outline">Prévu plus tard</Badge>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {inactiveRules.map((rule) => (
-              <span
-                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-bold text-slate-600 shadow-sm"
-                key={rule.type}
-              >
-                {futureRuleLabels[rule.type] ?? rule.type}
-              </span>
-            ))}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
 async function loadDashboardData(
   token: string,
   month: string,
@@ -380,8 +312,12 @@ export default async function SanctionsPage({
 }: SanctionsPageProps) {
   const user = await requireCurrentUser();
 
-  if (user.accessRole !== 'ADMIN') {
-    redirect('/my-attendance');
+  const membershipRole = user.membership?.role;
+  const canManage = membershipRole
+    ? membershipRole === 'ADMIN'
+    : user.accessRole === 'ADMIN';
+  if (!canManage) {
+    redirect(getDefaultRedirectPath(user.accessRole, user.membership?.role));
   }
 
   const token = await getSessionToken();
@@ -391,234 +327,211 @@ export default async function SanctionsPage({
   }
 
   const params = await searchParams;
-  const month = normalizeMonth(params?.month);
+  const month = normalizeMonth(params?.month, user.organization?.timezone);
   const activeTab = normalizeTab(params?.tab);
   const data = await loadDashboardData(token, month, activeTab);
   const summary = buildSummary(data.sanctions);
 
   return (
-    <PageShell contentClassName="gap-4 lg:gap-5">
-      <header className="admin-reveal rounded-[30px] border border-white/70 bg-white/95 p-4 shadow-[0_18px_46px_rgba(15,45,58,0.08)] sm:p-5 lg:p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex flex-wrap items-center gap-2">
-            <AdminNav current="sanctions" />
-            <LogoutForm />
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-end">
-            <div className="space-y-2">
-              <Badge className="bg-accent/10 text-accent" variant="warning">
-                {activeTab === 'monthly'
-                  ? formatMonthLabel(month)
-                  : 'Lecture seule'}
-              </Badge>
-              <h1 className="text-2xl font-black leading-tight text-slate-950 sm:text-3xl">
-                {activeTab === 'monthly'
-                  ? 'Sanctions RH'
-                  : 'Règles de sanctions'}
-              </h1>
-              <p className="max-w-2xl text-sm font-semibold leading-6 text-slate-600">
-                {activeTab === 'monthly'
-                  ? 'Suivez les tolérances, sanctions appliquées et montants disciplinaires.'
-                  : 'Configurez les règles disciplinaires appliquées aux employés.'}
-              </p>
-            </div>
-            {activeTab === 'monthly' ? (
-              <SanctionsMonthSelector month={month} />
-            ) : null}
-          </div>
-        </div>
-      </header>
+    <OrganizationShell current="sanctions" membershipRole={user.membership?.role}>
+      <main className="space-y-4">
+        <AdminPageHeader
+          context={activeTab === 'monthly' ? 'Analyse · Tous les sites' : 'Politique & configuration · Tous les sites'}
+          title={activeTab === 'monthly' ? 'Sanctions' : 'Règles de sanctions'}
+          description={activeTab === 'monthly' ? `Résultats agrégés de l’organisation pour ${formatMonthLabel(month)}. Les règles sont communes à tous ses sites.` : canManage ? 'Configurez les règles disciplinaires de l’organisation, appliquées de façon identique sur ses sites.' : 'Consultez les règles disciplinaires de l’organisation, appliquées de façon identique sur ses sites.'}
+          actions={activeTab === 'monthly' ? <SanctionsMonthSelector month={month} /> : undefined}
+        />
 
       <SanctionsTabs activeTab={activeTab} month={month} />
 
       {data.ok ? (
         activeTab === 'monthly' ? (
           <>
-          <section className="admin-reveal admin-reveal-delay-1 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <MetricCard
-              hint="Décisions disciplinaires appliquées."
-              label="Sanctions appliquées"
-              periodLabel={formatMonthLabel(month)}
-              tone="danger"
-              value={summary.appliedCount}
-            />
-            <MetricCard
-              hint="Premiers retards mineurs tolérés."
-              label="Tolérances accordées"
-              periodLabel={formatMonthLabel(month)}
-              tone="warning"
-              value={summary.toleratedCount}
-            />
-            <MetricCard
-              hint="Montant disciplinaire cumulé."
-              label="Montant total"
-              periodLabel={formatMonthLabel(month)}
-              tone="success"
-              value={formatMoney(summary.totalAmount)}
-            />
-            <MetricCard
-              hint="Cas de retard inférieur à 15 min."
-              label="Retards mineurs"
-              periodLabel={formatMonthLabel(month)}
-              tone="warning"
-              value={summary.minorLatenessCount}
-            />
-            <MetricCard
-              hint="Cas de retard de 15 min ou plus."
-              label="Retards majeurs"
-              periodLabel={formatMonthLabel(month)}
-              tone="danger"
-              value={summary.majorLatenessCount}
-            />
-          </section>
+            <section className="admin-reveal admin-reveal-delay-1 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <MetricCard
+                hint="Décisions disciplinaires appliquées."
+                label="Sanctions appliquées"
+                periodLabel={formatMonthLabel(month)}
+                tone="danger"
+                value={summary.appliedCount}
+              />
+              <MetricCard
+                hint="Premiers retards mineurs tolérés."
+                label="Tolérances accordées"
+                periodLabel={formatMonthLabel(month)}
+                tone="warning"
+                value={summary.toleratedCount}
+              />
+              <MetricCard
+                hint="Montant disciplinaire cumulé."
+                label="Montant total"
+                periodLabel={formatMonthLabel(month)}
+                tone="success"
+                value={formatMoney(summary.totalAmount)}
+              />
+              <MetricCard
+                hint="Cas de retard inférieur à 15 min."
+                label="Retards mineurs"
+                periodLabel={formatMonthLabel(month)}
+                tone="warning"
+                value={summary.minorLatenessCount}
+              />
+              <MetricCard
+                hint="Cas de retard de 15 min ou plus."
+                label="Retards majeurs"
+                periodLabel={formatMonthLabel(month)}
+                tone="danger"
+                value={summary.majorLatenessCount}
+              />
+            </section>
 
-          <section className="admin-reveal admin-reveal-delay-2 grid gap-4 xl:grid-cols-[0.92fr_1.08fr]">
-            <Card className="rounded-[28px] border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] shadow-[0_18px_44px_rgba(15,45,58,0.07)]">
-              <CardHeader className="border-b border-slate-200/70 pb-4">
-                <Badge variant="outline">Synthèse disciplinaire</Badge>
-                <CardTitle className="mt-2 text-xl text-slate-950">
-                  Lecture RH du mois
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4 p-4">
-                <div className="rounded-[22px] border border-slate-200 bg-white/90 p-4 shadow-sm">
-                  <p className="text-base font-black text-slate-950">
-                    {summary.recommendation}
-                  </p>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-[20px] border border-slate-200 bg-slate-50/80 p-3">
-                    <p className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">
-                      Mois
-                    </p>
-                    <p className="mt-2 text-sm font-black text-slate-950">
-                      {formatMonthLabel(month)}
+            <section className="admin-reveal admin-reveal-delay-2">
+              <Card className="rounded-[28px] border-slate-200/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(248,250,252,0.94))] shadow-[0_18px_44px_rgba(15,45,58,0.07)]">
+                <CardHeader className="border-b border-slate-200/70 pb-4">
+                  <Badge variant="outline">Synthèse disciplinaire</Badge>
+                  <CardTitle className="mt-2 text-xl text-slate-950">
+                    Lecture RH du mois
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4 p-4">
+                  <div className="rounded-[22px] border border-slate-200 bg-white/90 p-4 shadow-sm">
+                    <p className="text-base font-black text-slate-950">
+                      {summary.recommendation}
                     </p>
                   </div>
-                  <div className="rounded-[20px] border border-success/15 bg-success/10 p-3">
-                    <p className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">
-                      Montant total
-                    </p>
-                    <p className="mt-2 text-sm font-black text-success">
-                      {formatMoney(summary.totalAmount)}
-                    </p>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-[20px] border border-slate-200 bg-slate-50/80 p-3">
+                      <p className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">
+                        Mois
+                      </p>
+                      <p className="mt-2 text-sm font-black text-slate-950">
+                        {formatMonthLabel(month)}
+                      </p>
+                    </div>
+                    <div className="rounded-[20px] border border-success/15 bg-success/10 p-3">
+                      <p className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">
+                        Montant total
+                      </p>
+                      <p className="mt-2 text-sm font-black text-success">
+                        {formatMoney(summary.totalAmount)}
+                      </p>
+                    </div>
+                    <div className="rounded-[20px] border border-slate-200 bg-slate-50/80 p-3">
+                      <p className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">
+                        Employés concernés
+                      </p>
+                      <p className="mt-2 text-sm font-black text-slate-950">
+                        {summary.concernedEmployees}
+                      </p>
+                    </div>
                   </div>
-                  <div className="rounded-[20px] border border-slate-200 bg-slate-50/80 p-3">
-                    <p className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500">
-                      Employés concernés
-                    </p>
-                    <p className="mt-2 text-sm font-black text-slate-950">
-                      {summary.concernedEmployees}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
 
-            <RulesCard rules={data.rules} />
-          </section>
+            </section>
 
-          <section className="admin-reveal admin-reveal-delay-3">
-            <Card className="overflow-hidden rounded-[28px] border-slate-200/80 bg-white/95 shadow-[0_18px_44px_rgba(15,45,58,0.07)]">
-              <CardHeader className="border-b border-slate-200/70 pb-4">
-                <Badge variant="outline">Tableau des sanctions</Badge>
-                <CardTitle className="mt-2 text-xl text-slate-950">
-                  Résultats du mois
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                {data.sanctions.length === 0 ? (
-                  <div className="p-4">
-                    <p className="rounded-[22px] border border-dashed border-slate-300 bg-slate-50/80 px-5 py-10 text-center text-sm font-bold text-slate-600">
-                      Aucune sanction enregistrée pour ce mois.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="min-w-[980px] border-separate border-spacing-0 text-left">
-                      <thead>
-                        <tr>
-                          {[
-                            'Date',
-                            'Employé',
-                            'Type',
-                            'Décision',
-                            'Motif',
-                            'Montant',
-                            'Statut',
-                          ].map((header) => (
-                            <th
-                              className="sticky top-0 bg-slate-50/95 px-3 py-3 text-[11px] font-black uppercase tracking-[0.14em] text-slate-500"
-                              key={header}
-                            >
-                              {header}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {data.sanctions.map((sanction, index) => {
-                          const employee = getEmployeeDisplay(sanction);
+            <section className="admin-reveal admin-reveal-delay-3">
+              <Card className="overflow-hidden rounded-[28px] border-slate-200/80 bg-white/95 shadow-[0_18px_44px_rgba(15,45,58,0.07)]">
+                <CardHeader className="border-b border-slate-200/70 pb-4">
+                  <Badge variant="outline">Tableau des sanctions</Badge>
+                  <CardTitle className="mt-2 text-xl text-slate-950">
+                    Résultats du mois
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  {data.sanctions.length === 0 ? (
+                    <div className="p-4">
+                      <p className="rounded-[22px] border border-dashed border-slate-300 bg-slate-50/80 px-5 py-10 text-center text-sm font-bold text-slate-600">
+                        Aucune sanction enregistrée pour ce mois.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-[980px] border-separate border-spacing-0 text-left">
+                        <thead>
+                          <tr>
+                            {[
+                              'Date',
+                              'Employé',
+                              'Type',
+                              'Décision',
+                              'Motif',
+                              'Montant',
+                              'Statut',
+                            ].map((header) => (
+                              <th
+                                className="sticky top-0 bg-slate-50/95 px-3 py-3 text-[11px] font-black uppercase tracking-[0.14em] text-slate-500"
+                                key={header}
+                              >
+                                {header}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {data.sanctions.map((sanction, index) => {
+                            const employee = getEmployeeDisplay(sanction);
 
-                          return (
-                            <tr
-                              className={
-                                index % 2 === 0 ? 'bg-white' : 'bg-slate-50/55'
-                              }
-                              key={sanction.attendanceId}
-                            >
-                              <td className="px-3 py-3 text-sm font-bold text-slate-700">
-                                {formatDate(sanction.date)}
-                              </td>
-                              <td className="px-3 py-3">
-                                <p className="text-sm font-black text-slate-950">
-                                  {employee.name}
-                                </p>
-                                <p className="mt-0.5 text-xs font-bold text-slate-500">
-                                  {employee.identifier}
-                                </p>
-                                {employee.department ? (
-                                  <p className="mt-0.5 text-xs font-semibold text-slate-500">
-                                    {employee.department}
+                            return (
+                              <tr
+                                className={
+                                  index % 2 === 0
+                                    ? 'bg-white'
+                                    : 'bg-slate-50/55'
+                                }
+                                key={sanction.attendanceId}
+                              >
+                                <td className="px-3 py-3 text-sm font-bold text-slate-700">
+                                  {formatDate(sanction.date)}
+                                </td>
+                                <td className="px-3 py-3">
+                                  <p className="text-sm font-black text-slate-950">
+                                    {employee.name}
                                   </p>
-                                ) : null}
-                              </td>
-                              <td className="px-3 py-3 text-sm font-bold text-slate-700">
-                                {getRuleTypeLabel(sanction.ruleType)}
-                              </td>
-                              <td className="px-3 py-3 text-sm font-bold text-slate-700">
-                                {getDecisionLabel(sanction.status)}
-                              </td>
-                              <td className="max-w-[280px] px-3 py-3 text-sm font-semibold leading-5 text-slate-600">
-                                {formatSanctionReason(sanction.reason)}
-                              </td>
-                              <td className="px-3 py-3 text-sm font-black text-slate-950">
-                                {formatMoney(sanction.amount)}
-                              </td>
-                              <td className="px-3 py-3">
-                                <span
-                                  className={cn(
-                                    'inline-flex rounded-full border px-2.5 py-1 text-xs font-black',
-                                    getStatusTone(sanction.status),
-                                  )}
-                                >
-                                  {getStatusLabel(sanction.status)}
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </section>
+                                  <p className="mt-0.5 text-xs font-bold text-slate-500">
+                                    {employee.identifier}
+                                  </p>
+                                  {employee.department ? (
+                                    <p className="mt-0.5 text-xs font-semibold text-slate-500">
+                                      {employee.department}
+                                    </p>
+                                  ) : null}
+                                </td>
+                                <td className="px-3 py-3 text-sm font-bold text-slate-700">
+                                  {getRuleTypeLabel(sanction.ruleType)}
+                                </td>
+                                <td className="px-3 py-3 text-sm font-bold text-slate-700">
+                                  {getDecisionLabel(sanction.status)}
+                                </td>
+                                <td className="max-w-[280px] px-3 py-3 text-sm font-semibold leading-5 text-slate-600">
+                                  {formatSanctionReason(sanction.reason)}
+                                </td>
+                                <td className="px-3 py-3 text-sm font-black text-slate-950">
+                                  {formatMoney(sanction.amount)}
+                                </td>
+                                <td className="px-3 py-3">
+                                  <span
+                                    className={cn(
+                                      'inline-flex rounded-full border px-2.5 py-1 text-xs font-black',
+                                      getStatusTone(sanction.status),
+                                    )}
+                                  >
+                                    {getStatusLabel(sanction.status)}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </section>
           </>
         ) : (
-          <SanctionRulesPanel rules={data.rules} />
+          <SanctionRulesPanel canEdit={canManage} rules={data.rules} />
         )
       ) : (
         <SanctionsErrorState
@@ -629,6 +542,7 @@ export default async function SanctionsPage({
           }
         />
       )}
-    </PageShell>
+      </main>
+    </OrganizationShell>
   );
 }

@@ -8,6 +8,7 @@ import { EmployeeAttendanceActions } from '@/components/attendance/employee-atte
 import { Card, CardContent } from '@/components/ui/card';
 
 type FixedAttendanceEntryViewProps = {
+  attendanceEntryRedirectTo?: string;
   history: AttendanceRecord[];
   today: EmployeeTodayAttendance;
   user: AuthenticatedUser;
@@ -19,6 +20,7 @@ function getInitials(firstName: string, lastName: string) {
 }
 
 export function FixedAttendanceEntryView({
+  attendanceEntryRedirectTo,
   today,
   user,
   sessionMode = 'account',
@@ -38,7 +40,7 @@ export function FixedAttendanceEntryView({
               className="h-auto w-20 shrink-0 object-contain sm:w-24"
               height={120}
               priority
-              src="/konatech-logo.png"
+              src="/brand/inout-logo.png"
               width={240}
             />
           </div>
@@ -55,9 +57,36 @@ export function FixedAttendanceEntryView({
             <EmployeeAttendanceActions
               canCheckIn={today.canCheckIn}
               canCheckOut={today.canCheckOut}
+              attendanceEntryRedirectTo={attendanceEntryRedirectTo}
               employeeName={employeeName}
               securityPolicy={today.securityPolicy}
+              offlineSessionBinding={user.offlineSessionBinding}
+              offlineQueueOwner={
+                today.employee
+                  ? {
+                      employeeId: today.employee.id,
+                      ...(user.organization?.id
+                        ? { organizationId: user.organization.id }
+                        : {}),
+                    }
+                  : undefined
+              }
+              offlineBootstrapSeed={
+                user.offlineSessionBinding
+                  ? {
+                      employeeId: today.employee.id,
+                      ...(user.organization?.id ? { organizationId: user.organization.id } : {}),
+                      employeeName,
+                      sessionBinding: user.offlineSessionBinding,
+                      canCheckIn: today.canCheckIn,
+                      canCheckOut: today.canCheckOut,
+                      timeZone: today.organizationTimezone ?? undefined,
+                      snapshotAt: new Date().toISOString(),
+                    }
+                  : undefined
+              }
               sessionMode={sessionMode}
+              timeZone={today.organizationTimezone ?? undefined}
             />
           </CardContent>
         </Card>

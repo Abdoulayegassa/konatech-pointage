@@ -1,11 +1,11 @@
 import { Controller, Get } from '@nestjs/common';
-import { AccessRole } from '@prisma/client';
+import { AccessRole, MembershipRole } from '@prisma/client';
 import { CurrentAuthentication } from '../auth/decorators/current-authentication.decorator';
 import { AuthenticationContext } from '../auth/interfaces/authentication-context.interface';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { DashboardService } from './dashboard.service';
 
-@Roles(AccessRole.ADMIN)
+@Roles(AccessRole.ADMIN, MembershipRole.ADMIN)
 @Controller('dashboard')
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}

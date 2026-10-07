@@ -1,6 +1,12 @@
 export const SESSION_COOKIE_NAME = 'konatech_session';
 export const ATTENDANCE_ENTRY_SESSION_COOKIE_NAME =
   'konatech_attendance_entry_session';
+export const ORGANIZATION_SELECTION_COOKIE_NAME =
+  'konatech_organization_selection';
+export const ORGANIZATION_SELECTION_REDIRECT_COOKIE_NAME =
+  'konatech_organization_selection_redirect';
+
+export const ORGANIZATION_SELECTION_COOKIE_MAX_AGE = 60 * 5;
 
 export type SessionCookieMode = 'default' | 'attendance-entry';
 

@@ -1,5 +1,13 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { MembershipRole, PrismaClient } from '@prisma/client';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  MembershipRole,
+  PrismaClient,
+  V1OperationalScopeStatus,
+} from '@prisma/client';
 import { CalendarService } from '../src/modules/calendar/calendar.service';
 import { AuthenticationContext } from '../src/modules/auth/interfaces/authentication-context.interface';
 import { prepareTestDatabase } from './test-database';
@@ -63,28 +71,43 @@ describe('Calendar tenant isolation (e2e)', () => {
     organizationBId = organizationB.id;
 
     const [entryA, entryB] = await Promise.all([
-      prisma.calendarEntry.create({
-        data: {
+      service.create(
+        {
           name: 'Tenant A holiday',
-          date: new Date('2026-08-03T00:00:00.000Z'),
+          date: '2026-08-03',
           type: 'PUBLIC_HOLIDAY',
-          organizationId: organizationAId,
         },
-      }),
-      prisma.calendarEntry.create({
-        data: {
+        accountContext(organizationAId),
+      ),
+      service.create(
+        {
           name: 'Tenant B holiday',
-          date: new Date('2026-08-04T00:00:00.000Z'),
+          date: '2026-08-04',
           type: 'COMPANY_HOLIDAY',
-          organizationId: organizationBId,
         },
-      }),
+        accountContext(organizationBId),
+      ),
     ]);
     entryAId = entryA.id;
     entryBId = entryB.id;
   });
 
   afterAll(async () => {
+    if (prisma && organizationAId && organizationBId) {
+      const organizationIds = [organizationAId, organizationBId];
+      await prisma.calendarEntry.deleteMany({
+        where: { organizationId: { in: organizationIds } },
+      });
+      await prisma.subscriptionEvent.deleteMany({
+        where: { subscriptionId: { in: organizationIds } },
+      });
+      await prisma.organizationSubscription.deleteMany({
+        where: { organizationId: { in: organizationIds } },
+      });
+      await prisma.organization.deleteMany({
+        where: { id: { in: organizationIds } },
+      });
+    }
     await prisma?.$disconnect();
   });
 
@@ -150,7 +173,104 @@ describe('Calendar tenant isolation (e2e)', () => {
       where: { id: entry.id },
     });
 
-    expect(persisted.organizationId).toBe(organizationAId);
+    expect(persisted).toEqual(
+      expect.objectContaining({
+        organizationId: organizationAId,
+        v1ScopeStatus: V1OperationalScopeStatus.OPERATIONAL,
+      }),
+    );
+  });
+
+  it('rejects a second holiday of another type on the same tenant date', async () => {
+    await service.create(
+      {
+        name: 'First holiday type',
+        date: '2026-08-11T00:00:00.000Z',
+        type: 'PUBLIC_HOLIDAY',
+      },
+      accountContext(organizationAId),
+    );
+
+    await expect(
+      service.create(
+        {
+          name: 'Second holiday type',
+          date: '2026-08-11T00:00:00.000Z',
+          type: 'COMPANY_HOLIDAY',
+        },
+        accountContext(organizationAId),
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('allows only one concurrent holiday creation per tenant date', async () => {
+    const results = await Promise.allSettled([
+      service.create(
+        {
+          name: 'Concurrent public holiday',
+          date: '2026-08-12T00:00:00.000Z',
+          type: 'PUBLIC_HOLIDAY',
+        },
+        accountContext(organizationAId),
+      ),
+      service.create(
+        {
+          name: 'Concurrent company holiday',
+          date: '2026-08-12T00:00:00.000Z',
+          type: 'COMPANY_HOLIDAY',
+        },
+        accountContext(organizationAId),
+      ),
+    ]);
+
+    expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(
+      1,
+    );
+    expect(results.filter(({ status }) => status === 'rejected')).toHaveLength(
+      1,
+    );
+  });
+
+  it('does not expose or mutate employee events through holiday operations', async () => {
+    const employee = await prisma.employee.create({
+      data: {
+        employeeIdentifier: 'CALENDAR-EVENT-A',
+        firstName: 'Calendar',
+        lastName: 'Employee',
+        email: 'calendar-event-a@example.test',
+        role: 'Employee',
+        passwordHash: 'not-used-in-this-service-test',
+        organizationId: organizationAId,
+      },
+    });
+    const leave = await prisma.calendarEntry.create({
+      data: {
+        name: 'Private employee leave',
+        date: new Date('2026-08-13T00:00:00.000Z'),
+        type: 'LEAVE',
+        employeeId: employee.id,
+        organizationId: organizationAId,
+      },
+    });
+
+    const holidays = await service.findMonthEntries(
+      '2026-08',
+      accountContext(organizationAId),
+    );
+    expect(holidays.map(({ id }) => id)).not.toContain(leave.id);
+    await expect(
+      service.update(
+        leave.id,
+        { name: 'Forged holiday update' },
+        accountContext(organizationAId),
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.remove(leave.id, accountContext(organizationAId)),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    await prisma.calendarEntry.delete({ where: { id: leave.id } });
+    await prisma.employee.delete({ where: { id: employee.id } });
   });
 
   it('rejects a cross-tenant Employee reference', async () => {
@@ -195,7 +315,7 @@ describe('Calendar tenant isolation (e2e)', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('preserves legacy global Calendar behavior', async () => {
+  it('keeps the Legacy Calendar scoped to the Legacy namespace', async () => {
     const legacyEntry = await service.create(
       {
         name: 'Legacy holiday',
@@ -210,8 +330,16 @@ describe('Calendar tenant isolation (e2e)', () => {
     });
 
     expect(persisted.organizationId).toBeNull();
-    expect(entries.map((entry) => entry.id)).toEqual(
-      expect.arrayContaining([entryAId, entryBId, legacyEntry.id]),
-    );
+    expect(entries.map((entry) => entry.id)).toContain(legacyEntry.id);
+    expect(entries.map((entry) => entry.id)).not.toContain(entryAId);
+    expect(entries.map((entry) => entry.id)).not.toContain(entryBId);
+
+    await expect(
+      service.update(
+        entryAId,
+        { name: 'Legacy cross-namespace update' },
+        legacyContext,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

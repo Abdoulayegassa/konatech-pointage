@@ -1,10 +1,26 @@
-import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { AttendanceStatus, Prisma } from '@prisma/client';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
+import {
+  AttendanceStatus,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import {
+  attendanceOperationalWhere,
+  employeeOperationalWhere,
+  operationalScopeCreateData,
+} from '../../common/prisma/operational-scope';
 import {
   addAttendanceDays,
   getAttendanceMonthRange,
+  getBusinessDate,
+  getLocalDateParts,
   isScheduledOnDate,
+  localScheduleTimeToUtc,
   normalizeAttendanceDate,
 } from '../../common/utils/attendance-date.util';
 import {
@@ -14,20 +30,23 @@ import {
 import { scheduleSelect } from '../../common/prisma/selects';
 import {
   buildAttendanceScheduleSnapshot,
-  getResolvedAttendanceScheduledExitTime,
+  hasAttendanceScheduleSnapshot,
   isScheduledOnResolvedAttendanceDate,
   resolveAttendanceSchedule,
 } from '../../common/utils/attendance-schedule-snapshot.util';
 import { CalendarService } from '../calendar/calendar.service';
+import { EffectiveScheduleResolver } from '../schedules/effective-schedule.resolver';
 
 const monthlyMetricsScheduleSelect = {
   ...scheduleSelect,
   organizationId: true,
+  v1ScopeStatus: true,
 } satisfies Prisma.ScheduleSelect;
 
 type EmployeeForMonthlyMetrics = {
   id: string;
   organizationId: string | null;
+  organization: { timezone: string } | null;
   schedule: Prisma.ScheduleGetPayload<{
     select: typeof monthlyMetricsScheduleSelect;
   }> | null;
@@ -42,17 +61,21 @@ type MonthRange = {
 export class AttendanceMonthlyMetricsService
   implements OnModuleInit, OnModuleDestroy
 {
+  private readonly logger = new Logger(AttendanceMonthlyMetricsService.name);
   private timer?: NodeJS.Timeout;
+  private scheduledRecalculation?: Promise<void>;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly calendarService: CalendarService,
+    private readonly effectiveSchedules: EffectiveScheduleResolver,
   ) {}
 
   onModuleInit() {
+    this.startScheduledRecalculation(new Date());
     this.timer = setInterval(
       () => {
-        void this.runIfMonthClosed(new Date());
+        this.startScheduledRecalculation(new Date());
       },
       24 * 60 * 60 * 1000,
     );
@@ -60,33 +83,52 @@ export class AttendanceMonthlyMetricsService
     this.timer.unref?.();
   }
 
-  onModuleDestroy() {
+  async onModuleDestroy() {
     if (this.timer) {
       clearInterval(this.timer);
     }
+
+    await this.scheduledRecalculation;
+  }
+
+  private startScheduledRecalculation(referenceDate: Date) {
+    if (this.scheduledRecalculation) return;
+
+    const task = this.runIfMonthClosed(referenceDate)
+      .catch((error: unknown) => {
+        this.logger.error(
+          'Scheduled attendance monthly metrics recalculation failed.',
+          error instanceof Error ? error.stack : String(error),
+        );
+      })
+      .finally(() => {
+        if (this.scheduledRecalculation === task) {
+          this.scheduledRecalculation = undefined;
+        }
+      });
+    this.scheduledRecalculation = task;
   }
 
   async recalculateMonth(year: number, month: number, employeeId?: string) {
     const range = this.getMonthRange(year, month);
-    const effectiveRange = {
-      startOfMonth: range.startOfMonth,
-      endOfMonth: this.getEffectiveEndOfMonth(range, new Date()),
-    };
     if (employeeId) {
       const employee = await this.prisma.employee.findFirst({
         where: {
           id: employeeId,
           isActive: true,
           OR: [
-            { organizationId: null },
-            { organization: { is: { status: 'ACTIVE' } } },
+            { ...employeeOperationalWhere() },
+            {
+              v1ScopeStatus: 'OPERATIONAL',
+              organization: { is: { status: 'ACTIVE' } },
+            },
           ],
         },
         select: this.employeeForMonthlyMetricsSelect,
       });
 
       if (employee) {
-        await this.recalculateEmployeeMonth(employee, effectiveRange);
+        await this.recalculateEmployeeMonth(employee, range);
       }
 
       return;
@@ -100,70 +142,97 @@ export class AttendanceMonthlyMetricsService
     for (const organization of activeOrganizations) {
       const employees = await this.prisma.employee.findMany({
         where: {
-          organizationId: organization.id,
+          ...employeeOperationalWhere(organization.id),
           isActive: true,
         },
         select: this.employeeForMonthlyMetricsSelect,
       });
 
       for (const employee of employees) {
-        await this.recalculateEmployeeMonth(employee, effectiveRange);
+        await this.recalculateEmployeeMonth(employee, range);
       }
     }
 
     const legacyEmployees = await this.prisma.employee.findMany({
-      where: { organizationId: null, isActive: true },
+      where: { ...employeeOperationalWhere(), isActive: true },
       select: this.employeeForMonthlyMetricsSelect,
     });
 
     for (const employee of legacyEmployees) {
-      await this.recalculateEmployeeMonth(employee, effectiveRange);
+      await this.recalculateEmployeeMonth(employee, range);
     }
   }
 
   private async runIfMonthClosed(referenceDate: Date) {
-    if (referenceDate.getUTCDate() !== 1) {
-      return;
+    const organizations = await this.prisma.organization.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true, timezone: true },
+    });
+
+    for (const organization of organizations) {
+      const localDate = getLocalDateParts(referenceDate, organization.timezone);
+      if (localDate.day !== 1) continue;
+
+      const previousMonth = addAttendanceDays(
+        getAttendanceMonthRange(localDate.year, localDate.month).startOfMonth,
+        -1,
+      );
+      const range = this.getMonthRange(
+        previousMonth.getUTCFullYear(),
+        previousMonth.getUTCMonth() + 1,
+      );
+      const employees = await this.prisma.employee.findMany({
+        where: { ...employeeOperationalWhere(organization.id), isActive: true },
+        select: this.employeeForMonthlyMetricsSelect,
+      });
+
+      for (const employee of employees) {
+        await this.recalculateEmployeeMonth(employee, range);
+      }
     }
 
-    const previousMonth = addAttendanceDays(
-      getAttendanceMonthRange(
-        referenceDate.getUTCFullYear(),
-        referenceDate.getUTCMonth() + 1,
-      ).startOfMonth,
-      -1,
-    );
+    if (referenceDate.getUTCDate() === 1) {
+      const previousMonth = addAttendanceDays(
+        getAttendanceMonthRange(
+          referenceDate.getUTCFullYear(),
+          referenceDate.getUTCMonth() + 1,
+        ).startOfMonth,
+        -1,
+      );
+      const range = this.getMonthRange(
+        previousMonth.getUTCFullYear(),
+        previousMonth.getUTCMonth() + 1,
+      );
+      const legacyEmployees = await this.prisma.employee.findMany({
+        where: { ...employeeOperationalWhere(), isActive: true },
+        select: this.employeeForMonthlyMetricsSelect,
+      });
 
-    await this.recalculateMonth(
-      previousMonth.getUTCFullYear(),
-      previousMonth.getUTCMonth() + 1,
-    );
+      for (const employee of legacyEmployees) {
+        await this.recalculateEmployeeMonth(employee, range);
+      }
+    }
   }
 
   private async recalculateEmployeeMonth(
     employee: EmployeeForMonthlyMetrics,
     range: MonthRange,
   ) {
-    if (
-      employee.organizationId &&
-      employee.schedule?.organizationId !== employee.organizationId
-    ) {
-      return;
-    }
-
-    if (!employee.schedule?.isActive) {
-      return;
-    }
-
+    const timezone = employee.organization?.timezone ?? 'UTC';
+    range = {
+      ...range,
+      endOfMonth: this.getEffectiveEndOfMonth(
+        range,
+        getBusinessDate(new Date(), timezone),
+      ),
+    };
     await this.createMissingAbsenceRecords(employee, range);
 
     const [attendances, nonWorkingDateKeys] = await Promise.all([
       this.prisma.attendance.findMany({
         where: {
           employeeId: employee.id,
-          ...(employee.organizationId
-            ? { organizationId: employee.organizationId }
-            : {}),
+          ...attendanceOperationalWhere(employee.organizationId ?? undefined),
           date: {
             gte: range.startOfMonth,
             lt: range.endOfMonth,
@@ -174,6 +243,8 @@ export class AttendanceMonthlyMetricsService
           date: true,
           clockInAt: true,
           clockOutAt: true,
+          calendarNonWorkingDaySnapshot: true,
+          scheduledExitTime: true,
           minutesLate: true,
           scheduleIdSnapshot: true,
           scheduleNameSnapshot: true,
@@ -189,19 +260,27 @@ export class AttendanceMonthlyMetricsService
     const absenceCount = attendances.filter(
       (attendance) =>
         !attendance.clockInAt &&
-        !nonWorkingDateKeys.has(
+        !(attendance.calendarNonWorkingDaySnapshot ?? nonWorkingDateKeys.has(
           normalizeAttendanceDate(attendance.date).getTime(),
-        ),
+        )),
     ).length;
 
     for (const attendance of attendances) {
+      const effectiveSchedule = hasAttendanceScheduleSnapshot(attendance)
+        ? null
+        : await this.resolveEffectiveSchedule(employee, attendance.date);
+      // Unsnapshotted records without deterministic assignment history must
+      // remain untouched rather than being recalculated from a mutable
+      // Employee.scheduleId projection.
+      if (!hasAttendanceScheduleSnapshot(attendance) && !effectiveSchedule) {
+        continue;
+      }
       const resolvedSchedule = resolveAttendanceSchedule(
         attendance,
-        employee.schedule,
+        effectiveSchedule?.schedule ?? null,
       );
-      const isNonWorkingDay = nonWorkingDateKeys.has(
-        normalizeAttendanceDate(attendance.date).getTime(),
-      );
+      const isNonWorkingDay = attendance.calendarNonWorkingDaySnapshot ??
+        nonWorkingDateKeys.has(normalizeAttendanceDate(attendance.date).getTime());
       const isOutsideScheduleWork =
         Boolean(attendance.clockInAt) &&
         (isNonWorkingDay ||
@@ -211,10 +290,12 @@ export class AttendanceMonthlyMetricsService
           ));
       const scheduledExitTime = isOutsideScheduleWork
         ? null
-        : getResolvedAttendanceScheduledExitTime(
+        : (attendance.scheduledExitTime ??
+          this.getScheduledExitTime(
             resolvedSchedule,
             attendance.date,
-          );
+            timezone,
+          ));
       const exitOutcome = isOutsideScheduleWork
         ? getOutsideScheduleAttendanceOutcome(
             attendance.clockInAt,
@@ -228,10 +309,12 @@ export class AttendanceMonthlyMetricsService
       await this.prisma.attendance.updateMany({
         where: {
           id: attendance.id,
-          organizationId: employee.organizationId,
+          ...attendanceOperationalWhere(employee.organizationId ?? undefined),
         },
         data: {
           outsideScheduleWork: isOutsideScheduleWork,
+          calendarNonWorkingDaySnapshot:
+            attendance.calendarNonWorkingDaySnapshot ?? isNonWorkingDay,
           scheduledExitTime,
           earlyExit: exitOutcome.earlyExit,
           earlyExitMinutes: exitOutcome.earlyExitMinutes,
@@ -258,16 +341,10 @@ export class AttendanceMonthlyMetricsService
     employee: EmployeeForMonthlyMetrics,
     range: MonthRange,
   ) {
-    if (!employee.schedule?.isActive) {
-      return;
-    }
-
     const existingAttendances = await this.prisma.attendance.findMany({
       where: {
         employeeId: employee.id,
-        ...(employee.organizationId
-          ? { organizationId: employee.organizationId }
-          : {}),
+        ...attendanceOperationalWhere(employee.organizationId ?? undefined),
         date: {
           gte: range.startOfMonth,
           lt: range.endOfMonth,
@@ -291,8 +368,13 @@ export class AttendanceMonthlyMetricsService
     while (cursor < range.endOfMonth) {
       const date = normalizeAttendanceDate(cursor);
 
+      const effectiveSchedule = await this.resolveEffectiveSchedule(
+        employee,
+        date,
+      );
       if (
-        isScheduledOnDate(employee.schedule.workDays, date) &&
+        effectiveSchedule?.schedule.isActive &&
+        isScheduledOnDate(effectiveSchedule.schedule.workDays, date) &&
         !nonWorkingDateKeys.has(date.getTime()) &&
         !existingDateKeys.has(date.getTime())
       ) {
@@ -300,13 +382,18 @@ export class AttendanceMonthlyMetricsService
           data: {
             employeeId: employee.id,
             organizationId: employee.organizationId,
+            attendanceSiteId: effectiveSchedule.siteAssignment?.siteId ?? null,
+            employeeSiteAssignmentId: effectiveSchedule.siteAssignment?.id ?? null,
+            ...operationalScopeCreateData(employee.organizationId ?? undefined),
             date,
+            calendarNonWorkingDaySnapshot: false,
             status: AttendanceStatus.ABSENT,
-            scheduledExitTime: getResolvedAttendanceScheduledExitTime(
-              resolveAttendanceSchedule({}, employee.schedule),
+            scheduledExitTime: this.getScheduledExitTime(
+              resolveAttendanceSchedule({}, effectiveSchedule.schedule),
               date,
+              employee.organization?.timezone ?? 'UTC',
             ),
-            ...buildAttendanceScheduleSnapshot(employee.schedule, date),
+            ...buildAttendanceScheduleSnapshot(effectiveSchedule.schedule, date),
           },
         });
         existingDateKeys.add(date.getTime());
@@ -325,9 +412,10 @@ export class AttendanceMonthlyMetricsService
     range: MonthRange,
   ) {
     return employee.organizationId
-      ? this.calendarService.getNonWorkingDateKeysForOrganization(
+      ? this.calendarService.getNonWorkingDateKeysForEmployeeInOrganization(
           range.startOfMonth,
           range.endOfMonth,
+          employee.id,
           employee.organizationId,
         )
       : this.calendarService.getNonWorkingDateKeys(
@@ -339,10 +427,51 @@ export class AttendanceMonthlyMetricsService
   private readonly employeeForMonthlyMetricsSelect = {
     id: true,
     organizationId: true,
+    organization: { select: { timezone: true } },
     schedule: {
       select: monthlyMetricsScheduleSelect,
     },
   } satisfies Prisma.EmployeeSelect;
+
+  /**
+   * Tenant calculations resolve site and schedule history together. The
+   * legacy projection is retained only for pre-SaaS records.
+   */
+  private async resolveEffectiveSchedule(
+    employee: EmployeeForMonthlyMetrics,
+    businessDate: Date,
+  ) {
+    if (!employee.organizationId) {
+      return employee.schedule?.isActive
+        ? { schedule: employee.schedule, siteAssignment: null }
+        : null;
+    }
+
+    return this.effectiveSchedules.resolveOptional(
+      employee.id,
+      employee.organizationId,
+      businessDate,
+    );
+  }
+
+  private getScheduledExitTime(
+    schedule: ReturnType<typeof resolveAttendanceSchedule>,
+    businessDate: Date,
+    timezone: string,
+  ) {
+    if (
+      !schedule.startTime ||
+      !schedule.endTime ||
+      !isScheduledOnResolvedAttendanceDate(schedule, businessDate)
+    ) {
+      return null;
+    }
+    const exitDate =
+      schedule.endTime <= schedule.startTime
+        ? addAttendanceDays(businessDate, 1)
+        : businessDate;
+    return localScheduleTimeToUtc(exitDate, schedule.endTime, timezone);
+  }
 
   private getEffectiveEndOfMonth(range: MonthRange, referenceDate: Date) {
     if (referenceDate < range.startOfMonth) {

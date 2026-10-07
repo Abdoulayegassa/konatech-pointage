@@ -5,6 +5,7 @@ import bodyParser from 'body-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AttendanceSecurityPolicyService } from './modules/attendance/attendance-security-policy.service';
+import { configureTrustedProxy } from './common/security/client-ip';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -12,15 +13,7 @@ async function bootstrap() {
   });
   const configService = app.get(ConfigService);
   const jsonBodyLimit = configService.getOrThrow<string>('JSON_BODY_LIMIT');
-  const trustProxyHops = configService.getOrThrow<number>('TRUST_PROXY_HOPS');
-
-  if (trustProxyHops > 0) {
-    const expressInstance = app.getHttpAdapter().getInstance() as {
-      set?: (setting: string, value: unknown) => void;
-    };
-
-    expressInstance.set?.('trust proxy', trustProxyHops);
-  }
+  configureTrustedProxy(app.getHttpAdapter().getInstance(), configService);
 
   app.use(helmet());
   app.use(bodyParser.json({ limit: jsonBodyLimit }));

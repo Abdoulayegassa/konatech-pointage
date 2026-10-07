@@ -42,6 +42,8 @@ export type MonthlyAttendanceSanctionSummary = {
 export type MonthlyAttendanceDailyReportRow = {
   date: string;
   dayLabel: string;
+  attendanceSiteId: string | null;
+  siteLabel: string;
   clockInTime: string;
   clockOutTime: string;
   statusLabel: string;
@@ -113,8 +115,15 @@ export type MonthlyAttendanceEmployeeReport = {
 };
 
 export type MonthlyAttendanceExportReport = {
+  scope: 'ORGANIZATION' | 'SITE';
+  organizationId: string | null;
+  organizationName: string | null;
+  siteId: string | null;
+  siteName: string | null;
+  organizationTimezone: string;
   reportingMode: MonthlyAttendanceReportMode;
   periodLabel: string;
+  period: { startDate: string; endDate: string };
   month: number;
   year: number;
   generatedAt: string;

@@ -14,6 +14,11 @@ export type StoredAttendancePhoto = {
   publicId: string;
 };
 
+export type StoredAttendancePhotoContent = {
+  content: Buffer;
+  contentType: string;
+};
+
 type CloudinaryUploadResponse = {
   public_id?: string;
   secure_url?: string;
@@ -53,10 +58,10 @@ export class AttendancePhotoStorageService {
       reason: string;
     },
   ): Promise<StoredAttendancePhoto> {
-    this.assertDataUrl(photoDataUrl);
+    const evidenceFingerprint = this.getEvidenceFingerprint(photoDataUrl);
 
     if (process.env.NODE_ENV === 'test') {
-      const publicId = this.buildPublicId(input);
+      const publicId = this.buildPublicId(input, evidenceFingerprint);
 
       return {
         publicId,
@@ -65,7 +70,7 @@ export class AttendancePhotoStorageService {
     }
 
     const config = this.getConfig();
-    const publicId = this.buildPublicId(input);
+    const publicId = this.buildPublicId(input, evidenceFingerprint);
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const tags = 'attendance,verification';
     const signature = this.sign(
@@ -74,6 +79,7 @@ export class AttendancePhotoStorageService {
         public_id: publicId,
         tags,
         timestamp,
+        type: 'private',
       },
       config.apiSecret,
     );
@@ -89,6 +95,7 @@ export class AttendancePhotoStorageService {
         signature,
         tags,
         timestamp,
+        type: 'private',
       });
 
       const result = await this.uploadOnce(uploadUrl, form, config.timeoutMs);
@@ -106,12 +113,11 @@ export class AttendancePhotoStorageService {
       this.logger.warn(
         JSON.stringify({
           event: 'cloudinary_upload_retry',
-          publicId,
           attempt,
           nextAttempt: attempt + 1,
           statusCode: lastFailure.statusCode,
           timedOut: lastFailure.timedOut,
-          message: lastFailure.message,
+          failureType: lastFailure.timedOut ? 'timeout' : 'upstream_error',
         }),
       );
 
@@ -121,12 +127,8 @@ export class AttendancePhotoStorageService {
     this.logger.error(
       JSON.stringify({
         event: 'cloudinary_upload_failed',
-        publicId,
         statusCode: lastFailure?.statusCode ?? null,
         timedOut: lastFailure?.timedOut ?? false,
-        message:
-          lastFailure?.message ??
-          'Cloudinary upload failed for unknown reason.',
       }),
     );
 
@@ -136,21 +138,130 @@ export class AttendancePhotoStorageService {
       );
     }
 
-    throw new BadGatewayException(
-      lastFailure?.message ?? 'Cloudinary photo upload failed.',
+    throw new BadGatewayException('Photo storage is temporarily unavailable.');
+  }
+
+  plannedVerificationPhotoPublicId(photoDataUrl: string, input: { employeeId: string; occurredAt: Date; reason: string }) {
+    const relative = this.buildPublicId(input, this.getEvidenceFingerprint(photoDataUrl));
+    return process.env.NODE_ENV === 'test' ? relative : `${this.getConfig().folder}/${relative}`;
+  }
+
+  getEvidenceFingerprint(photoDataUrl: string) {
+    const bytes = this.assertDataUrl(photoDataUrl);
+
+    return createHash('sha256').update(bytes).digest('hex');
+  }
+
+  async getVerificationPhoto(
+    publicId: string,
+  ): Promise<StoredAttendancePhotoContent> {
+    if (process.env.NODE_ENV === 'test') {
+      return {
+        content: Buffer.from([0xff, 0xd8, 0xff, 0xd9]),
+        contentType: 'image/jpeg',
+      };
+    }
+
+    const config = this.getConfig();
+    const signature = createHash('sha1')
+      .update(`${publicId}${config.apiSecret}`)
+      .digest('base64url')
+      .slice(0, 8);
+    const deliveryUrl = `https://res.cloudinary.com/${config.cloudName}/image/private/s--${signature}--/${publicId}.jpg`;
+    const response = await fetch(deliveryUrl);
+
+    if (!response.ok) {
+      this.logger.error(
+        JSON.stringify({
+          event: 'cloudinary_photo_delivery_failed',
+          statusCode: response.status,
+        }),
+      );
+      throw new BadGatewayException('Verification photo is unavailable.');
+    }
+
+    return {
+      content: Buffer.from(await response.arrayBuffer()),
+      contentType: response.headers.get('content-type') ?? 'image/jpeg',
+    };
+  }
+
+  async deleteVerificationPhoto(publicId: string): Promise<void> {
+    if (process.env.NODE_ENV === 'test') {
+      return;
+    }
+
+    const config = this.getConfig();
+    const timestamp = Math.floor(Date.now() / 1000).toString();
+    const signature = this.sign(
+      { invalidate: 'true', public_id: publicId, timestamp, type: 'private' },
+      config.apiSecret,
     );
+    const form = new FormData();
+    form.set('public_id', publicId);
+    form.set('timestamp', timestamp);
+    form.set('api_key', config.apiKey);
+    form.set('signature', signature);
+    form.set('invalidate', 'true');
+    form.set('type', 'private');
+    const response = await fetch(
+      `https://api.cloudinary.com/v1_1/${config.cloudName}/image/destroy`,
+      { method: 'POST', body: form, signal: AbortSignal.timeout(config.timeoutMs) },
+    );
+    const payload = (await response.json().catch(() => ({}))) as {
+      result?: string;
+    };
+
+    if (!response.ok || !['ok', 'not found'].includes(payload.result ?? '')) {
+      this.logger.error(
+        JSON.stringify({
+          event: 'cloudinary_photo_deletion_failed',
+          statusCode: response.status,
+        }),
+      );
+      throw new BadGatewayException('Verification photo deletion failed.');
+    }
   }
 
   private assertDataUrl(photoDataUrl: string) {
-    if (
-      !/^data:image\/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(
-        photoDataUrl,
-      )
-    ) {
+    const match = photoDataUrl.match(
+      /^data:image\/(jpeg|jpg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/,
+    );
+    if (!match) {
       throw new BadRequestException(
         'Verification photo must be a valid image.',
       );
     }
+
+    const bytes = Buffer.from(match[2], 'base64');
+    const mimeType = match[1] === 'jpg' ? 'jpeg' : match[1];
+    if (!this.hasExpectedImageSignature(bytes, mimeType)) {
+      throw new BadRequestException(
+        'Verification photo content does not match its image type.',
+      );
+    }
+
+    return bytes;
+  }
+
+  private hasExpectedImageSignature(bytes: Buffer, mimeType: string) {
+    if (mimeType === 'jpeg') {
+      return bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8;
+    }
+    if (mimeType === 'png') {
+      return (
+        bytes.length >= 8 &&
+        bytes.subarray(0, 8).equals(
+          Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        )
+      );
+    }
+
+    return (
+      bytes.length >= 12 &&
+      bytes.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      bytes.subarray(8, 12).toString('ascii') === 'WEBP'
+    );
   }
 
   private getConfig(): CloudinaryUploadConfig {
@@ -190,6 +301,7 @@ export class AttendancePhotoStorageService {
       signature: string;
       tags: string;
       timestamp: string;
+      type: 'private';
     },
   ) {
     const form = new FormData();
@@ -201,6 +313,7 @@ export class AttendancePhotoStorageService {
     form.set('tags', input.tags);
     form.set('timestamp', input.timestamp);
     form.set('signature', input.signature);
+    form.set('type', input.type);
 
     return form;
   }
@@ -292,17 +405,20 @@ export class AttendancePhotoStorageService {
     return value;
   }
 
-  private buildPublicId(input: {
-    employeeId: string;
-    occurredAt: Date;
-    reason: string;
-  }) {
+  private buildPublicId(
+    input: {
+      employeeId: string;
+      occurredAt: Date;
+      reason: string;
+    },
+    evidenceFingerprint: string,
+  ) {
     const dateKey = input.occurredAt.toISOString().slice(0, 10);
     const instantKey = input.occurredAt
       .toISOString()
       .replace(/[^0-9A-Za-z]/g, '');
 
-    return `${dateKey}/${input.employeeId}/${input.reason.toLowerCase()}-${instantKey}`;
+    return `${dateKey}/${input.employeeId}/${input.reason.toLowerCase()}-${instantKey}-${evidenceFingerprint}`;
   }
 
   private sign(params: Record<string, string>, apiSecret: string) {

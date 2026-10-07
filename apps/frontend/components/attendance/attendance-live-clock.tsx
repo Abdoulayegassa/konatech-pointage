@@ -2,24 +2,26 @@
 
 import { useEffect, useState } from 'react';
 
-function formatDate(value: Date) {
+function formatDate(value: Date, timeZone?: string) {
   return value.toLocaleDateString('fr-FR', {
     weekday: 'long',
     day: '2-digit',
     month: 'long',
     year: 'numeric',
+    timeZone,
   });
 }
 
-function formatTime(value: Date, includeSeconds = true) {
+function formatTime(value: Date, includeSeconds = true, timeZone?: string) {
   return value.toLocaleTimeString('fr-FR', {
     hour: '2-digit',
     minute: '2-digit',
     ...(includeSeconds ? { second: '2-digit' } : {}),
+    timeZone,
   });
 }
 
-export function AttendanceLiveClock() {
+export function AttendanceLiveClock({ timeZone }: { timeZone?: string }) {
   const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -42,14 +44,14 @@ export function AttendanceLiveClock() {
         </p>
       </div>
       <p className="mt-3 font-mono text-[4rem] font-black leading-none text-slate-950 sm:text-[4.5rem]">
-        {now ? formatTime(now) : '--:--:--'}
+        {now ? formatTime(now, true, timeZone) : '--:--:--'}
       </p>
       <div className="mt-3 flex items-center justify-center gap-2">
         <span className="h-2.5 w-2.5 rounded-full bg-success" />
         <p className="text-sm font-extrabold text-slate-600">Synchronisé</p>
       </div>
       <p className="mt-2 text-sm font-semibold capitalize leading-5 text-slate-500">
-        {now ? formatDate(now) : 'date locale'}
+        {now ? formatDate(now, timeZone) : 'date locale'}
       </p>
     </div>
   );

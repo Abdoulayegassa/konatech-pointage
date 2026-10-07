@@ -4,15 +4,20 @@ import { SESSION_COOKIE_NAME } from '@/lib/auth-session';
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const isProtectedPath =
-    pathname === '/' ||
-    pathname.startsWith('/my-attendance') ||
-    pathname.startsWith('/employees') ||
-    pathname.startsWith('/schedules');
+  // This route is a public, data-free shell. Attendance still requires the
+  // employee and tenant bound server-issued context stored on this device.
+  if (pathname === '/my-attendance/offline') {
+    return NextResponse.next();
+  }
   const hasSession = Boolean(request.cookies.get(SESSION_COOKIE_NAME)?.value);
 
-  if (isProtectedPath && !hasSession) {
-    return NextResponse.redirect(new URL('/login', request.url));
+  if (!hasSession) {
+    const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set(
+      'redirectTo',
+      `${pathname}${request.nextUrl.search}`,
+    );
+    return NextResponse.redirect(loginUrl);
   }
 
   return NextResponse.next();
@@ -21,8 +26,20 @@ export function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     '/',
+    '/dashboard/:path*',
+    '/organization/:path*',
+    '/sites/:path*',
+    '/site/:path*',
     '/my-attendance/:path*',
     '/employees/:path*',
     '/schedules/:path*',
+    '/attendance-history/:path*',
+    '/attendance-sites/:path*',
+    '/calendar/:path*',
+    '/exports/:path*',
+    '/sanctions/:path*',
+    '/organization-settings/:path*',
+    '/subscription/:path*',
+    '/platform/:path*',
   ],
 };

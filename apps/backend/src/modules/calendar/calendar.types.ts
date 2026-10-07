@@ -29,6 +29,9 @@ export type CalendarEntryRecord = {
   employeeName: string | null;
   department: string | null;
   isActive: boolean;
+  siteId: string | null;
+  scope: 'ORGANIZATION' | 'SITE';
+  inherited: boolean;
 };
 
 export type CalendarDayRecord = {

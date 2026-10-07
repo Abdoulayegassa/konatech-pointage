@@ -5,6 +5,7 @@ import {
   ATTENDANCE_ENTRY_PIN_SHORT_THROTTLER_NAME,
   ATTENDANCE_ENTRY_RATE_LIMIT_MESSAGE,
 } from '../../modules/auth/constants/attendance-entry.constants';
+import { sanitizeLogText, sanitizeRequestPath } from './sensitive-data.util';
 
 @Injectable()
 export class AppThrottlerGuard extends ThrottlerGuard {
@@ -56,8 +57,9 @@ export class AppThrottlerGuard extends ThrottlerGuard {
         );
       }
 
+      this.logSecurityRateLimit(req, tracker, throttlerName);
+
       if (this.isAttendanceEntryPinThrottler(throttlerName)) {
-        this.logAttendanceEntryPinRateLimit(req, tracker, throttlerName);
         throw new HttpException(
           ATTENDANCE_ENTRY_RATE_LIMIT_MESSAGE,
           HttpStatus.TOO_MANY_REQUESTS,
@@ -101,7 +103,7 @@ export class AppThrottlerGuard extends ThrottlerGuard {
     );
   }
 
-  private logAttendanceEntryPinRateLimit(
+  private logSecurityRateLimit(
     req: Record<string, any>,
     tracker: string,
     throttlerName: string,
@@ -118,14 +120,14 @@ export class AppThrottlerGuard extends ThrottlerGuard {
   private getRequestRoute(req: Record<string, any>) {
     const route = req.originalUrl ?? req.url ?? 'unknown';
 
-    return typeof route === 'string' ? route : 'unknown';
+    return sanitizeRequestPath(route);
   }
 
   private getUserAgent(req: Record<string, any>) {
     const userAgent = req.headers?.['user-agent'];
 
     return typeof userAgent === 'string' && userAgent.trim().length > 0
-      ? userAgent
+      ? sanitizeLogText(userAgent, 160)
       : 'unknown';
   }
 }

@@ -1,5 +1,6 @@
 import Image from 'next/image';
 import { redirect } from 'next/navigation';
+import { AdminNav } from '@/components/admin/admin-nav';
 import { AttendanceLiveClock } from '@/components/attendance/attendance-live-clock';
 import {
   formatAttendanceHistoryDate,
@@ -11,22 +12,19 @@ import {
 import { EmployeeAttendanceActions } from '@/components/attendance/employee-attendance-actions';
 import { LogoutForm } from '@/components/auth/logout-form';
 import { Card, CardContent } from '@/components/ui/card';
-import { getEmployeeAttendanceData } from '@/lib/api';
+import { getAttendanceSites, getEmployeeAttendanceData } from '@/lib/api';
 import { getSessionToken, requireCurrentUser } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
-function currentMonth() {
-  const now = new Date();
-  const month = `${now.getUTCMonth() + 1}`.padStart(2, '0');
-
-  return `${now.getUTCFullYear()}-${month}`;
-}
-
 export default async function MyAttendancePage() {
   const user = await requireCurrentUser();
 
-  if (user.accessRole === 'ADMIN') {
+  const membershipRole = user.membership?.role;
+  const canUsePersonalAttendance = membershipRole
+    ? membershipRole === 'EMPLOYEE'
+    : user.accessRole === 'EMPLOYEE';
+  if (!canUsePersonalAttendance) {
     redirect('/');
   }
 
@@ -36,11 +34,51 @@ export default async function MyAttendancePage() {
     redirect('/login');
   }
 
-  const selectedMonth = currentMonth();
-  const { today, history } = await getEmployeeAttendanceData(
-    token,
-    selectedMonth,
-  );
+  if (user.membership?.role === 'EMPLOYEE' && user.employee === null) {
+    return (
+    <main className="min-h-screen bg-[#fffdfb] px-4 py-6 sm:px-6 md:pl-72">
+        <div className="mx-auto flex max-w-xl flex-col gap-5">
+          <header className="space-y-4">
+            <div className="flex items-center gap-2">
+              <AdminNav current="my-attendance" membershipRole="EMPLOYEE" />
+              <LogoutForm />
+            </div>
+            <Image
+              alt="Konatech"
+              className="h-auto w-28 object-contain"
+              height={120}
+              priority
+              src="/brand/inout-logo.png"
+              width={240}
+            />
+          </header>
+          <Card className="rounded-[28px] bg-white/95 shadow-soft">
+            <CardContent className="space-y-5 p-6">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-accent">
+                  Compte organisation
+                </p>
+                <h1 className="mt-2 text-2xl font-black text-slate-950">
+                  Bienvenue dans{' '}
+                  {user.organization?.name ?? 'votre organisation'}
+                </h1>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Votre compte membre est actif, mais aucun profil employé de
+                  pointage ne lui est encore associé. Un ADMIN peut
+                  effectuer cette association.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </main>
+    );
+  }
+
+  const [{ today, history }, attendanceSites] = await Promise.all([
+    getEmployeeAttendanceData(token),
+    getAttendanceSites(token).catch(() => []),
+  ]);
   const monthAbsenceCount = today.monthlyAbsenceCount;
   const monthWorkedHours = getMonthlyWorkedHours(history);
   const monthEarlyExitCount = history.filter(
@@ -88,10 +126,14 @@ export default async function MyAttendancePage() {
   ];
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[#fffdfb] px-4 py-3.5 sm:px-6 sm:py-6">
+    <main className="relative min-h-screen overflow-hidden bg-[#fffdfb] px-4 py-3.5 sm:px-6 sm:py-6 md:pl-72">
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,248,244,0.86),rgba(255,255,255,0.98)_36%,rgba(255,255,255,1))]" />
 
       <div className="relative mx-auto flex w-full max-w-[460px] flex-col gap-3.5 lg:max-w-[520px]">
+        <div className="flex items-center gap-2">
+          <AdminNav current="my-attendance" membershipRole="EMPLOYEE" />
+          <LogoutForm />
+        </div>
         <header className="flex flex-col text-left">
           <div className="flex items-start justify-between gap-4">
             <Image
@@ -99,13 +141,9 @@ export default async function MyAttendancePage() {
               className="h-auto w-24 object-contain sm:w-28"
               height={120}
               priority
-              src="/konatech-logo.png"
+              src="/brand/inout-logo.png"
               width={240}
             />
-
-            <div className="[&_button]:min-h-0 [&_button]:rounded-full [&_button]:border-slate-200/90 [&_button]:bg-white/80 [&_button]:px-3.5 [&_button]:py-2 [&_button]:text-xs [&_button]:font-bold [&_button]:text-slate-600 [&_button]:shadow-sm [&_button:hover]:bg-white">
-              <LogoutForm />
-            </div>
           </div>
 
           <div className="mt-3 leading-none">
@@ -122,7 +160,9 @@ export default async function MyAttendancePage() {
           </h1>
         </header>
 
-        <AttendanceLiveClock />
+        <AttendanceLiveClock
+          timeZone={today.organizationTimezone ?? undefined}
+        />
 
         <section
           className={`rounded-[26px] border px-5 py-4 shadow-[0_16px_38px_rgba(15,45,58,0.07)] ${
@@ -163,7 +203,10 @@ export default async function MyAttendancePage() {
                   Entrée
                 </p>
                 <p className="mt-1.5 text-2xl font-black text-slate-950">
-                  {formatAttendanceTime(today.attendance?.clockInAt ?? null)}
+                  {formatAttendanceTime(
+                    today.attendance?.clockInAt ?? null,
+                    today.organizationTimezone ?? undefined,
+                  )}
                 </p>
               </div>
               <div className="rounded-[22px] border border-slate-200/80 bg-slate-50/80 px-4 py-3">
@@ -171,15 +214,41 @@ export default async function MyAttendancePage() {
                   Sortie
                 </p>
                 <p className="mt-1.5 text-2xl font-black text-slate-950">
-                  {formatAttendanceTime(today.attendance?.clockOutAt ?? null)}
+                  {formatAttendanceTime(
+                    today.attendance?.clockOutAt ?? null,
+                    today.organizationTimezone ?? undefined,
+                  )}
                 </p>
               </div>
             </div>
 
             <EmployeeAttendanceActions
+              attendanceSites={attendanceSites}
               canCheckIn={today.canCheckIn}
               canCheckOut={today.canCheckOut}
+              offlineSessionBinding={user.offlineSessionBinding}
+              offlineQueueOwner={
+                user.employee && user.organization
+                  ? { organizationId: user.organization.id, employeeId: user.employee.id }
+                  : undefined
+              }
+              offlineBootstrapSeed={
+                user.employee && user.organization && user.offlineSessionBinding
+                  ? {
+                      employeeId: user.employee.id,
+                      organizationId: user.organization.id,
+                      employeeName: `${user.firstName} ${user.lastName}`,
+                      sessionBinding: user.offlineSessionBinding,
+                      canCheckIn: today.canCheckIn,
+                      canCheckOut: today.canCheckOut,
+                      timeZone: today.organizationTimezone ?? undefined,
+                      snapshotAt: new Date().toISOString(),
+                    }
+                  : undefined
+              }
               securityPolicy={today.securityPolicy}
+              requiresSiteSelection={Boolean(user.organization)}
+              timeZone={today.organizationTimezone ?? undefined}
             />
           </CardContent>
         </Card>
@@ -261,7 +330,10 @@ export default async function MyAttendancePage() {
                             Entrée
                           </p>
                           <p className="mt-1 text-lg font-black text-slate-950">
-                            {formatAttendanceTime(item.clockInAt)}
+                            {formatAttendanceTime(
+                              item.clockInAt,
+                              today.organizationTimezone ?? undefined,
+                            )}
                           </p>
                         </div>
                         <div>
@@ -269,7 +341,10 @@ export default async function MyAttendancePage() {
                             Sortie
                           </p>
                           <p className="mt-1 text-lg font-black text-slate-950">
-                            {formatAttendanceTime(item.clockOutAt)}
+                            {formatAttendanceTime(
+                              item.clockOutAt,
+                              today.organizationTimezone ?? undefined,
+                            )}
                           </p>
                         </div>
                       </div>

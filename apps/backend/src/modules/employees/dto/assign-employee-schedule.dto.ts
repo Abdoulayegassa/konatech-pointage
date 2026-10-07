@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsOptional, IsUUID, ValidateIf } from 'class-validator';
+import { IsDateString, IsOptional, IsString, IsUUID, ValidateIf } from 'class-validator';
 
 export class AssignEmployeeScheduleDto {
   @Transform(({ value }) => (value === '' ? null : value))
@@ -7,4 +7,12 @@ export class AssignEmployeeScheduleDto {
   @ValidateIf((_, value) => value !== null)
   @IsUUID()
   scheduleId!: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  effectiveFrom?: string;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
 }

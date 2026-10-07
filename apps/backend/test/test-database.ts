@@ -4,6 +4,10 @@ import { PrismaClient } from '@prisma/client';
 import { seedDatabase } from '../prisma/seed';
 import { applyTestEnvironment } from './test-environment';
 
+const DISPOSABLE_E2E_DATABASE_NAME = 'konatech_attendance_e2e';
+const DISPOSABLE_E2E_DATABASE_HOST = '127.0.0.1';
+const DISPOSABLE_E2E_DATABASE_PORT = '5433';
+
 function quoteIdentifier(value: string) {
   return `"${value.replace(/"/g, '""')}"`;
 }
@@ -14,6 +18,32 @@ function getDatabaseName(databaseUrl: string) {
 
   if (!databaseName) {
     throw new Error('Test DATABASE_URL must include a database name.');
+  }
+
+  return databaseName;
+}
+
+export function assertDisposableE2eDatabaseUrl(databaseUrl: string) {
+  let parsedUrl: URL;
+
+  try {
+    parsedUrl = new URL(databaseUrl);
+  } catch {
+    throw new Error('E2E DATABASE_URL must be a valid PostgreSQL URL.');
+  }
+
+  const databaseName = getDatabaseName(databaseUrl);
+  const isSafeTarget =
+    (parsedUrl.protocol === 'postgresql:' ||
+      parsedUrl.protocol === 'postgres:') &&
+    parsedUrl.hostname === DISPOSABLE_E2E_DATABASE_HOST &&
+    parsedUrl.port === DISPOSABLE_E2E_DATABASE_PORT &&
+    databaseName === DISPOSABLE_E2E_DATABASE_NAME;
+
+  if (!isSafeTarget) {
+    throw new Error(
+      `Refusing to reset a database outside the dedicated E2E target (${DISPOSABLE_E2E_DATABASE_HOST}:${DISPOSABLE_E2E_DATABASE_PORT}/${DISPOSABLE_E2E_DATABASE_NAME}).`,
+    );
   }
 
   return databaseName;
@@ -50,7 +80,7 @@ function runMigrations(databaseUrl: string) {
 }
 
 async function recreateDatabase(databaseUrl: string) {
-  const databaseName = getDatabaseName(databaseUrl);
+  const databaseName = assertDisposableE2eDatabaseUrl(databaseUrl);
   const adminPrisma = new PrismaClient({
     datasources: {
       db: {
@@ -91,6 +121,7 @@ async function recreateDatabase(databaseUrl: string) {
 export async function prepareTestDatabase() {
   const { databaseUrl } = applyTestEnvironment();
 
+  assertDisposableE2eDatabaseUrl(databaseUrl);
   await recreateDatabase(databaseUrl);
   runMigrations(databaseUrl);
 

@@ -9,13 +9,20 @@ import type { FilterState } from './attendance-history-filters';
 type AttendanceHistoryTableProps = {
   filters: FilterState;
   records: AttendanceRecord[];
+  timeZone?: string;
 };
 
-type StatusTone = 'success' | 'warning' | 'danger' | 'purple' | 'info' | 'muted';
+type StatusTone =
+  | 'success'
+  | 'warning'
+  | 'danger'
+  | 'purple'
+  | 'info'
+  | 'muted';
 
 const statusToneClassNames: Record<StatusTone, string> = {
   success: 'border-transparent bg-success/15 text-success',
-  warning: 'border-transparent bg-accent/15 text-accent',
+  warning: 'border-transparent bg-warning-subtle text-warning',
   danger: 'border-transparent bg-red-50 text-red-700',
   purple: 'border-transparent bg-purple-50 text-purple-700',
   info: 'border-transparent bg-blue-50 text-blue-700',
@@ -32,10 +39,11 @@ function formatDate(value: string) {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
+    timeZone: 'UTC',
   });
 }
 
-function formatTime(value: string | null) {
+function formatTime(value: string | null, timeZone?: string) {
   if (!value) {
     return '--';
   }
@@ -43,6 +51,7 @@ function formatTime(value: string | null) {
   return new Date(value).toLocaleTimeString('fr-FR', {
     hour: '2-digit',
     minute: '2-digit',
+    timeZone,
   });
 }
 
@@ -82,7 +91,8 @@ function getGpsEvidenceState(record: AttendanceRecord): {
     typeof record.gpsValidated === 'boolean' ? record.gpsValidated : null;
   const latitude = record.checkInLatitude ?? record.checkOutLatitude;
   const longitude = record.checkInLongitude ?? record.checkOutLongitude;
-  const accuracy = record.checkInAccuracyMeters ?? record.checkOutAccuracyMeters;
+  const accuracy =
+    record.checkInAccuracyMeters ?? record.checkOutAccuracyMeters;
   const distanceFromOffice =
     record.distanceFromOffice ??
     record.checkInDistanceMeters ??
@@ -111,9 +121,7 @@ function getGpsEvidenceState(record: AttendanceRecord): {
 function hasSelfieVerification(record: AttendanceRecord) {
   return (
     record.checkInVerificationMethod === 'PHOTO' ||
-    record.checkOutVerificationMethod === 'PHOTO' ||
-    Boolean(record.checkInVerificationPhoto) ||
-    Boolean(record.checkOutVerificationPhoto)
+    record.checkOutVerificationMethod === 'PHOTO'
   );
 }
 
@@ -137,7 +145,10 @@ function getStatusMeta(record: AttendanceRecord): {
     return { label: 'Absent', tone: 'danger', value: 'absent' };
   }
 
-  if (record.status === 'INCOMPLETE' || (record.clockInAt && !record.clockOutAt)) {
+  if (
+    record.status === 'INCOMPLETE' ||
+    (record.clockInAt && !record.clockOutAt)
+  ) {
     return {
       label: 'Pointage incomplet',
       tone: 'muted',
@@ -168,74 +179,15 @@ function getStatusMeta(record: AttendanceRecord): {
   return { label: "À l'heure", tone: 'success', value: 'present' };
 }
 
-function normalizeSearchValue(value: string) {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
-}
-
-function isInSelectedPeriod(record: AttendanceRecord, period: string) {
-  const recordDate = new Date(record.date);
-  const now = new Date();
-
-  if (Number.isNaN(recordDate.getTime())) {
-    return false;
-  }
-
-  if (period === 'today') {
-    return recordDate.toISOString().slice(0, 10) === now.toISOString().slice(0, 10);
-  }
-
-  if (period === 'this-week') {
-    const weekStart = new Date(now);
-    const day = weekStart.getDay() === 0 ? 7 : weekStart.getDay();
-    weekStart.setDate(weekStart.getDate() - day + 1);
-    weekStart.setHours(0, 0, 0, 0);
-
-    return recordDate >= weekStart && recordDate <= now;
-  }
-
-  if (period === 'this-month' || period === 'custom') {
-    return (
-      recordDate.getFullYear() === now.getFullYear() &&
-      recordDate.getMonth() === now.getMonth()
-    );
-  }
-
-  if (period === 'this-quarter') {
-    const currentQuarter = Math.floor(now.getMonth() / 3);
-
-    return (
-      recordDate.getFullYear() === now.getFullYear() &&
-      Math.floor(recordDate.getMonth() / 3) === currentQuarter
-    );
-  }
-
-  if (period === 'this-year') {
-    return recordDate.getFullYear() === now.getFullYear();
-  }
-
-  return true;
-}
-
 export function filterAttendanceHistoryRecords(
   records: AttendanceRecord[],
   filters: FilterState,
 ) {
-  const employeeSearch = normalizeSearchValue(filters.employee);
-
   return records.filter((record) => {
     const status = getStatusMeta(record);
-    const employeeLabel = normalizeSearchValue(
-      `${record.employee.firstName} ${record.employee.lastName} ${record.employee.employeeIdentifier}`,
-    );
-
     return (
-      isInSelectedPeriod(record, filters.period) &&
-      (!employeeSearch || employeeLabel.includes(employeeSearch)) &&
-      (!filters.department || record.employee.department === filters.department) &&
+      (!filters.department ||
+        record.employee.department === filters.department) &&
       (filters.status.length === 0 || filters.status.includes(status.value))
     );
   });
@@ -267,6 +219,7 @@ function ValueBadge({
 export function AttendanceHistoryTable({
   filters,
   records,
+  timeZone,
 }: AttendanceHistoryTableProps) {
   const [selectedRecord, setSelectedRecord] = useState<AttendanceRecord | null>(
     null,
@@ -342,28 +295,52 @@ export function AttendanceHistoryTable({
                         key={record.id}
                         onClick={() => setSelectedRecord(record)}
                       >
-                        <td className={cn(cellClassName, 'font-bold text-slate-700')}>
+                        <td
+                          className={cn(
+                            cellClassName,
+                            'font-bold text-slate-700',
+                          )}
+                        >
                           {formatDate(record.date)}
                         </td>
                         <td className={cellClassName}>
                           <p className="font-black text-slate-950">
-                            {record.employee.firstName} {record.employee.lastName}
+                            {record.employee.firstName}{' '}
+                            {record.employee.lastName}
                           </p>
                           <p className="mt-0.5 text-xs font-semibold text-slate-500">
                             {record.employee.employeeIdentifier}
                           </p>
                         </td>
-                        <td className={cn(cellClassName, 'font-semibold text-slate-600')}>
+                        <td
+                          className={cn(
+                            cellClassName,
+                            'font-semibold text-slate-600',
+                          )}
+                        >
                           {record.employee.department ?? '--'}
                         </td>
-                        <td className={cn(cellClassName, 'font-black text-slate-950')}>
-                          {formatTime(record.clockInAt)}
+                        <td
+                          className={cn(
+                            cellClassName,
+                            'font-black text-slate-950',
+                          )}
+                        >
+                          {formatTime(record.clockInAt, timeZone)}
                         </td>
-                        <td className={cn(cellClassName, 'font-black text-slate-950')}>
-                          {formatTime(record.clockOutAt)}
+                        <td
+                          className={cn(
+                            cellClassName,
+                            'font-black text-slate-950',
+                          )}
+                        >
+                          {formatTime(record.clockOutAt, timeZone)}
                         </td>
                         <td className={cellClassName}>
-                          <ValueBadge active={record.minutesLate > 0} tone="warning">
+                          <ValueBadge
+                            active={record.minutesLate > 0}
+                            tone="warning"
+                          >
                             {formatMinutes(record.minutesLate)}
                           </ValueBadge>
                         </td>
@@ -377,7 +354,10 @@ export function AttendanceHistoryTable({
                         </td>
                         <td className={cellClassName}>
                           <ValueBadge
-                            active={record.overtimeHours > 0 || record.overtimeMinutes > 0}
+                            active={
+                              record.overtimeHours > 0 ||
+                              record.overtimeMinutes > 0
+                            }
                             tone="info"
                           >
                             {formatOvertime(record)}
@@ -392,7 +372,10 @@ export function AttendanceHistoryTable({
                           </ValueBadge>
                         </td>
                         <td className={cellClassName}>
-                          <ValueBadge active={selfiePresent} tone={selfiePresent ? 'success' : 'danger'}>
+                          <ValueBadge
+                            active={selfiePresent}
+                            tone={selfiePresent ? 'success' : 'danger'}
+                          >
                             {selfiePresent ? 'Présent' : 'Manquant'}
                           </ValueBadge>
                         </td>
@@ -422,6 +405,7 @@ export function AttendanceHistoryTable({
       <AttendanceDetailPanel
         onClose={() => setSelectedRecord(null)}
         record={selectedRecord}
+        timeZone={timeZone}
       />
     </>
   );

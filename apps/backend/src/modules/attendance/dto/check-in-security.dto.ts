@@ -1,5 +1,6 @@
 import { Transform, Type } from 'class-transformer';
 import {
+  IsDateString,
   IsNumber,
   IsOptional,
   IsString,
@@ -11,6 +12,10 @@ import {
 } from 'class-validator';
 
 export class CheckInSecurityProofDto {
+  @IsOptional()
+  @IsDateString()
+  evidenceCapturedAt?: string;
+
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
@@ -28,7 +33,7 @@ export class CheckInSecurityProofDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  @Min(0)
+  @Min(1)
   @Max(50000)
   accuracyMeters?: number;
 

@@ -1,7 +1,17 @@
-import { IsDateString, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsDateString,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+} from 'class-validator';
 import { CheckInSecurityDto } from './check-in-security.dto';
 
 export class SelfCheckInDto extends CheckInSecurityDto {
+  @IsOptional()
+  @IsUUID()
+  siteId?: string;
+
   @IsOptional()
   @IsDateString()
   occurredAt?: string;

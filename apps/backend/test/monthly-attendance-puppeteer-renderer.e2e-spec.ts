@@ -1,5 +1,6 @@
 import { MonthlyAttendancePuppeteerPdfRendererService } from '../src/modules/attendance/exports/monthly-attendance-puppeteer-pdf-renderer.service';
 import { MonthlyAttendancePdfExporterService } from '../src/modules/attendance/exports/monthly-attendance-pdf-exporter.service';
+import { MonthlyAttendanceCsvExporterService } from '../src/modules/attendance/exports/monthly-attendance-csv-exporter.service';
 import {
   MonthlyAttendanceDailyReportRow,
   MonthlyAttendanceExportReport,
@@ -12,20 +13,20 @@ describe('MonthlyAttendancePuppeteerPdfRendererService', () => {
     Array.from({ length: count }, (_, index) => ({
       date: `${String(index + 1).padStart(2, '0')}/04/2026`,
       dayLabel: ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'][index % 5],
+      attendanceSiteId: null,
+      siteLabel: '-',
       clockInTime: index % 6 === 0 ? '' : '08:05',
       clockOutTime: index % 7 === 0 ? '' : '17:10',
       statusLabel: index % 6 === 0 ? 'Absence' : 'Présence',
       lateLabel: index % 4 === 0 ? '00:10' : '',
       earlyExitLabel: index % 5 === 0 ? '00:08' : '',
-      workTypeLabel:
-        index % 3 === 0 ? 'Travail jour non ouvré' : '-',
-      overtimeLabel:
-        index % 3 === 0
-          ? 'Travail jour non ouvré - 05:00'
-          : '',
+      workTypeLabel: index % 3 === 0 ? 'Travail jour non ouvré' : '-',
+      overtimeLabel: index % 3 === 0 ? 'Travail jour non ouvré - 05:00' : '',
       gpsVerificationLabel: '',
       commentLabel:
-        index === 1 ? 'Commentaire : Arrivée tardive en raison d\'un déplacement professionnel.' : null,
+        index === 1
+          ? "Commentaire : Arrivée tardive en raison d'un déplacement professionnel."
+          : null,
       sanctionLabel:
         index === 0
           ? 'Tolérance'
@@ -44,8 +45,15 @@ describe('MonthlyAttendancePuppeteerPdfRendererService', () => {
     const reportingMode = overrides.reportingMode ?? 'monthly';
 
     return {
+      scope: overrides.scope ?? 'ORGANIZATION',
+      organizationId: overrides.organizationId ?? null,
+      organizationName: overrides.organizationName ?? null,
+      siteId: overrides.siteId ?? null,
+      siteName: overrides.siteName ?? null,
+      organizationTimezone: 'UTC',
       reportingMode,
       periodLabel,
+      period: overrides.period ?? { startDate: '2026-04-01', endDate: '2026-04-30' },
       month: overrides.month ?? 4,
       year: overrides.year ?? 2026,
       generatedAt: overrides.generatedAt ?? '2026-04-29T12:00:00.000Z',
@@ -63,7 +71,8 @@ describe('MonthlyAttendancePuppeteerPdfRendererService', () => {
         fullName: 'Awa Traoré',
         employeeIdentifier: 'EMP-2026-005',
         departmentLabel: 'Finance',
-        assignedScheduleLabel: 'Matin (08:00 - 17:00 | Lun, Mar, Mer, Jeu, Ven)',
+        assignedScheduleLabel:
+          'Matin (08:00 - 17:00 | Lun, Mar, Mer, Jeu, Ven)',
         monthLabel: periodLabel,
         generationDateLabel: '29 avril 2026 à 12:00',
         workingDays: 21,
@@ -194,6 +203,38 @@ describe('MonthlyAttendancePuppeteerPdfRendererService', () => {
 
     expect(html).toContain('Synthèse RH — Période personnalisée');
     expect(html).toContain('Du 10 août 2026 au 10 septembre 2026');
+  });
+
+  it('identifies the authoritative organization and site in a site PDF', () => {
+    const html = buildDocument(buildReport(buildDailyRows(1), {
+      scope: 'SITE',
+      organizationId: 'organization-a',
+      organizationName: 'Tenant <A>',
+      siteId: 'site-a',
+      siteName: 'Site <One>',
+    }));
+
+    expect(html).toContain('Tenant &lt;A&gt;');
+    expect(html).toContain('Site : Site &lt;One&gt;');
+    expect(html).not.toContain('<p class="footer-mark">Tenant <A>');
+  });
+
+  it('neutralizes spreadsheet formulas in exported employee text', () => {
+    const csv = new MonthlyAttendanceCsvExporterService().export(buildReport([], {
+      rows: [{
+        fullName: '=HYPERLINK("https://bad.test")', employeeIdentifier: '+cmd', department: '@team',
+        assignedSchedule: '-schedule', workingDays: 1, presenceDays: 1, totalWorkedDays: 1,
+        outsideScheduleWorkDays: 0, entryCount: 1, exitCount: 0, lateDays: 0, absentDays: 0,
+        absenceCount: 0, incompleteAttendanceDays: 1, totalWorkedHours: '0 h', earlyExitDays: 0,
+        earlyExitMinutes: 0, scheduledOvertimeHours: '0 h', outsideScheduleOvertimeHours: '0 h', overtimeHours: '0 h',
+      }],
+    }));
+    const content = typeof csv.content === 'string' ? csv.content : csv.content.toString('utf8');
+
+    expect(content).toContain("'=HYPERLINK(\"\"https://bad.test\"\")");
+    expect(content).toContain("'+cmd");
+    expect(content).toContain("'@team");
+    expect(content).toContain("'-schedule");
   });
 
   it('keeps very low scores visually readable without changing the score', () => {

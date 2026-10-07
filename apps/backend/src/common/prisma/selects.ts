@@ -8,6 +8,7 @@ export const scheduleSelect = {
   latenessMarginMinutes: true,
   isActive: true,
   workDays: true,
+  siteId: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.ScheduleSelect;
@@ -22,6 +23,14 @@ export const publicEmployeeSelect = {
   accessRole: true,
   department: true,
   isActive: true,
+  primarySiteId: true,
+  primarySite: {
+    select: {
+      id: true,
+      name: true,
+      isActive: true,
+    },
+  },
   scheduleId: true,
   createdAt: true,
   updatedAt: true,
@@ -44,7 +53,16 @@ export const scheduleWithEmployeesSelect = {
 export const attendanceWithEmployeeSelect = {
   id: true,
   employeeId: true,
+  attendanceSiteId: true,
+  attendanceSite: {
+    select: {
+      id: true,
+      publicId: true,
+      name: true,
+    },
+  },
   date: true,
+  calendarNonWorkingDaySnapshot: true,
   clockInAt: true,
   clockOutAt: true,
   outsideScheduleWork: true,
@@ -72,8 +90,6 @@ export const attendanceWithEmployeeSelect = {
   checkInVerificationMethod: true,
   checkInVerificationLevel: true,
   checkInVerificationReason: true,
-  checkInVerificationPhoto: true,
-  checkInVerificationPhotoPublicId: true,
   checkOutLatitude: true,
   checkOutLongitude: true,
   checkOutAccuracyMeters: true,
@@ -81,8 +97,6 @@ export const attendanceWithEmployeeSelect = {
   checkOutVerificationMethod: true,
   checkOutVerificationLevel: true,
   checkOutVerificationReason: true,
-  checkOutVerificationPhoto: true,
-  checkOutVerificationPhotoPublicId: true,
   createdAt: true,
   updatedAt: true,
   employee: {

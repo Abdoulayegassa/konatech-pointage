@@ -13,6 +13,7 @@ export type RowActionState = {
 } | null;
 
 export type ScheduleFormValues = {
+  siteId: string;
   name: string;
   startTime: string;
   endTime: string;
@@ -65,6 +66,7 @@ export function sortWorkDays(workDays: WorkDay[]) {
 
 export function createEmptyScheduleFormValues(): ScheduleFormValues {
   return {
+    siteId: '',
     name: '',
     startTime: '08:00',
     endTime: '17:00',
@@ -78,6 +80,7 @@ export function mapScheduleToFormValues(
   schedule: ScheduleRecord,
 ): ScheduleFormValues {
   return {
+    siteId: schedule.siteId ?? '',
     name: schedule.name,
     startTime: schedule.startTime,
     endTime: schedule.endTime,
@@ -97,7 +100,14 @@ export function mergeScheduleRecord(
   }
 
   return schedules.map((schedule) =>
-    schedule.id === nextSchedule.id ? nextSchedule : schedule,
+    schedule.id === nextSchedule.id
+      ? {
+          ...nextSchedule,
+          ...(schedule.currentAssignedEmployeeCount !== undefined
+            ? { currentAssignedEmployeeCount: schedule.currentAssignedEmployeeCount }
+            : {}),
+        }
+      : schedule,
   );
 }
 
@@ -108,7 +118,7 @@ export function getScheduleStatusMeta(isActive: boolean) {
 }
 
 export function getScheduleUsageMeta(schedule: ScheduleRecord) {
-  return schedule.employees.length > 0
+  return (schedule.currentAssignedEmployeeCount ?? schedule.employees.length) > 0
     ? { label: 'En service', variant: 'warning' as const }
     : { label: 'Libre', variant: 'outline' as const };
 }
@@ -120,6 +130,11 @@ export function toMinutes(time: string) {
 }
 
 export function getEmployeePreview(schedule: ScheduleRecord) {
+  if (schedule.currentAssignedEmployeeCount !== undefined && schedule.employees.length === 0) {
+    return schedule.currentAssignedEmployeeCount > 0
+      ? `${schedule.currentAssignedEmployeeCount} affectation(s) active(s)`
+      : 'Aucun employé assigné';
+  }
   if (schedule.employees.length === 0) {
     return 'Aucun employé assigné';
   }

@@ -1,12 +1,14 @@
 import Image from 'next/image';
+import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { LoginForm } from '@/components/auth/login-form';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getCurrentUser } from '@/lib/auth';
 import { resolvePostLoginRedirect } from '@/lib/redirect';
 
 export const dynamic = 'force-dynamic';
+export const metadata: Metadata = {
+  title: 'InOut — Connexion',
+};
 
 type LoginPageProps = {
   searchParams?: Promise<{
@@ -21,135 +23,85 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const showDemoAccounts = process.env.NODE_ENV !== 'production';
 
   if (user) {
-    redirect(resolvePostLoginRedirect(user.accessRole, redirectTo));
+    redirect(
+      resolvePostLoginRedirect(
+        user.accessRole,
+        redirectTo,
+        user.membership?.role,
+      ),
+    );
   }
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.12),transparent_24%),radial-gradient(circle_at_bottom_right,rgba(11,87,98,0.12),transparent_28%),linear-gradient(180deg,#fff8f3_0%,#eef3f6_100%)] px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[linear-gradient(180deg,rgba(255,255,255,0.72),transparent)]" />
-      <div className="pointer-events-none absolute left-[-8rem] top-24 h-64 w-64 rounded-full bg-accent/15 blur-3xl" />
-      <div className="pointer-events-none absolute right-[-7rem] top-16 h-72 w-72 rounded-full bg-primary/15 blur-3xl" />
-
-      <div className="relative mx-auto flex min-h-[calc(100vh-2rem)] max-w-6xl items-center">
-        <div className="grid w-full gap-4 lg:grid-cols-[1.05fr_0.95fr] lg:gap-6">
-          <Card className="hidden overflow-hidden rounded-[30px] border-white/10 bg-[linear-gradient(180deg,rgba(10,51,62,0.98),rgba(7,34,43,0.98))] text-white shadow-[0_24px_64px_rgba(7,34,43,0.26)] lg:order-1 lg:block">
-            <CardHeader className="relative space-y-5 px-5 pb-4 pt-6 sm:px-6 sm:pt-7 lg:space-y-7 lg:px-8 lg:pb-6 lg:pt-8">
-              <div className="absolute inset-x-6 top-0 h-1 rounded-full bg-[linear-gradient(90deg,#f97316_0%,#fb923c_42%,rgba(255,255,255,0.55)_100%)]" />
-              <div className="flex items-center justify-between gap-4">
-                <Image
-                  alt="Konatech"
-                  className="h-auto w-[98px] object-contain sm:w-[118px] lg:w-[124px]"
-                  height={120}
-                  priority
-                  src="/konatech-logo.png"
-                  width={240}
-                />
-                <Badge
-                  className="hidden w-fit border-white/15 bg-white/10 text-white/85 sm:inline-flex"
-                  variant="outline"
-                >
-                  Admin
-                </Badge>
+    <main className="min-h-screen bg-[#F5F6F8] p-0 text-[#303030] sm:p-5 lg:p-8">
+      <div className="mx-auto grid min-h-screen max-w-[1440px] overflow-hidden bg-white sm:min-h-[calc(100vh-2.5rem)] sm:rounded-2xl sm:shadow-[0_18px_60px_rgba(23,25,29,0.08)] md:min-h-[calc(100vh-2.5rem)] md:grid-cols-[0.84fr_1.16fr] lg:min-h-[calc(100vh-4rem)] lg:grid-cols-[0.94fr_1.06fr]">
+        <section
+          aria-label="INOUT"
+          className="relative flex min-h-[210px] flex-col justify-between overflow-hidden bg-[#17191D] px-6 py-6 text-white sm:min-h-[260px] sm:px-10 sm:py-8 md:min-h-0 md:px-8 md:py-10 lg:px-12 lg:py-12 xl:px-20"
+        >
+          <div aria-hidden="true" className="pointer-events-none absolute -right-36 top-1/2 hidden h-[440px] w-[440px] -translate-y-1/2 items-center justify-center rounded-full border border-white/[0.06] lg:flex">
+            <div className="flex h-[320px] w-[320px] items-center justify-center rounded-full border border-white/[0.06]">
+              <div className="flex h-[200px] w-[200px] items-start justify-center rounded-full border border-white/[0.07]">
+                <span className="mt-[-2px] h-2 w-2 rounded-full bg-[#F35A24]" />
               </div>
-              <div className="space-y-3 lg:space-y-4">
-                <p className="text-xs font-bold uppercase tracking-[0.2em] text-orange-100/80">
-                  KONATECH POINTAGE
-                </p>
-                <CardTitle className="hidden max-w-xl text-3xl font-black leading-tight text-white sm:text-4xl lg:block lg:text-[2.7rem]">
-                  Gérez les présences,
-                  <br />
-                  retards et absences
-                  <br />
-                  de votre équipe
-                  <br className="hidden sm:block" />
-                  avec simplicité.
-                </CardTitle>
-                <CardTitle className="text-2xl font-black leading-tight text-white lg:hidden">
-                  Plateforme moderne de suivi RH.
-                </CardTitle>
-                <p className="max-w-md text-sm leading-6 text-slate-200/82 sm:text-base">
-                  Plateforme moderne de suivi et de pilotage RH.
-                </p>
-              </div>
-            </CardHeader>
+            </div>
+          </div>
 
-            <CardContent className="hidden space-y-5 px-5 pb-5 sm:px-6 sm:pb-6 lg:block lg:px-8 lg:pb-8">
-              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
-                {[
-                  'Suivi des présences',
-                  'Pointage sécurisé',
-                  'Rapports mensuels',
-                ].map((item) => (
-                  <div
-                    key={item}
-                    className="group rounded-[22px] border border-white/10 bg-white/[0.07] px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition duration-200 hover:-translate-y-0.5 hover:bg-white/[0.09]"
-                  >
-                    <span className="mb-3 inline-flex h-9 w-9 items-center justify-center rounded-full border border-orange-200/10 bg-accent/18 text-sm font-bold text-orange-100 shadow-[0_10px_24px_rgba(249,115,22,0.18)]">
-                      +
-                    </span>
-                    <p className="text-sm font-bold leading-5 text-white">
-                      {item}
-                    </p>
+          <a aria-label="INOUT, accueil" className="relative z-10 inline-flex w-fit items-center" href="/login">
+            <span className="inline-flex items-center rounded-lg border border-white/15 bg-[#F5F6F8] p-2.5">
+              <Image
+                alt="INOUT"
+                className="h-auto w-[132px] sm:w-[156px]"
+                height={295}
+                priority
+                src="/brand/inout-logo.png"
+                width={846}
+              />
+            </span>
+          </a>
+
+          <div className="relative z-10 mt-7 max-w-[490px] lg:mb-8 lg:mt-auto">
+            <h2 className="max-w-[460px] text-[26px] font-semibold leading-[1.18] tracking-[-0.035em] sm:text-[32px] md:text-[28px] lg:text-[36px] xl:text-[42px]">
+              Le temps de travail, sous contrôle.
+            </h2>
+            <p className="mt-3 max-w-[410px] text-sm leading-6 text-white/65 sm:text-[15px]">
+              Gérez les présences, retards et absences de vos équipes, simplement.
+            </p>
+          </div>
+        </section>
+
+        <section className="flex items-center justify-center px-6 py-10 sm:px-10 md:px-6 lg:px-12 xl:px-16">
+          <div className="w-full max-w-[400px]">
+            <header className="mb-7 space-y-2">
+              <p className="text-xs font-semibold tracking-[0.12em] text-[#F35A24]">VOTRE ESPACE</p>
+              <h1 className="text-[30px] font-semibold leading-tight tracking-[-0.035em] text-[#202124]">Connexion</h1>
+              <p className="text-sm leading-5 text-[#666B73]">Accédez à votre espace.</p>
+            </header>
+
+            <LoginForm redirectTo={redirectTo} />
+
+            {showDemoAccounts ? (
+              <details className="mt-8 border-t border-[#E8E9EC] pt-5 text-sm">
+                <summary className="cursor-pointer list-none font-medium text-[#626770] outline-none focus-visible:rounded focus-visible:ring-2 focus-visible:ring-[#F35A24] focus-visible:ring-offset-4">
+                  Accès de démonstration <span className="ml-1 text-xs text-[#858991]">· Développement uniquement</span>
+                </summary>
+                <div className="mt-4 space-y-3 rounded-lg bg-[#F7F7F8] p-4 text-xs text-[#545861]">
+                  <p className="font-semibold text-[#303238]">Développement uniquement</p>
+                  <div>
+                    <p className="font-medium">Compte démo admin</p>
+                    <p>awa.traore@konatech.local</p>
+                    <p>KonatechAdmin123!</p>
                   </div>
-                ))}
-              </div>
-
-              {showDemoAccounts ? (
-                <div className="hidden rounded-[24px] border border-white/10 bg-white/[0.06] p-5 text-sm text-slate-200/85 lg:block">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/55">
-                      Comptes démo
-                    </p>
-                    <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-orange-100">
-                      Développement uniquement
-                    </span>
-                  </div>
-
-                  <div className="mt-4 grid gap-3">
-                    <div className="rounded-[18px] border border-white/10 bg-black/10 px-4 py-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/50">
-                        Compte démo admin
-                      </p>
-                      <p className="mt-2 font-semibold text-white">
-                        awa.traore@konatech.local
-                      </p>
-                      <p className="mt-1 text-white/72">KonatechAdmin123!</p>
-                    </div>
-
-                    <div className="rounded-[18px] border border-white/10 bg-black/10 px-4 py-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/50">
-                        Compte démo employé
-                      </p>
-                      <p className="mt-2 font-semibold text-white">
-                        ibrahim.coulibaly@konatech.local
-                      </p>
-                      <p className="mt-1 text-white/72">KonatechEmployee123!</p>
-                    </div>
+                  <div>
+                    <p className="font-medium">Compte démo employé</p>
+                    <p>ibrahim.coulibaly@konatech.local</p>
+                    <p>KonatechEmployee123!</p>
                   </div>
                 </div>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          <Card className="order-1 overflow-hidden rounded-[30px] border-white/75 bg-white/96 shadow-[0_22px_56px_rgba(15,45,58,0.12)] backdrop-blur lg:order-2">
-            <CardHeader className="space-y-5 border-b border-slate-200/70 px-5 pb-5 pt-6 sm:px-7 sm:pb-6 sm:pt-7">
-              <div className="space-y-2.5">
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-accent">
-                  KONATECH POINTAGE
-                </p>
-                <CardTitle className="text-3xl font-black leading-tight text-slate-950">
-                  Connexion administrateur
-                </CardTitle>
-                <p className="text-sm leading-6 text-slate-600 sm:text-base">
-                  Accédez à votre espace de gestion.
-                </p>
-              </div>
-            </CardHeader>
-            <CardContent className="px-5 pb-6 pt-5 sm:px-7 sm:pb-7 sm:pt-6">
-              <LoginForm redirectTo={redirectTo} />
-            </CardContent>
-          </Card>
-        </div>
+              </details>
+            ) : null}
+          </div>
+        </section>
       </div>
     </main>
   );

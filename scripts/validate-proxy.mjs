@@ -1,8 +1,10 @@
 import { createServer } from 'node:net';
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { parse as parseDotenv } from 'dotenv';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(__dirname, '..');
@@ -10,6 +12,45 @@ const backendDir = resolve(rootDir, 'apps/backend');
 const frontendDir = resolve(rootDir, 'apps/frontend');
 const host = '127.0.0.1';
 const isWindows = process.platform === 'win32';
+const testDatabaseTarget = {
+  hostname: '127.0.0.1',
+  port: '5433',
+  database: 'konatech_attendance_e2e',
+};
+
+function getTestEnvironment() {
+  const testEnvPath = resolve(backendDir, '.env.test');
+  const testEnvironment = parseDotenv(readFileSync(testEnvPath, 'utf8'));
+  const databaseUrl = testEnvironment.DATABASE_URL;
+
+  if (!databaseUrl) {
+    throw new Error('apps/backend/.env.test must define DATABASE_URL.');
+  }
+
+  let parsedUrl;
+
+  try {
+    parsedUrl = new URL(databaseUrl);
+  } catch {
+    throw new Error('The test DATABASE_URL must be a valid URL.');
+  }
+
+  const databaseName = parsedUrl.pathname.replace(/^\//, '');
+  const isDedicatedTestTarget =
+    ['postgres:', 'postgresql:'].includes(parsedUrl.protocol) &&
+    parsedUrl.hostname === testDatabaseTarget.hostname &&
+    parsedUrl.port === testDatabaseTarget.port &&
+    databaseName === testDatabaseTarget.database &&
+    Boolean(parsedUrl.username && parsedUrl.password);
+
+  if (!isDedicatedTestTarget) {
+    throw new Error(
+      `Refusing to run proxy validation unless DATABASE_URL targets ${testDatabaseTarget.hostname}:${testDatabaseTarget.port}/${testDatabaseTarget.database}.`,
+    );
+  }
+
+  return testEnvironment;
+}
 
 function createLogBuffer(name) {
   const lines = [];
@@ -72,6 +113,7 @@ function spawnServer({ name, cwd, args, env }) {
   const logs = createLogBuffer(name);
   const child = spawn(process.execPath, args, {
     cwd,
+    detached: !isWindows,
     env: {
       ...process.env,
       ...env,
@@ -82,6 +124,12 @@ function spawnServer({ name, cwd, args, env }) {
 
   child.stdout?.on('data', logs.push);
   child.stderr?.on('data', logs.push);
+  child.on('error', (error) => {
+    logs.push(`Process spawn error: ${error.message}`);
+  });
+  child.on('exit', (code, signal) => {
+    logs.push(`Process exited: code=${code ?? 'null'} signal=${signal ?? 'null'}`);
+  });
 
   return {
     child,
@@ -113,25 +161,41 @@ async function terminateProcessTree(child) {
     return;
   }
 
-  child.kill('SIGTERM');
-
   await new Promise((resolveClose) => {
+    const signalProcessGroup = (signal) => {
+      try {
+        process.kill(-child.pid, signal);
+      } catch (error) {
+        if (error?.code !== 'ESRCH') throw error;
+      }
+    };
     const timeout = setTimeout(() => {
-      child.kill('SIGKILL');
+      signalProcessGroup('SIGKILL');
     }, 3_000);
 
     child.once('exit', () => {
       clearTimeout(timeout);
       resolveClose();
     });
+
+    signalProcessGroup('SIGTERM');
   });
 }
 
-async function waitForJson(url, name, timeoutMs) {
+async function waitForJson(url, name, timeoutMs, processInfo) {
   const startedAt = Date.now();
   let lastError = null;
 
   while (Date.now() - startedAt < timeoutMs) {
+    if (
+      processInfo.child.exitCode !== null ||
+      processInfo.child.signalCode !== null
+    ) {
+      throw new Error(
+        `${name} process exited (code=${processInfo.child.exitCode ?? 'null'}, signal=${processInfo.child.signalCode ?? 'null'}).`,
+      );
+    }
+
     try {
       const response = await fetch(url, {
         method: 'GET',
@@ -187,6 +251,7 @@ async function assertRedirectLocation(url, expectedLocation, source) {
 }
 
 async function main() {
+  const testEnvironment = getTestEnvironment();
   const frontendPort = await getAvailablePort();
   const backendPort = await getAvailablePort();
   const frontendUrl = `http://${host}:${frontendPort}`;
@@ -201,11 +266,18 @@ async function main() {
       name: 'backend',
       cwd: backendDir,
       args: [
-        resolve(backendDir, 'node_modules/@nestjs/cli/bin/nest.js'),
-        'start',
+        '--enable-source-maps',
+        '-r',
+        'ts-node/register/transpile-only',
+        resolve(backendDir, 'src/main.ts'),
       ],
       env: {
-        NODE_ENV: 'development',
+        // Development bootstrap forcibly reloads backend/.env.local, which
+        // would replace this harness's isolated ephemeral PORT and collide
+        // with a developer's running local API. Pass the full dedicated test
+        // environment so backend startup cannot fall through to .env.local.
+        ...testEnvironment,
+        NODE_ENV: 'test',
         PORT: String(backendPort),
         FRONTEND_URL: frontendUrl,
       },
@@ -213,7 +285,7 @@ async function main() {
 
     managedProcesses.push(backend);
 
-    await waitForJson(backendHealthUrl, 'Backend health check', 45_000);
+    await waitForJson(backendHealthUrl, 'Backend health check', 45_000, backend);
 
     const frontend = spawnServer({
       name: 'frontend',
@@ -241,11 +313,13 @@ async function main() {
       backendHealthUrl,
       'Backend health check',
       45_000,
+      backend,
     );
     const frontendHealth = await waitForJson(
       frontendProxyHealthUrl,
       'Frontend proxy health check',
       60_000,
+      frontend,
     );
     await assertRedirectLocation(
       backendAttendanceEntryUrl,

@@ -104,8 +104,8 @@ export default function Loading() {
           </CardHeader>
         </Card>
 
-        <section className="admin-reveal admin-reveal-delay-1 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {Array.from({ length: 6 }).map((_, index) => (
+        <section className="admin-reveal admin-reveal-delay-1 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {Array.from({ length: 7 }).map((_, index) => (
             <MetricSkeleton key={index} />
           ))}
         </section>
