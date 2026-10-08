@@ -16,10 +16,12 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  return proxyApiJsonBodyRequest(
+  const response = await proxyApiJsonBodyRequest(
     request,
     '/platform/organizations',
     'POST',
     'Impossible de créer l’organisation.',
   );
+  response.headers.set('Cache-Control', 'no-store');
+  return response;
 }

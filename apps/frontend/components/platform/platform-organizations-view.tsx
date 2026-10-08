@@ -1,18 +1,26 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   BadgeCheck,
   Building2,
   Clock3,
+  Copy,
   CreditCard,
   Plus,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { AdminPageHeader } from '@/components/layout/page-shell';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/primitives/dialog';
 import { cn } from '@/lib/utils';
 import type {
   PlatformDashboard,
@@ -85,9 +93,15 @@ export function PlatformOrganizationsView({
   initialDashboard: PlatformDashboard;
 }) {
   const { organizations, statistics } = initialDashboard;
+  const router = useRouter();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<SubscriptionStatus | 'ALL'>('ALL');
   const [plan, setPlan] = useState<SubscriptionPlan | 'ALL'>('ALL');
+  const [visibleOrganizations, setVisibleOrganizations] =
+    useState(organizations);
+  const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState('');
+  const [retryKey, setRetryKey] = useState(0);
   const [formOpen, setFormOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -98,25 +112,64 @@ export function PlatformOrganizationsView({
     useState('Africa/Abidjan');
   const [firstAdminEmail, setFirstAdminEmail] = useState('');
   const [firstAdminUrl, setFirstAdminUrl] = useState('');
+  const [copyMessage, setCopyMessage] = useState('');
 
-  const filteredOrganizations = useMemo(() => {
-    const normalizedSearch = search.trim().toLocaleLowerCase('fr');
-    return organizations.filter((item) => {
-      const matchesSearch =
-        !normalizedSearch ||
-        item.organization.name
-          .toLocaleLowerCase('fr')
-          .includes(normalizedSearch) ||
-        item.organization.slug
-          .toLocaleLowerCase('fr')
-          .includes(normalizedSearch);
-      return (
-        matchesSearch &&
-        (status === 'ALL' || item.subscription.status === status) &&
-        (plan === 'ALL' || item.subscription.plan === plan)
-      );
-    });
-  }, [organizations, plan, search, status]);
+  useEffect(() => {
+    setVisibleOrganizations(organizations);
+  }, [organizations]);
+
+  useEffect(() => {
+    const normalizedSearch = search.trim();
+    if (!normalizedSearch && status === 'ALL' && plan === 'ALL') {
+      setVisibleOrganizations(organizations);
+      setListError('');
+      setListLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      const query = new URLSearchParams();
+      if (normalizedSearch) query.set('search', normalizedSearch);
+      if (status !== 'ALL') query.set('status', status);
+      if (plan !== 'ALL') query.set('plan', plan);
+      setListLoading(true);
+      setListError('');
+
+      void (async () => {
+        try {
+          const response = await fetch(`/api/platform/organizations?${query}`, {
+            signal: controller.signal,
+          });
+          const payload = (await response.json().catch(() => null)) as
+            | PlatformOrganization[]
+            | { error?: string }
+            | null;
+          if (!response.ok || !Array.isArray(payload)) {
+            throw new Error(
+              (payload as { error?: string } | null)?.error ??
+                'Impossible d’actualiser la liste des organisations.',
+            );
+          }
+          setVisibleOrganizations(payload);
+        } catch (requestError) {
+          if (controller.signal.aborted) return;
+          setListError(
+            requestError instanceof Error
+              ? requestError.message
+              : 'Impossible d’actualiser la liste des organisations.',
+          );
+        } finally {
+          if (!controller.signal.aborted) setListLoading(false);
+        }
+      })();
+    }, 250);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [organizations, plan, retryKey, search, status]);
 
   async function provisionOrganization(
     event: React.FormEvent<HTMLFormElement>,
@@ -127,6 +180,7 @@ export function PlatformOrganizationsView({
     setError('');
     setMessage('Création de l’organisation…');
     setFirstAdminUrl('');
+    setCopyMessage('');
     try {
       const response = await fetch('/api/platform/organizations', {
         method: 'POST',
@@ -159,6 +213,7 @@ export function PlatformOrganizationsView({
       setOrganizationName('');
       setOrganizationSlug('');
       setFirstAdminEmail('');
+      router.refresh();
     } catch (provisionError) {
       setMessage('');
       setError(
@@ -168,6 +223,18 @@ export function PlatformOrganizationsView({
       );
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function copyFirstAdminLink() {
+    if (!firstAdminUrl) return;
+    try {
+      await navigator.clipboard.writeText(firstAdminUrl);
+      setCopyMessage('Lien copié. Transmettez-le uniquement au premier ADMIN.');
+    } catch {
+      setCopyMessage(
+        'Copie indisponible. Sélectionnez le lien pour le copier manuellement.',
+      );
     }
   }
 
@@ -199,20 +266,21 @@ export function PlatformOrganizationsView({
   ] as const;
 
   return (
-    <div className="space-y-5">
+    <main aria-labelledby="organizations-title" className="min-w-0 space-y-5">
       <AdminPageHeader
         context="SUPER ADMIN · GESTION DU PARC"
         title="Organisations"
+        id="organizations-title"
         description="Consultez les entreprises, leur abonnement et leur utilisation de la plateforme."
         actions={
-        <Button
-          className="min-h-10 shrink-0 rounded-lg bg-[#F35A24] px-4 text-white shadow-none transition-colors hover:translate-y-0 hover:bg-[#E65320] hover:shadow-none focus-visible:ring-[#F35A24]/20"
-          onClick={() => setFormOpen(true)}
-          type="button"
-        >
-          <Plus aria-hidden="true" className="mr-2 h-4 w-4" />
-          Créer une organisation
-        </Button>
+          <Button
+            className="min-h-10 shrink-0 rounded-lg bg-[#F35A24] px-4 text-white shadow-none transition-colors hover:translate-y-0 hover:bg-[#E65320] hover:shadow-none focus-visible:ring-[#F35A24]/20"
+            onClick={() => setFormOpen(true)}
+            type="button"
+          >
+            <Plus aria-hidden="true" className="mr-2 h-4 w-4" />
+            Créer une organisation
+          </Button>
         }
       />
 
@@ -250,16 +318,30 @@ export function PlatformOrganizationsView({
         ))}
       </section>
 
-      <Dialog onOpenChange={setFormOpen} open={formOpen}>
-        <DialogContent className="gap-0 overflow-y-auto p-0 sm:max-w-2xl" showCloseButton={!busy}>
+      <Dialog
+        onOpenChange={(open) => {
+          if (open || !busy) {
+            setFormOpen(open);
+            if (!open) {
+              setFirstAdminUrl('');
+              setCopyMessage('');
+            }
+          }
+        }}
+        open={formOpen}
+      >
+        <DialogContent
+          className="gap-0 overflow-y-auto p-0 sm:max-w-2xl"
+          showCloseButton={!busy}
+        >
           <DialogHeader className="border-b border-[#ECEEF1] p-5">
             <DialogTitle className="text-lg font-semibold text-[#25282D]">
               Créer une organisation
             </DialogTitle>
             <DialogDescription className="text-sm leading-5 text-[#626973]">
               Un lien d’activation sécurisé sera généré pour le premier ADMIN.
-              Transmettez-le directement au destinataire. L’organisation
-              utilise l’abonnement d’essai initial défini par la plateforme.
+              Transmettez-le directement au destinataire. L’organisation utilise
+              l’abonnement d’essai initial défini par la plateforme.
             </DialogDescription>
           </DialogHeader>
           <form
@@ -337,12 +419,32 @@ export function PlatformOrganizationsView({
                 </p>
               ) : null}
               {firstAdminUrl ? (
-                <p className="mt-3 break-all rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
-                  Lien à transmettre au premier ADMIN :{' '}
-                  <a className="font-bold underline" href={firstAdminUrl}>
+                <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+                  <p className="font-medium">
+                    Lien d’invitation à transmettre au premier ADMIN
+                  </p>
+                  <a
+                    className="mt-2 block break-all font-medium underline underline-offset-2"
+                    href={firstAdminUrl}
+                  >
                     {firstAdminUrl}
                   </a>
-                </p>
+                  <Button
+                    className="mt-3 min-h-10"
+                    onClick={() => void copyFirstAdminLink()}
+                    size="sm"
+                    type="button"
+                    variant="secondary"
+                  >
+                    <Copy aria-hidden="true" className="mr-2 h-4 w-4" />
+                    Copier le lien
+                  </Button>
+                  {copyMessage ? (
+                    <p aria-live="polite" className="mt-2">
+                      {copyMessage}
+                    </p>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           </form>
@@ -357,8 +459,13 @@ export function PlatformOrganizationsView({
                 Organisations
               </h2>
               <p className="mt-1 text-sm text-[#707680]">
-                {filteredOrganizations.length} sur {organizations.length}{' '}
+                {visibleOrganizations.length} sur {organizations.length}{' '}
                 organisation(s)
+                {listLoading ? (
+                  <span aria-live="polite" className="ml-2 text-[#8A9099]">
+                    Actualisation…
+                  </span>
+                ) : null}
               </p>
             </div>
             <div className="grid gap-2 sm:grid-cols-3 xl:w-[660px]">
@@ -410,42 +517,124 @@ export function PlatformOrganizationsView({
           </div>
         </div>
 
-        {filteredOrganizations.length === 0 ? (
+        {listError ? (
+          <div
+            className="flex flex-col gap-3 border-b border-rose-100 bg-rose-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+            role="alert"
+          >
+            <p className="text-sm text-rose-800">{listError}</p>
+            <Button
+              onClick={() => setRetryKey((value) => value + 1)}
+              size="sm"
+              variant="secondary"
+            >
+              Réessayer
+            </Button>
+          </div>
+        ) : null}
+
+        {visibleOrganizations.length === 0 ? (
           <div className="px-5 py-12 text-center">
             <p className="font-semibold text-[#30343A]">
-              {organizations.length === 0
+              {organizations.length === 0 &&
+              !search &&
+              status === 'ALL' &&
+              plan === 'ALL'
                 ? 'Aucune organisation enregistrée'
                 : 'Aucun résultat'}
             </p>
             <p className="mt-1 text-sm text-[#707680]">
-              {organizations.length === 0
+              {organizations.length === 0 &&
+              !search &&
+              status === 'ALL' &&
+              plan === 'ALL'
                 ? 'Les nouvelles organisations apparaîtront ici après leur création.'
                 : 'Modifiez la recherche ou les filtres pour afficher des organisations.'}
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-left text-sm">
-              <thead className="bg-[#F7F8F9] text-[12px] font-semibold tracking-wide text-[#626973]">
-                <tr>
-                  <th className="px-5 py-3">Organisation</th>
-                  <th className="px-4 py-3">Plan</th>
-                  <th className="px-4 py-3">Statut</th>
-                  <th className="px-4 py-3">Échéance</th>
-                  <th className="px-4 py-3">Usage</th>
-                  <th className="px-5 py-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#ECEEF0]">
-                {filteredOrganizations.map((item) => (
-                  <OrganizationRow item={item} key={item.organization.id} />
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <ul className="divide-y divide-[#ECEEF0] p-3 md:hidden">
+              {visibleOrganizations.map((item) => (
+                <li
+                  className="space-y-3 py-4 first:pt-1 last:pb-1"
+                  key={item.organization.id}
+                >
+                  <div className="min-w-0">
+                    <p className="break-words font-semibold text-[#25282D]">
+                      {item.organization.name}
+                    </p>
+                    <p className="mt-0.5 break-all text-xs text-[#707680]">
+                      {item.organization.slug}
+                    </p>
+                    <p className="mt-1 text-xs text-[#707680]">
+                      Créée le {formatDate(item.organization.createdAt)}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">
+                      {planLabels[item.subscription.plan]}
+                    </Badge>
+                    <Badge
+                      variant={organizationStatusTone[item.organization.status]}
+                    >
+                      Organisation ·{' '}
+                      {organizationStatusLabels[item.organization.status]}
+                    </Badge>
+                    <Badge variant={statusTone[item.subscription.status]}>
+                      Abonnement · {statusLabels[item.subscription.status]}
+                    </Badge>
+                  </div>
+                  <dl className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <dt className="text-xs text-[#707680]">Échéance</dt>
+                      <dd className="mt-0.5 text-[#30343A]">
+                        {formatDate(item.subscription.endsAt)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-[#707680]">Usage</dt>
+                      <dd className="mt-0.5 text-[#30343A]">
+                        {item.usage.activeEmployees} employés ·{' '}
+                        {item.usage.activeAttendanceSites} sites
+                      </dd>
+                    </div>
+                  </dl>
+                  <Link
+                    className={cn(
+                      buttonVariants({ size: 'sm', variant: 'secondary' }),
+                      'min-h-11 w-full justify-center rounded-lg shadow-none hover:translate-y-0 hover:shadow-none',
+                    )}
+                    href={`/platform/subscriptions?organizationId=${encodeURIComponent(item.organization.id)}`}
+                  >
+                    Voir l’abonnement
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[980px] text-left text-sm">
+                <thead className="bg-[#F7F8F9] text-[12px] font-semibold tracking-wide text-[#626973]">
+                  <tr>
+                    <th className="px-5 py-3">Organisation</th>
+                    <th className="px-4 py-3">Plan</th>
+                    <th className="px-4 py-3">Statut</th>
+                    <th className="px-4 py-3">Échéance</th>
+                    <th className="px-4 py-3">Usage</th>
+                    <th className="px-5 py-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#ECEEF0]">
+                  {visibleOrganizations.map((item) => (
+                    <OrganizationRow item={item} key={item.organization.id} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
-    </div>
+    </main>
   );
 }
 
@@ -469,7 +658,8 @@ function OrganizationRow({ item }: { item: PlatformOrganization }) {
               className="rounded-md px-2 py-1 text-[11px] font-medium normal-case tracking-normal backdrop-blur-0"
               variant={organizationStatusTone[item.organization.status]}
             >
-              Organisation · {organizationStatusLabels[item.organization.status]}
+              Organisation ·{' '}
+              {organizationStatusLabels[item.organization.status]}
             </Badge>
           </div>
           <div>

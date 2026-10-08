@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   ArrowDownRight,
   Building2,
@@ -148,9 +149,13 @@ function actionCopy(
     item.subscription.status === 'EXPIRED' ||
     item.subscription.status === 'PENDING_DOWNGRADE';
   return {
-    title: isReactivation ? 'Réactiver cet abonnement ?' : 'Appliquer les changements ?',
+    title: isReactivation
+      ? 'Réactiver cet abonnement ?'
+      : 'Appliquer les changements ?',
     description: `${isReactivation ? 'L’accès lié à l’abonnement sera rétabli' : 'Le plan et la période seront mis à jour'} pour ${item.organization.name} avec le plan ${planLabels[targetPlan]}, jusqu’au ${formatDate(endsAt)}.`,
-    confirm: isReactivation ? 'Confirmer la réactivation' : 'Appliquer le plan et la période',
+    confirm: isReactivation
+      ? 'Confirmer la réactivation'
+      : 'Appliquer le plan et la période',
   };
 }
 
@@ -163,7 +168,10 @@ function UsageBar({
   used: number;
   limit: number;
 }) {
-  const percentage = Math.min(100, Math.round((used / Math.max(limit, 1)) * 100));
+  const percentage = Math.min(
+    100,
+    Math.round((used / Math.max(limit, 1)) * 100),
+  );
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between gap-3 text-sm">
@@ -189,6 +197,8 @@ export function PlatformSubscriptionsWorkspace({
   initialOrganizations: PlatformOrganization[];
   initialOrganizationId?: string;
 }) {
+  const router = useRouter();
+  const [isRefreshing, startTransition] = useTransition();
   const [organizations, setOrganizations] = useState(initialOrganizations);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -198,7 +208,9 @@ export function PlatformSubscriptionsWorkspace({
   const [plan, setPlan] = useState<SubscriptionPlan>('PRO');
   const [startsAt, setStartsAt] = useState('');
   const [endsAt, setEndsAt] = useState('');
-  const [confirmAction, setConfirmAction] = useState<LifecycleAction | null>(null);
+  const [confirmAction, setConfirmAction] = useState<LifecycleAction | null>(
+    null,
+  );
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [listError, setListError] = useState('');
@@ -207,7 +219,8 @@ export function PlatformSubscriptionsWorkspace({
   const [busy, setBusy] = useState(false);
 
   const selected =
-    initialOrganizations.find((item) => item.organization.id === selectedId) ?? null;
+    initialOrganizations.find((item) => item.organization.id === selectedId) ??
+    null;
 
   const statistics = useMemo(() => {
     const byStatus: Record<SubscriptionStatus, number> = {
@@ -235,7 +248,6 @@ export function PlatformSubscriptionsWorkspace({
       setStartsAt(dateInputValue(item.subscription.startsAt));
       setEndsAt(dateInputValue(item.subscription.endsAt));
       setError('');
-      setMessage('');
     } else {
       setError('Cette organisation est introuvable dans la liste plateforme.');
     }
@@ -272,9 +284,10 @@ export function PlatformSubscriptionsWorkspace({
             | { error?: string; message?: string }
             | null;
           if (!response.ok) {
-            const errorPayload = payload as
-              | { error?: string; message?: string }
-              | null;
+            const errorPayload = payload as {
+              error?: string;
+              message?: string;
+            } | null;
             throw new Error(
               errorPayload?.error ??
                 errorPayload?.message ??
@@ -282,7 +295,9 @@ export function PlatformSubscriptionsWorkspace({
             );
           }
           if (!Array.isArray(payload)) {
-            throw new Error('La réponse de la liste des abonnements est invalide.');
+            throw new Error(
+              'La réponse de la liste des abonnements est invalide.',
+            );
           }
           setOrganizations(payload);
         } catch (requestError) {
@@ -327,7 +342,7 @@ export function PlatformSubscriptionsWorkspace({
   }
 
   async function mutate(action: LifecycleAction) {
-    if (!selected || busy) return;
+    if (!selected || busy || isRefreshing) return;
     if (action === 'activate' && !endsAt) {
       setError('La date de fin est obligatoire.');
       setConfirmAction(null);
@@ -344,7 +359,9 @@ export function PlatformSubscriptionsWorkspace({
             plan,
             endsAt: new Date(`${endsAt}T23:59:59.999Z`).toISOString(),
             ...(selected.subscription.status !== 'ACTIVE' && startsAt
-              ? { startsAt: new Date(`${startsAt}T00:00:00.000Z`).toISOString() }
+              ? {
+                  startsAt: new Date(`${startsAt}T00:00:00.000Z`).toISOString(),
+                }
               : {}),
             operationId,
           }
@@ -367,16 +384,18 @@ export function PlatformSubscriptionsWorkspace({
         };
         throw new Error(payload.error ?? 'Modification refusée.');
       }
-      setMessage('Modification enregistrée. Actualisation…');
+      setMessage('Modification enregistrée.');
       setConfirmAction(null);
-      window.location.reload();
+      startTransition(() => router.refresh());
     } catch (mutationError) {
       setMessage('');
+      setConfirmAction(null);
       setError(
         mutationError instanceof Error
           ? mutationError.message
           : 'Modification impossible.',
       );
+    } finally {
       setBusy(false);
     }
   }
@@ -432,10 +451,10 @@ export function PlatformSubscriptionsWorkspace({
         description="Suivez les plans, périodes et changements à venir pour chaque organisation."
         className="border-b border-[#E2E5E9] pb-5"
         actions={
-        <div className="flex items-center gap-2 text-sm text-[#666D77]">
-          <CalendarClock aria-hidden="true" className="h-4 w-4" />
-          <span>Gestion du cycle de vie</span>
-        </div>
+          <div className="flex items-center gap-2 text-sm text-[#666D77]">
+            <CalendarClock aria-hidden="true" className="h-4 w-4" />
+            <span>Gestion du cycle de vie</span>
+          </div>
         }
       />
 
@@ -461,7 +480,9 @@ export function PlatformSubscriptionsWorkspace({
               <p className="text-sm font-medium text-[#666D77]">{label}</p>
               <Icon aria-hidden="true" className={`h-4 w-4 shrink-0 ${tone}`} />
             </div>
-            <p className={`mt-2 text-[26px] font-semibold leading-none tabular-nums ${tone}`}>
+            <p
+              className={`mt-2 text-[26px] font-semibold leading-none tabular-nums ${tone}`}
+            >
               {numberFormat.format(value)}
             </p>
             <p className="mt-2 text-xs leading-4 text-[#737983]">{detail}</p>
@@ -476,14 +497,21 @@ export function PlatformSubscriptionsWorkspace({
         <div className="space-y-4 border-b border-[#ECEEF1] p-4 sm:p-5">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 id="subscription-list-title" className="text-lg font-semibold text-[#25282D]">
+              <h2
+                id="subscription-list-title"
+                className="text-lg font-semibold text-[#25282D]"
+              >
                 Organisations et abonnements
               </h2>
               <p className="mt-1 text-sm text-[#666D77]">
                 {filteredOrganizations.length === organizations.length
                   ? `${numberFormat.format(organizations.length)} résultat${organizations.length === 1 ? '' : 's'}`
                   : `${numberFormat.format(filteredOrganizations.length)} résultat${filteredOrganizations.length === 1 ? '' : 's'}`}
-                {listLoading ? <span aria-live="polite" className="ml-2 text-[#8A9099]">Mise à jour…</span> : null}
+                {listLoading ? (
+                  <span aria-live="polite" className="ml-2 text-[#8A9099]">
+                    Mise à jour…
+                  </span>
+                ) : null}
               </p>
             </div>
           </div>
@@ -491,7 +519,10 @@ export function PlatformSubscriptionsWorkspace({
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(220px,1.4fr)_repeat(3,minmax(140px,1fr))]">
             <label className="relative block min-w-0 text-xs font-semibold text-[#555C66]">
               Rechercher une organisation
-              <Search aria-hidden="true" className="absolute left-3 top-[34px] h-4 w-4 text-[#8A9099]" />
+              <Search
+                aria-hidden="true"
+                className="absolute left-3 top-[34px] h-4 w-4 text-[#8A9099]"
+              />
               <input
                 className="mt-1 block min-h-10 w-full rounded-lg border border-[#D9DCE1] bg-white py-2 pl-9 pr-3 text-sm font-normal text-[#25282D] outline-none transition focus:border-[#F35A24] focus:ring-2 focus:ring-[#F35A24]/15"
                 onChange={(event) => setSearch(event.target.value)}
@@ -505,12 +536,16 @@ export function PlatformSubscriptionsWorkspace({
               Statut de l’abonnement
               <select
                 className="mt-1 block min-h-10 w-full rounded-lg border border-[#D9DCE1] bg-white px-3 py-2 text-sm font-normal text-[#25282D] outline-none focus:border-[#F35A24] focus:ring-2 focus:ring-[#F35A24]/15"
-                onChange={(event) => setStatus(event.target.value as SubscriptionStatus | 'ALL')}
+                onChange={(event) =>
+                  setStatus(event.target.value as SubscriptionStatus | 'ALL')
+                }
                 value={status}
               >
                 <option value="ALL">Tous les statuts</option>
                 {Object.entries(statusLabels).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
                 ))}
               </select>
             </label>
@@ -518,12 +553,16 @@ export function PlatformSubscriptionsWorkspace({
               Plan
               <select
                 className="mt-1 block min-h-10 w-full rounded-lg border border-[#D9DCE1] bg-white px-3 py-2 text-sm font-normal text-[#25282D] outline-none focus:border-[#F35A24] focus:ring-2 focus:ring-[#F35A24]/15"
-                onChange={(event) => setPlanFilter(event.target.value as SubscriptionPlan | 'ALL')}
+                onChange={(event) =>
+                  setPlanFilter(event.target.value as SubscriptionPlan | 'ALL')
+                }
                 value={planFilter}
               >
                 <option value="ALL">Tous les plans</option>
                 {Object.entries(planLabels).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
                 ))}
               </select>
             </label>
@@ -531,7 +570,9 @@ export function PlatformSubscriptionsWorkspace({
               Changement de plan
               <select
                 className="mt-1 block min-h-10 w-full rounded-lg border border-[#D9DCE1] bg-white px-3 py-2 text-sm font-normal text-[#25282D] outline-none focus:border-[#F35A24] focus:ring-2 focus:ring-[#F35A24]/15"
-                onChange={(event) => setPendingFilter(event.target.value as PendingFilter)}
+                onChange={(event) =>
+                  setPendingFilter(event.target.value as PendingFilter)
+                }
                 value={pendingFilter}
               >
                 <option value="ALL">Tous</option>
@@ -544,79 +585,200 @@ export function PlatformSubscriptionsWorkspace({
 
         {listError ? (
           <div className="px-5 py-10 text-center" role="alert">
-            <h3 className="text-sm font-semibold text-[#25282D]">Liste indisponible</h3>
+            <h3 className="text-sm font-semibold text-[#25282D]">
+              Liste indisponible
+            </h3>
             <p className="mt-1 text-sm text-[#737983]">{listError}</p>
-            <Button className="mt-4" onClick={() => setRetryKey((value) => value + 1)} size="sm" variant="secondary">
+            <Button
+              className="mt-4"
+              onClick={() => setRetryKey((value) => value + 1)}
+              size="sm"
+              variant="secondary"
+            >
               Réessayer
             </Button>
           </div>
         ) : initialOrganizations.length === 0 ? (
           <div className="px-5 py-14 text-center">
-            <Building2 aria-hidden="true" className="mx-auto h-8 w-8 text-[#A0A5AD]" />
-            <h3 className="mt-3 text-sm font-semibold text-[#25282D]">Aucun abonnement à afficher</h3>
-            <p className="mt-1 text-sm text-[#737983]">Les abonnements apparaîtront ici dès qu’une organisation sera créée.</p>
+            <Building2
+              aria-hidden="true"
+              className="mx-auto h-8 w-8 text-[#A0A5AD]"
+            />
+            <h3 className="mt-3 text-sm font-semibold text-[#25282D]">
+              Aucun abonnement à afficher
+            </h3>
+            <p className="mt-1 text-sm text-[#737983]">
+              Les abonnements apparaîtront ici dès qu’une organisation sera
+              créée.
+            </p>
           </div>
         ) : filteredOrganizations.length === 0 ? (
           <div className="px-5 py-12 text-center">
-            <h3 className="text-sm font-semibold text-[#25282D]">Aucun résultat</h3>
-            <p className="mt-1 text-sm text-[#737983]">Modifiez la recherche ou les filtres pour afficher des abonnements.</p>
+            <h3 className="text-sm font-semibold text-[#25282D]">
+              Aucun résultat
+            </h3>
+            <p className="mt-1 text-sm text-[#737983]">
+              Modifiez la recherche ou les filtres pour afficher des
+              abonnements.
+            </p>
           </div>
         ) : (
-          <div className="max-w-full overflow-x-auto">
-            <table className="w-full min-w-[820px] text-left text-sm">
-              <thead className="bg-[#F7F8F9] text-[11px] font-semibold uppercase tracking-[0.08em] text-[#737983]">
-                <tr>
-                  <th className="px-4 py-3 sm:px-5">Organisation</th>
-                  <th className="px-4 py-3">Plan</th>
-                  <th className="px-4 py-3">Abonnement</th>
-                  <th className="px-4 py-3">Période</th>
-                  <th className="px-4 py-3">Changement à venir</th>
-                  <th className="px-4 py-3 text-right">Gestion</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#ECEEF1]">
-                {filteredOrganizations.map((item) => (
-                  <tr key={item.organization.id} className="align-top transition-colors hover:bg-[#FAFAFB]">
-                    <td className="max-w-[260px] px-4 py-4 sm:px-5">
-                      <p className="truncate font-semibold text-[#25282D]">{item.organization.name}</p>
-                      <p className="mt-0.5 truncate text-xs text-[#737983]">{item.organization.slug}</p>
-                      <p className="mt-1 text-[11px] text-[#8A9099]">{organizationStatusLabels[item.organization.status]}</p>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-4 font-semibold text-[#30343A]">
-                      {planLabels[item.subscription.plan]}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-4">
-                      <Badge className={`rounded-md px-2 py-1 font-medium ${statusStyles[item.subscription.status]}`} variant="outline">
-                        {statusLabels[item.subscription.status]}
-                      </Badge>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-4 text-[#555C66]">
-                      <span>{formatDate(item.subscription.startsAt)} – {formatDate(item.subscription.endsAt)}</span>
-                      {item.subscription.status === 'TRIALING' ? (
-                        <span className="mt-1 block text-xs text-amber-800">Fin de l’essai</span>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-4">
-                      {item.subscription.pendingPlan ? (
-                        <span className="inline-flex items-start gap-1.5 text-sm text-[#555C66]">
-                          <ArrowDownRight aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
-                          <span>
-                            {planLabels[item.subscription.pendingPlan]}
-                            <span className="mt-0.5 block text-xs text-[#737983]">Le {formatDate(item.subscription.pendingPlanAt)}</span>
-                          </span>
-                        </span>
-                      ) : <span className="text-[#A0A5AD]">—</span>}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-4 text-right">
-                      <Button onClick={() => openOrganization(item)} size="sm" variant="secondary">
-                        {selectedId === item.organization.id ? 'Ouvert' : 'Gérer'}
-                      </Button>
-                    </td>
+          <>
+            <ul className="divide-y divide-[#ECEEF1] p-4 md:hidden">
+              {filteredOrganizations.map((item) => (
+                <li
+                  className="space-y-3 py-4 first:pt-1 last:pb-1"
+                  key={item.organization.id}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="break-words font-semibold text-[#25282D]">
+                        {item.organization.name}
+                      </p>
+                      <p className="mt-0.5 break-all text-xs text-[#737983]">
+                        {item.organization.slug}
+                      </p>
+                      <p className="mt-1 text-xs text-[#737983]">
+                        {organizationStatusLabels[item.organization.status]}
+                      </p>
+                    </div>
+                    <Badge
+                      className={`shrink-0 rounded-md px-2 py-1 font-medium ${statusStyles[item.subscription.status]}`}
+                      variant="outline"
+                    >
+                      {statusLabels[item.subscription.status]}
+                    </Badge>
+                  </div>
+                  <dl className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <dt className="text-xs text-[#737983]">Plan</dt>
+                      <dd className="mt-0.5 font-medium text-[#30343A]">
+                        {planLabels[item.subscription.plan]}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-[#737983]">Période</dt>
+                      <dd className="mt-0.5 text-[#555C66]">
+                        {formatDate(item.subscription.startsAt)} –{' '}
+                        {formatDate(item.subscription.endsAt)}
+                      </dd>
+                    </div>
+                  </dl>
+                  {item.subscription.pendingPlan ? (
+                    <p className="flex items-start gap-1.5 text-sm text-[#555C66]">
+                      <ArrowDownRight
+                        aria-hidden="true"
+                        className="mt-0.5 h-4 w-4 shrink-0 text-amber-700"
+                      />
+                      <span>
+                        {planLabels[item.subscription.pendingPlan]} prévu le{' '}
+                        {formatDate(item.subscription.pendingPlanAt)}
+                      </span>
+                    </p>
+                  ) : null}
+                  <Button
+                    aria-pressed={selectedId === item.organization.id}
+                    disabled={busy || isRefreshing}
+                    className="min-h-11 w-full justify-center"
+                    onClick={() => openOrganization(item)}
+                    size="sm"
+                    variant="secondary"
+                  >
+                    {selectedId === item.organization.id
+                      ? 'Abonnement ouvert'
+                      : 'Gérer l’abonnement'}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+            <div className="hidden max-w-full overflow-x-auto md:block">
+              <table className="w-full min-w-[820px] text-left text-sm">
+                <thead className="bg-[#F7F8F9] text-[11px] font-semibold uppercase tracking-[0.08em] text-[#737983]">
+                  <tr>
+                    <th className="px-4 py-3 sm:px-5">Organisation</th>
+                    <th className="px-4 py-3">Plan</th>
+                    <th className="px-4 py-3">Abonnement</th>
+                    <th className="px-4 py-3">Période</th>
+                    <th className="px-4 py-3">Changement à venir</th>
+                    <th className="px-4 py-3 text-right">Gestion</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-[#ECEEF1]">
+                  {filteredOrganizations.map((item) => (
+                    <tr
+                      key={item.organization.id}
+                      className="align-top transition-colors hover:bg-[#FAFAFB]"
+                    >
+                      <td className="max-w-[260px] px-4 py-4 sm:px-5">
+                        <p className="truncate font-semibold text-[#25282D]">
+                          {item.organization.name}
+                        </p>
+                        <p className="mt-0.5 truncate text-xs text-[#737983]">
+                          {item.organization.slug}
+                        </p>
+                        <p className="mt-1 text-[11px] text-[#8A9099]">
+                          {organizationStatusLabels[item.organization.status]}
+                        </p>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-4 font-semibold text-[#30343A]">
+                        {planLabels[item.subscription.plan]}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-4">
+                        <Badge
+                          className={`rounded-md px-2 py-1 font-medium ${statusStyles[item.subscription.status]}`}
+                          variant="outline"
+                        >
+                          {statusLabels[item.subscription.status]}
+                        </Badge>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-4 text-[#555C66]">
+                        <span>
+                          {formatDate(item.subscription.startsAt)} –{' '}
+                          {formatDate(item.subscription.endsAt)}
+                        </span>
+                        {item.subscription.status === 'TRIALING' ? (
+                          <span className="mt-1 block text-xs text-amber-800">
+                            Fin de l’essai
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-4">
+                        {item.subscription.pendingPlan ? (
+                          <span className="inline-flex items-start gap-1.5 text-sm text-[#555C66]">
+                            <ArrowDownRight
+                              aria-hidden="true"
+                              className="mt-0.5 h-4 w-4 shrink-0 text-amber-700"
+                            />
+                            <span>
+                              {planLabels[item.subscription.pendingPlan]}
+                              <span className="mt-0.5 block text-xs text-[#737983]">
+                                Le {formatDate(item.subscription.pendingPlanAt)}
+                              </span>
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="text-[#A0A5AD]">—</span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-4 text-right">
+                        <Button
+                          aria-pressed={selectedId === item.organization.id}
+                          disabled={busy || isRefreshing}
+                          onClick={() => openOrganization(item)}
+                          size="sm"
+                          variant="secondary"
+                        >
+                          {selectedId === item.organization.id
+                            ? 'Ouvert'
+                            : 'Gérer'}
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
 
@@ -627,119 +789,310 @@ export function PlatformSubscriptionsWorkspace({
         >
           <div className="flex flex-col gap-3 border-b border-[#ECEEF1] p-4 sm:flex-row sm:items-start sm:justify-between sm:p-5">
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#737983]">Abonnement de l’organisation</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#737983]">
+                Abonnement de l’organisation
+              </p>
               <div className="mt-1 flex flex-wrap items-center gap-2">
-                <h2 id="subscription-detail-title" className="text-xl font-semibold text-[#25282D]">{selected.organization.name}</h2>
-                <Badge className={`rounded-md px-2 py-1 font-medium ${statusStyles[selected.subscription.status]}`} variant="outline">{statusLabels[selected.subscription.status]}</Badge>
+                <h2
+                  id="subscription-detail-title"
+                  className="text-xl font-semibold text-[#25282D]"
+                >
+                  {selected.organization.name}
+                </h2>
+                <Badge
+                  className={`rounded-md px-2 py-1 font-medium ${statusStyles[selected.subscription.status]}`}
+                  variant="outline"
+                >
+                  {statusLabels[selected.subscription.status]}
+                </Badge>
               </div>
-              <p className="mt-1 break-all text-xs text-[#737983]">{selected.organization.slug} · {organizationStatusLabels[selected.organization.status]}</p>
+              <p className="mt-1 break-all text-xs text-[#737983]">
+                {selected.organization.slug} ·{' '}
+                {organizationStatusLabels[selected.organization.status]}
+              </p>
             </div>
-            <Button aria-label="Fermer les détails de l’abonnement" onClick={() => setSelectedId(null)} size="icon" variant="ghost">
+            <Button
+              aria-label="Fermer les détails de l’abonnement"
+              disabled={busy || isRefreshing}
+              onClick={() => setSelectedId(null)}
+              size="icon"
+              variant="ghost"
+            >
               <X aria-hidden="true" className="h-4 w-4" />
             </Button>
           </div>
 
           <div className="grid min-w-0 gap-5 p-4 sm:p-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
             <div className="min-w-0 space-y-4">
-              <section aria-labelledby="subscription-lifecycle-title" className="rounded-lg border border-[#ECEEF1] p-4">
-                <h3 id="subscription-lifecycle-title" className="text-sm font-semibold text-[#25282D]">Période et statut</h3>
+              <section
+                aria-labelledby="subscription-lifecycle-title"
+                className="rounded-lg border border-[#ECEEF1] p-4"
+              >
+                <h3
+                  id="subscription-lifecycle-title"
+                  className="text-sm font-semibold text-[#25282D]"
+                >
+                  Période et statut
+                </h3>
                 <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3">
-                  <Detail label="Plan actuel" value={planLabels[selected.subscription.plan]} />
-                  <Detail label="Statut" value={statusLabels[selected.subscription.status]} />
-                  <Detail label="Début" value={formatDate(selected.subscription.startsAt)} />
-                  <Detail label={selected.subscription.status === 'TRIALING' ? 'Fin de l’essai' : 'Fin de période'} value={formatDate(selected.subscription.endsAt)} />
-                  <Detail label="Fin de grâce" value={formatDate(selected.subscription.graceEndsAt)} />
-                  <Detail label="Essai utilisé le" value={formatDate(selected.subscription.trialUsedAt)} />
+                  <Detail
+                    label="Plan actuel"
+                    value={planLabels[selected.subscription.plan]}
+                  />
+                  <Detail
+                    label="Statut"
+                    value={statusLabels[selected.subscription.status]}
+                  />
+                  <Detail
+                    label="Début"
+                    value={formatDate(selected.subscription.startsAt)}
+                  />
+                  <Detail
+                    label={
+                      selected.subscription.status === 'TRIALING'
+                        ? 'Fin de l’essai'
+                        : 'Fin de période'
+                    }
+                    value={formatDate(selected.subscription.endsAt)}
+                  />
+                  <Detail
+                    label="Fin de grâce"
+                    value={formatDate(selected.subscription.graceEndsAt)}
+                  />
+                  <Detail
+                    label="Essai utilisé le"
+                    value={formatDate(selected.subscription.trialUsedAt)}
+                  />
                 </dl>
                 {selected.subscription.pendingPlan ? (
                   <div className="mt-4 flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                    <CalendarClock aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
-                    <p>Passage au plan {planLabels[selected.subscription.pendingPlan]} prévu le {formatDate(selected.subscription.pendingPlanAt)}.</p>
+                    <CalendarClock
+                      aria-hidden="true"
+                      className="mt-0.5 h-4 w-4 shrink-0"
+                    />
+                    <p>
+                      Passage au plan{' '}
+                      {planLabels[selected.subscription.pendingPlan]} prévu le{' '}
+                      {formatDate(selected.subscription.pendingPlanAt)}.
+                    </p>
                   </div>
                 ) : null}
               </section>
 
-              <section aria-labelledby="subscription-usage-title" className="rounded-lg border border-[#ECEEF1] p-4">
-                <h3 id="subscription-usage-title" className="text-sm font-semibold text-[#25282D]">Utilisation actuelle</h3>
+              <section
+                aria-labelledby="subscription-usage-title"
+                className="rounded-lg border border-[#ECEEF1] p-4"
+              >
+                <h3
+                  id="subscription-usage-title"
+                  className="text-sm font-semibold text-[#25282D]"
+                >
+                  Utilisation actuelle
+                </h3>
                 <div className="mt-4 space-y-4">
-                  <UsageBar label="Employés actifs" used={selected.usage.activeEmployees} limit={selected.entitlements.activeEmployees} />
-                  <UsageBar label="Capacité administrateurs utilisée" used={selected.usage.administratorCapacityUsed} limit={selected.entitlements.activeAdministrators} />
-                  <UsageBar label="Sites actifs" used={selected.usage.activeAttendanceSites} limit={selected.entitlements.activeAttendanceSites} />
+                  <UsageBar
+                    label="Employés actifs"
+                    used={selected.usage.activeEmployees}
+                    limit={selected.entitlements.activeEmployees}
+                  />
+                  <UsageBar
+                    label="Capacité administrateurs utilisée"
+                    used={selected.usage.administratorCapacityUsed}
+                    limit={selected.entitlements.activeAdministrators}
+                  />
+                  <UsageBar
+                    label="Sites actifs"
+                    used={selected.usage.activeAttendanceSites}
+                    limit={selected.entitlements.activeAttendanceSites}
+                  />
                 </div>
                 <p className="mt-3 text-xs leading-5 text-[#737983]">
-                  {selected.usage.activeAdministrators} actifs · {selected.usage.pendingAdministratorInvitations} invitations valides en attente
+                  {selected.usage.activeAdministrators} actifs ·{' '}
+                  {selected.usage.pendingAdministratorInvitations} invitations
+                  valides en attente
                 </p>
               </section>
             </div>
 
             <div className="min-w-0 space-y-4">
-              <section aria-labelledby="subscription-actions-title" className="rounded-lg border border-[#ECEEF1] p-4">
+              <section
+                aria-labelledby="subscription-actions-title"
+                className="rounded-lg border border-[#ECEEF1] p-4"
+              >
                 <div>
-                  <h3 id="subscription-actions-title" className="text-sm font-semibold text-[#25282D]">Actions sur l’abonnement</h3>
-                  <p className="mt-1 text-sm leading-5 text-[#737983]">Les changements s’appliquent uniquement à l’organisation affichée.</p>
+                  <h3
+                    id="subscription-actions-title"
+                    className="text-sm font-semibold text-[#25282D]"
+                  >
+                    Actions sur l’abonnement
+                  </h3>
+                  <p className="mt-1 text-sm leading-5 text-[#737983]">
+                    Les changements s’appliquent uniquement à l’organisation
+                    affichée.
+                  </p>
                 </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   <label className="block min-w-0 text-xs font-semibold text-[#555C66]">
                     Plan
-                    <select className="mt-1 block min-h-10 w-full rounded-lg border border-[#D9DCE1] bg-white px-3 py-2 text-sm font-normal text-[#25282D]" onChange={(event) => setPlan(event.target.value as SubscriptionPlan)} value={plan}>
-                      {Object.entries(planLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                    <select
+                      className="mt-1 block min-h-10 w-full rounded-lg border border-[#D9DCE1] bg-white px-3 py-2 text-sm font-normal text-[#25282D]"
+                      disabled={busy || isRefreshing}
+                      onChange={(event) =>
+                        setPlan(event.target.value as SubscriptionPlan)
+                      }
+                      value={plan}
+                    >
+                      {Object.entries(planLabels).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
                     </select>
                   </label>
                   <label className="block min-w-0 text-xs font-semibold text-[#555C66]">
                     Début
-                    <input className="mt-1 block min-h-10 w-full rounded-lg border border-[#D9DCE1] bg-white px-3 py-2 text-sm font-normal text-[#25282D] disabled:bg-[#F4F5F6]" disabled={selected.subscription.status === 'ACTIVE'} max={new Date().toISOString().slice(0, 10)} onChange={(event) => setStartsAt(event.target.value)} type="date" value={startsAt} />
+                    <input
+                      className="mt-1 block min-h-10 w-full rounded-lg border border-[#D9DCE1] bg-white px-3 py-2 text-sm font-normal text-[#25282D] disabled:bg-[#F4F5F6]"
+                      disabled={
+                        busy ||
+                        isRefreshing ||
+                        selected.subscription.status === 'ACTIVE'
+                      }
+                      max={new Date().toISOString().slice(0, 10)}
+                      onChange={(event) => setStartsAt(event.target.value)}
+                      type="date"
+                      value={startsAt}
+                    />
                   </label>
                   <label className="block min-w-0 text-xs font-semibold text-[#555C66]">
                     Fin
-                    <input className="mt-1 block min-h-10 w-full rounded-lg border border-[#D9DCE1] bg-white px-3 py-2 text-sm font-normal text-[#25282D]" min={new Date().toISOString().slice(0, 10)} onChange={(event) => setEndsAt(event.target.value)} type="date" value={endsAt} />
+                    <input
+                      className="mt-1 block min-h-10 w-full rounded-lg border border-[#D9DCE1] bg-white px-3 py-2 text-sm font-normal text-[#25282D] disabled:bg-[#F4F5F6]"
+                      disabled={busy || isRefreshing}
+                      min={new Date().toISOString().slice(0, 10)}
+                      onChange={(event) => setEndsAt(event.target.value)}
+                      type="date"
+                      value={endsAt}
+                    />
                   </label>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Button
-                    aria-describedby={redundantPlanApplication ? 'plan-action-no-change' : undefined}
-                    className="!bg-[#F35A24] !text-white shadow-[0_8px_18px_rgba(243,90,36,0.18)] hover:!bg-[#E94F1B] focus-visible:!ring-[#F35A24]/35 disabled:!bg-[#F4F5F6] disabled:!text-[#616873] disabled:opacity-100 disabled:shadow-none"
-                    disabled={busy || redundantPlanApplication}
-                    onClick={() => { setError(''); setConfirmAction('activate'); }}
+                    aria-describedby={
+                      redundantPlanApplication
+                        ? 'plan-action-no-change'
+                        : undefined
+                    }
+                    className="!bg-[#F35A24] !text-white shadow-none hover:!bg-[#E94F1B] focus-visible:!ring-[#F35A24]/35 disabled:!bg-[#F4F5F6] disabled:!text-[#616873] disabled:opacity-100 disabled:shadow-none"
+                    disabled={busy || isRefreshing || redundantPlanApplication}
+                    onClick={() => {
+                      setError('');
+                      setConfirmAction('activate');
+                    }}
                   >
-                    {selected.subscription.status === 'SUSPENDED' || selected.subscription.status === 'EXPIRED' || selected.subscription.status === 'PENDING_DOWNGRADE' ? 'Réactiver' : 'Appliquer le plan'}
+                    {selected.subscription.status === 'SUSPENDED' ||
+                    selected.subscription.status === 'EXPIRED' ||
+                    selected.subscription.status === 'PENDING_DOWNGRADE'
+                      ? 'Réactiver'
+                      : 'Appliquer le plan'}
                   </Button>
-                  {selected.subscription.status === 'ACTIVE' && planOrder[plan] < planOrder[selected.subscription.plan] ? (
-                    <Button disabled={busy} onClick={() => { setError(''); setConfirmAction('downgrade'); }} variant="secondary">
-                      <ArrowDownRight aria-hidden="true" className="mr-1.5 h-4 w-4" />Programmer la baisse
+                  {selected.subscription.status === 'ACTIVE' &&
+                  planOrder[plan] < planOrder[selected.subscription.plan] ? (
+                    <Button
+                      disabled={busy || isRefreshing}
+                      onClick={() => {
+                        setError('');
+                        setConfirmAction('downgrade');
+                      }}
+                      variant="secondary"
+                    >
+                      <ArrowDownRight
+                        aria-hidden="true"
+                        className="mr-1.5 h-4 w-4"
+                      />
+                      Programmer la baisse
                     </Button>
                   ) : null}
                   {selected.subscription.status !== 'SUSPENDED' ? (
-                    <Button className="border-rose-200 text-rose-700 hover:bg-rose-50" disabled={busy} onClick={() => { setError(''); setConfirmAction('suspend'); }} variant="secondary">
+                    <Button
+                      className="border-rose-200 text-rose-700 hover:bg-rose-50"
+                      disabled={busy || isRefreshing}
+                      onClick={() => {
+                        setError('');
+                        setConfirmAction('suspend');
+                      }}
+                      variant="secondary"
+                    >
                       Suspendre l’abonnement
                     </Button>
                   ) : null}
                 </div>
                 {redundantPlanApplication ? (
-                  <p id="plan-action-no-change" className="mt-2 text-sm text-[#616873]">
-                    Le plan et la période correspondent déjà à la configuration actuelle.
+                  <p
+                    id="plan-action-no-change"
+                    className="mt-2 text-sm text-[#616873]"
+                  >
+                    Le plan et la période correspondent déjà à la configuration
+                    actuelle.
                   </p>
                 ) : null}
-                {message ? <p aria-live="polite" className="mt-3 text-sm font-medium text-[#555C66]">{message}</p> : null}
-                {error ? <p role="alert" className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm font-medium text-rose-800">{error}</p> : null}
+                {message ? (
+                  <p
+                    aria-live="polite"
+                    className="mt-3 text-sm font-medium text-[#555C66]"
+                  >
+                    {message}
+                    {isRefreshing ? ' Actualisation…' : ''}
+                  </p>
+                ) : null}
+                {error ? (
+                  <p
+                    role="alert"
+                    className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm font-medium text-rose-800"
+                  >
+                    {error}
+                  </p>
+                ) : null}
               </section>
 
-              <section aria-labelledby="subscription-history-title" className="rounded-lg border border-[#ECEEF1] p-4">
-                <h3 id="subscription-history-title" className="text-sm font-semibold text-[#25282D]">Historique</h3>
+              <section
+                aria-labelledby="subscription-history-title"
+                className="rounded-lg border border-[#ECEEF1] p-4"
+              >
+                <h3
+                  id="subscription-history-title"
+                  className="text-sm font-semibold text-[#25282D]"
+                >
+                  Historique
+                </h3>
                 {selected.events?.length ? (
                   <ol className="mt-3 divide-y divide-[#ECEEF1]">
                     {selected.events.map((event, index) => {
-                      const type = typeof event.type === 'string' ? event.type : '';
-                      const occurredAt = typeof event.occurredAt === 'string' ? event.occurredAt : null;
+                      const type =
+                        typeof event.type === 'string' ? event.type : '';
+                      const occurredAt =
+                        typeof event.occurredAt === 'string'
+                          ? event.occurredAt
+                          : null;
                       return (
-                        <li key={`${type}-${occurredAt ?? index}`} className="flex items-center justify-between gap-3 py-2.5 text-sm first:pt-0 last:pb-0">
-                          <span className="min-w-0 font-medium text-[#454B54]">{eventLabels[type] ?? 'Mise à jour de l’abonnement'}</span>
-                          <time className="shrink-0 text-xs text-[#737983]">{formatDate(occurredAt)}</time>
+                        <li
+                          key={`${type}-${occurredAt ?? index}`}
+                          className="flex items-center justify-between gap-3 py-2.5 text-sm first:pt-0 last:pb-0"
+                        >
+                          <span className="min-w-0 font-medium text-[#454B54]">
+                            {eventLabels[type] ?? 'Mise à jour de l’abonnement'}
+                          </span>
+                          <time className="shrink-0 text-xs text-[#737983]">
+                            {formatDate(occurredAt)}
+                          </time>
                         </li>
                       );
                     })}
                   </ol>
                 ) : (
-                  <p className="mt-2 text-sm text-[#737983]">Aucun événement enregistré pour cet abonnement.</p>
+                  <p className="mt-2 text-sm text-[#737983]">
+                    Aucun événement enregistré pour cet abonnement.
+                  </p>
                 )}
               </section>
             </div>
@@ -750,22 +1103,45 @@ export function PlatformSubscriptionsWorkspace({
       <Dialog
         open={Boolean(confirmAction && confirmation)}
         onOpenChange={(open) => {
-          if (!open && !busy) setConfirmAction(null);
+          if (!open && !busy && !isRefreshing) setConfirmAction(null);
         }}
       >
-        <DialogContent className="gap-0 p-0 sm:max-w-md" showCloseButton={!busy}>
+        <DialogContent
+          className="gap-0 p-0 sm:max-w-md"
+          showCloseButton={!busy && !isRefreshing}
+        >
           <DialogHeader className="p-5 pb-4">
-            <DialogTitle className="text-lg font-semibold text-[#25282D]">{confirmation?.title}</DialogTitle>
-            <DialogDescription className="leading-6 text-[#666D77]">{confirmation?.description}</DialogDescription>
+            <DialogTitle className="text-lg font-semibold text-[#25282D]">
+              {confirmation?.title}
+            </DialogTitle>
+            <DialogDescription className="leading-6 text-[#666D77]">
+              {confirmation?.description}
+            </DialogDescription>
           </DialogHeader>
           <DialogFooter className="border-[#ECEEF1] bg-[#F7F8F9] p-4 sm:flex-row">
-            <Button disabled={busy} onClick={() => setConfirmAction(null)} variant="secondary">Annuler</Button>
             <Button
-              className={confirmAction === 'suspend' ? 'bg-rose-700 hover:bg-rose-800' : ''}
-              disabled={busy}
-              onClick={() => { if (confirmAction) void mutate(confirmAction); }}
+              disabled={busy || isRefreshing}
+              onClick={() => setConfirmAction(null)}
+              variant="secondary"
             >
-              {busy ? 'Enregistrement…' : confirmation?.confirm}
+              Annuler
+            </Button>
+            <Button
+              className={
+                confirmAction === 'suspend'
+                  ? 'bg-rose-700 hover:bg-rose-800'
+                  : ''
+              }
+              disabled={busy || isRefreshing}
+              onClick={() => {
+                if (confirmAction) void mutate(confirmAction);
+              }}
+            >
+              {busy
+                ? 'Enregistrement…'
+                : isRefreshing
+                  ? 'Actualisation…'
+                  : confirmation?.confirm}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -778,7 +1154,9 @@ function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
       <dt className="text-xs text-[#737983]">{label}</dt>
-      <dd className="mt-0.5 break-words text-sm font-medium text-[#30343A]">{value}</dd>
+      <dd className="mt-0.5 break-words text-sm font-medium text-[#30343A]">
+        {value}
+      </dd>
     </div>
   );
 }

@@ -48,9 +48,9 @@ async function collectPageRoutePatterns(directory, pathSegments = []) {
   return routes;
 }
 
-const pageRoutePatterns = (await collectPageRoutePatterns(
-  resolve(frontend, 'app'),
-)).sort(
+const pageRoutePatterns = (
+  await collectPageRoutePatterns(resolve(frontend, 'app'))
+).sort(
   (left, right) =>
     right.staticSegments - left.staticSegments ||
     right.segments.length - left.segments.length,
@@ -71,7 +71,10 @@ function pageRouteForPath(pathname) {
         if (/^\[\.\.\..+\]$/.test(segment))
           return actualIndex < actualSegments.length;
         if (actualIndex >= actualSegments.length) return false;
-        if (!/^\[.+\]$/.test(segment) && segment !== actualSegments[actualIndex])
+        if (
+          !/^\[.+\]$/.test(segment) &&
+          segment !== actualSegments[actualIndex]
+        )
           return false;
         actualIndex += 1;
       }
@@ -83,14 +86,16 @@ function pageRouteForPath(pathname) {
 const fetch = async (input, init = {}) => {
   const inputUrl = input instanceof Request ? input.url : String(input);
   const url = new URL(inputUrl);
-  const method = init.method ?? (input instanceof Request ? input.method : 'GET');
+  const method =
+    init.method ?? (input instanceof Request ? input.method : 'GET');
   const isNextPageRequest =
     frontendOrigin &&
     url.origin === frontendOrigin &&
     method === 'GET' &&
     !url.pathname.startsWith('/api/');
   const route = isNextPageRequest ? pageRouteForPath(url.pathname) : null;
-  const firstRouteAccess = route !== null && !firstAccessedPageRoutes.has(route);
+  const firstRouteAccess =
+    route !== null && !firstAccessedPageRoutes.has(route);
   const timeoutMs = firstRouteAccess
     ? coldPageRequestTimeoutMs
     : normalRequestTimeoutMs;
@@ -272,10 +277,14 @@ async function stopNextServer(child) {
   child.kill('SIGTERM');
   if (await waitForChildExit(child, 10_000)) return;
 
-  console.error('[frontend-auth] Next.js did not stop after SIGTERM; sending SIGKILL.');
+  console.error(
+    '[frontend-auth] Next.js did not stop after SIGTERM; sending SIGKILL.',
+  );
   child.kill('SIGKILL');
   if (!(await waitForChildExit(child, 5_000))) {
-    console.error('[frontend-auth] Next.js child process did not exit after SIGKILL.');
+    console.error(
+      '[frontend-auth] Next.js child process did not exit after SIGKILL.',
+    );
   }
 }
 
@@ -313,6 +322,8 @@ let forwardedInvitationAcceptance;
 let forwardedOrganizationProfile;
 const platformDashboardAuthorizations = [];
 const platformOrganizationListAuthorizations = [];
+const platformOrganizationProvisionAuthorizations = [];
+const platformPlanEntitlementAuthorizations = [];
 const foreignSiteDetailsResponses = [];
 const foreignSiteReportRequests = [];
 const backend = createServer(async (request, response) => {
@@ -331,9 +342,7 @@ const backend = createServer(async (request, response) => {
     });
     return json(response, 404, {});
   }
-  if (
-    requestPath.startsWith('/api/v1/attendance-sites/foreign-site/reports')
-  ) {
+  if (requestPath.startsWith('/api/v1/attendance-sites/foreign-site/reports')) {
     foreignSiteReportRequests.push(requestPath);
     return json(response, 404, {});
   }
@@ -456,6 +465,55 @@ const backend = createServer(async (request, response) => {
     return json(response, 200, []);
   }
 
+  if (
+    requestPath === '/api/v1/platform/organizations' &&
+    request.method === 'POST'
+  ) {
+    const authorization = request.headers.authorization ?? '';
+    platformOrganizationProvisionAuthorizations.push(authorization);
+    if (authorization !== 'Bearer platform-admin-jwt') {
+      return json(response, 403, { message: 'Forbidden.' });
+    }
+    return json(response, 201, {
+      organization: { id: 'organization-provisioned' },
+      firstAdminInvitation: {
+        invitation: { id: 'first-admin-invitation' },
+        token: 'single-use-first-admin-token',
+      },
+    });
+  }
+
+  if (
+    requestPath === '/api/v1/platform/plan-entitlements' &&
+    request.method === 'GET'
+  ) {
+    const authorization = request.headers.authorization ?? '';
+    platformPlanEntitlementAuthorizations.push(authorization);
+    if (authorization !== 'Bearer platform-admin-jwt') {
+      return json(response, 403, { message: 'Forbidden.' });
+    }
+    return json(response, 200, {
+      STARTER: {
+        activeEmployees: 10,
+        activeAdministrators: 1,
+        activeAttendanceSites: 1,
+        customExport: true,
+      },
+      PRO: {
+        activeEmployees: 50,
+        activeAdministrators: 3,
+        activeAttendanceSites: 3,
+        customExport: true,
+      },
+      BUSINESS: {
+        activeEmployees: 200,
+        activeAdministrators: 10,
+        activeAttendanceSites: 10,
+        customExport: true,
+      },
+    });
+  }
+
   if (request.url === '/api/v1/organizations/current/owner-onboarding') {
     const authorization = request.headers.authorization ?? '';
     if (authorization.includes('profile-error-jwt')) {
@@ -550,16 +608,47 @@ const backend = createServer(async (request, response) => {
   if (request.url === '/api/v1/attendance-sites') {
     if (request.method === 'GET') {
       const authorization = request.headers.authorization ?? '';
-      const configured = authorization.includes(
-        'owner-complete-jwt',
-      );
+      const configured = authorization.includes('owner-complete-jwt');
       const multiSite = authorization.includes('multi-site-jwt');
-      if (multiSite) return json(response, 200, [
-        { id: 'site-a', publicId: 'public-a', name: 'Bureau 1', latitude: 5, longitude: -4, allowedRadiusMeters: 100, isActive: true },
-        { id: 'site-b', publicId: 'public-b', name: 'Bureau 2', latitude: 5, longitude: -4, allowedRadiusMeters: 100, isActive: true },
-        { id: 'site-c', publicId: 'public-c', name: 'Bureau 3', latitude: 5, longitude: -4, allowedRadiusMeters: 100, isActive: true },
-        { id: 'site-inactive', publicId: 'public-inactive', name: 'Bureau fermé', latitude: 5, longitude: -4, allowedRadiusMeters: 100, isActive: false },
-      ]);
+      if (multiSite)
+        return json(response, 200, [
+          {
+            id: 'site-a',
+            publicId: 'public-a',
+            name: 'Bureau 1',
+            latitude: 5,
+            longitude: -4,
+            allowedRadiusMeters: 100,
+            isActive: true,
+          },
+          {
+            id: 'site-b',
+            publicId: 'public-b',
+            name: 'Bureau 2',
+            latitude: 5,
+            longitude: -4,
+            allowedRadiusMeters: 100,
+            isActive: true,
+          },
+          {
+            id: 'site-c',
+            publicId: 'public-c',
+            name: 'Bureau 3',
+            latitude: 5,
+            longitude: -4,
+            allowedRadiusMeters: 100,
+            isActive: true,
+          },
+          {
+            id: 'site-inactive',
+            publicId: 'public-inactive',
+            name: 'Bureau fermé',
+            latitude: 5,
+            longitude: -4,
+            allowedRadiusMeters: 100,
+            isActive: false,
+          },
+        ]);
       return json(
         response,
         200,
@@ -917,10 +1006,7 @@ try {
     redirectTo: '/attendance-history',
   });
   assert.equal(managerHistoryLogin.status, 200);
-  assert.equal(
-    (await managerHistoryLogin.json()).redirectTo,
-    '/my-attendance',
-  );
+  assert.equal((await managerHistoryLogin.json()).redirectTo, '/my-attendance');
 
   const managerSchedulesLogin = await post(`${base}/api/auth/login`, {
     email: 'manager@example.test',
@@ -928,7 +1014,10 @@ try {
     redirectTo: '/schedules',
   });
   assert.equal(managerSchedulesLogin.status, 200);
-  assert.equal((await managerSchedulesLogin.json()).redirectTo, '/my-attendance');
+  assert.equal(
+    (await managerSchedulesLogin.json()).redirectTo,
+    '/my-attendance',
+  );
 
   const memberSubscriptionLogin = await post(`${base}/api/auth/login`, {
     email: 'member@example.test',
@@ -978,8 +1067,62 @@ try {
       /<meta[^>]+http-equiv="refresh"[^>]+url=\//,
     );
   }
-  assert.deepEqual(platformDashboardAuthorizations, [
+  const organizationsPage = await fetch(`${base}/platform/organizations`, {
+    headers: { Cookie: 'konatech_session=platform-admin-jwt' },
+    redirect: 'manual',
+  });
+  assert.equal(organizationsPage.status, 200);
+  const organizationsHtml = await organizationsPage.text();
+  assert.match(organizationsHtml, /Administration plateforme/);
+  assert.match(organizationsHtml, />Organisations</);
+  assert.match(organizationsHtml, /aria-current="page"/);
+
+  const provisionedOrganization = await fetch(
+    `${base}/api/platform/organizations`,
+    {
+      method: 'POST',
+      headers: {
+        Cookie: 'konatech_session=platform-admin-jwt',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: 'Provisioned Organization',
+        slug: 'provisioned-organization',
+        timezone: 'Etc/UTC',
+        firstAdminEmail: 'first-admin@example.test',
+      }),
+    },
+  );
+  assert.equal(provisionedOrganization.status, 201);
+  assert.match(
+    provisionedOrganization.headers.get('cache-control') ?? '',
+    /no-store/,
+  );
+  assert.equal(
+    (await provisionedOrganization.json()).firstAdminInvitation.token,
+    'single-use-first-admin-token',
+  );
+
+  const tenantProvisionAttempt = await fetch(
+    `${base}/api/platform/organizations`,
+    {
+      method: 'POST',
+      headers: {
+        Cookie: 'konatech_session=owner-jwt',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: 'Tenant Organization',
+        slug: 'tenant-organization',
+        timezone: 'Etc/UTC',
+        firstAdminEmail: 'admin@example.test',
+      }),
+    },
+  );
+  assert.equal(tenantProvisionAttempt.status, 403);
+  assert.deepEqual(platformOrganizationProvisionAuthorizations, [
     'Bearer platform-admin-jwt',
+    'Bearer owner-jwt',
   ]);
 
   const legacyPlatformPage = await fetch(`${base}/platform/subscriptions`, {
@@ -992,6 +1135,25 @@ try {
   assert.match(subscriptionsHtml, />Abonnements</);
   assert.match(subscriptionsHtml, /aria-current="page"/);
   assert.deepEqual(platformOrganizationListAuthorizations, [
+    'Bearer platform-admin-jwt',
+  ]);
+
+  const plansPage = await fetch(`${base}/platform/plans`, {
+    headers: { Cookie: 'konatech_session=platform-admin-jwt' },
+    redirect: 'manual',
+  });
+  assert.equal(plansPage.status, 200);
+  const plansHtml = await plansPage.text();
+  assert.match(plansHtml, /Administration plateforme/);
+  assert.match(plansHtml, />Plans</);
+  assert.match(plansHtml, /Lecture seule/);
+  assert.match(plansHtml, /aria-current="page"/);
+  assert.deepEqual(platformPlanEntitlementAuthorizations, [
+    'Bearer platform-admin-jwt',
+  ]);
+  assert.deepEqual(platformDashboardAuthorizations, [
+    'Bearer platform-admin-jwt',
+    'Bearer platform-admin-jwt',
     'Bearer platform-admin-jwt',
   ]);
 
@@ -1154,9 +1316,12 @@ try {
   });
   assert.equal(firstRunOwnerDashboard.status, 200);
   const firstRunOwnerHtml = await firstRunOwnerDashboard.text();
-  const organizationAttendancePage = await fetch(`${base}/organization/attendance`, {
-    headers: { Cookie: 'konatech_session=owner-complete-jwt' },
-  });
+  const organizationAttendancePage = await fetch(
+    `${base}/organization/attendance`,
+    {
+      headers: { Cookie: 'konatech_session=owner-complete-jwt' },
+    },
+  );
   assert.equal(organizationAttendancePage.status, 200);
   const organizationAttendanceHtml = await organizationAttendancePage.text();
   assert.match(organizationAttendanceHtml, /Présences aujourd’hui/);
@@ -1198,7 +1363,10 @@ try {
   assert.match(firstRunOwnerHtml, /href="\/organization\/subscription"/);
   assert.match(firstRunOwnerHtml, /Afficher les étapes/);
   assert.doesNotMatch(firstRunOwnerHtml, /<details[^>]*open/);
-  assert.doesNotMatch(firstRunOwnerHtml, /Classements RH|Top retards|Top heures supplémentaires/);
+  assert.doesNotMatch(
+    firstRunOwnerHtml,
+    /Classements RH|Top retards|Top heures supplémentaires/,
+  );
 
   for (const [legacyPath, canonicalPath] of [
     ['/attendance-sites', '/sites'],
@@ -1208,15 +1376,18 @@ try {
     ['/sanctions', '/organization/sanctions'],
   ]) {
     const legacyResponse = await fetch(`${base}${legacyPath}`, {
-      headers: { Cookie: 'konatech_session=owner-jwt' }, redirect: 'manual',
+      headers: { Cookie: 'konatech_session=owner-jwt' },
+      redirect: 'manual',
     });
     assert.equal(legacyResponse.status, 307);
     assert.equal(legacyResponse.headers.get('location'), canonicalPath);
   }
   const rootAdminResponse = await fetch(`${base}/`, {
-    headers: { Cookie: 'konatech_session=owner-jwt' }, redirect: 'manual',
+    headers: { Cookie: 'konatech_session=owner-jwt' },
+    redirect: 'manual',
   });
-  if (rootAdminResponse.status === 307) assert.equal(rootAdminResponse.headers.get('location'), '/dashboard');
+  if (rootAdminResponse.status === 307)
+    assert.equal(rootAdminResponse.headers.get('location'), '/dashboard');
   else assert.match(await rootAdminResponse.text(), /dashboard/);
   assert.doesNotMatch(firstRunOwnerHtml, /rel="manifest"/);
 
@@ -1238,23 +1409,49 @@ try {
   });
   const oneSiteHtml = await oneSiteDashboard.text();
   assert.match(oneSiteHtml, /Siège configuré/);
-  assert.match(oneSiteHtml, /href="\/site\/attendance-site-complete\/dashboard"/);
+  assert.match(
+    oneSiteHtml,
+    /href="\/site\/attendance-site-complete\/dashboard"/,
+  );
   const multiSiteDashboard = await fetch(`${base}/dashboard`, {
     headers: { Cookie: 'konatech_session=multi-site-jwt' },
   });
   const multiSiteHtml = await multiSiteDashboard.text();
-  for (const name of ['Bureau 1', 'Bureau 2', 'Bureau 3']) assert.match(multiSiteHtml, new RegExp(name));
+  for (const name of ['Bureau 1', 'Bureau 2', 'Bureau 3'])
+    assert.match(multiSiteHtml, new RegExp(name));
   assert.match(multiSiteHtml, /Choisir un site/);
-  assert.doesNotMatch(multiSiteHtml, /href="\/site\/(?:site-a|site-b|site-c)\/(?:schedules|qr)"/);
+  assert.doesNotMatch(
+    multiSiteHtml,
+    /href="\/site\/(?:site-a|site-b|site-c)\/(?:schedules|qr)"/,
+  );
   assert.doesNotMatch(multiSiteHtml, /Bureau fermé<\/option>/);
-  for (const [siteId, siteName] of [['site-a', 'Bureau 1'], ['site-b', 'Bureau 2'], ['site-c', 'Bureau 3']]) {
-    const sitePage = await fetch(`${base}/site/${siteId}/dashboard`, { headers: { Cookie: 'konatech_session=multi-site-jwt' } });
+  for (const [siteId, siteName] of [
+    ['site-a', 'Bureau 1'],
+    ['site-b', 'Bureau 2'],
+    ['site-c', 'Bureau 3'],
+  ]) {
+    const sitePage = await fetch(`${base}/site/${siteId}/dashboard`, {
+      headers: { Cookie: 'konatech_session=multi-site-jwt' },
+    });
     assert.equal(sitePage.status, 200);
     const siteHtml = await sitePage.text();
     assert.match(siteHtml, /Organisation Sites/);
     assert.match(siteHtml, new RegExp(siteName));
-    assert.match(siteHtml, new RegExp(`aria-current="page"[^>]*href="/site/${siteId}/dashboard"`));
-    for (const section of ['employees', 'attendance', 'schedules', 'history', 'reports', 'calendar', 'sanctions', 'qr', 'settings']) {
+    assert.match(
+      siteHtml,
+      new RegExp(`aria-current="page"[^>]*href="/site/${siteId}/dashboard"`),
+    );
+    for (const section of [
+      'employees',
+      'attendance',
+      'schedules',
+      'history',
+      'reports',
+      'calendar',
+      'sanctions',
+      'qr',
+      'settings',
+    ]) {
       assert.match(siteHtml, new RegExp(`href="/site/${siteId}/${section}"`));
     }
     assert.match(siteHtml, /Vue d’ensemble organisation/);
@@ -1265,7 +1462,9 @@ try {
 
   foreignSiteDetailsResponses.length = 0;
   foreignSiteReportRequests.length = 0;
-  const foreignSitePage = await fetch(`${base}/site/foreign-site/reports`, { headers: { Cookie: 'konatech_session=multi-site-jwt' } });
+  const foreignSitePage = await fetch(`${base}/site/foreign-site/reports`, {
+    headers: { Cookie: 'konatech_session=multi-site-jwt' },
+  });
   const foreignSiteHtml = await foreignSitePage.text();
   assert.match(foreignSiteHtml, /404|notFound|This page could not be found/);
   assert.doesNotMatch(foreignSiteHtml, /Rapport —|Période du rapport/);
@@ -1281,17 +1480,30 @@ try {
     [],
     'Foreign-site report data must not be requested.',
   );
-  const inactiveSitePage = await fetch(`${base}/site/site-inactive/dashboard`, { headers: { Cookie: 'konatech_session=multi-site-jwt' }, redirect: 'manual' });
+  const inactiveSitePage = await fetch(`${base}/site/site-inactive/dashboard`, {
+    headers: { Cookie: 'konatech_session=multi-site-jwt' },
+    redirect: 'manual',
+  });
   assert.equal(inactiveSitePage.status, 200);
   const inactiveHtml = await inactiveSitePage.text();
   assert.match(inactiveHtml, /Bureau fermé/);
   assert.match(inactiveHtml, /Site inactif/);
   assert.match(inactiveHtml, new RegExp(`href="/site/site-inactive/history"`));
-  assert.doesNotMatch(inactiveHtml, /href="\/site\/site-inactive\/(?:employees|schedules|attendance|calendar|sanctions|qr|settings)"/);
-  const employeeSitePage = await fetch(`${base}/site/site-a/dashboard`, { headers: { Cookie: 'konatech_session=member-jwt' }, redirect: 'manual' });
+  assert.doesNotMatch(
+    inactiveHtml,
+    /href="\/site\/site-inactive\/(?:employees|schedules|attendance|calendar|sanctions|qr|settings)"/,
+  );
+  const employeeSitePage = await fetch(`${base}/site/site-a/dashboard`, {
+    headers: { Cookie: 'konatech_session=member-jwt' },
+    redirect: 'manual',
+  });
   await assertRedirectsToMyAttendance(employeeSitePage);
-  const platformSitePage = await fetch(`${base}/site/site-a/dashboard`, { headers: { Cookie: 'konatech_session=platform-admin-jwt' }, redirect: 'manual' });
-  if (platformSitePage.status === 200) assert.match(await platformSitePage.text(), /login|NEXT_REDIRECT/);
+  const platformSitePage = await fetch(`${base}/site/site-a/dashboard`, {
+    headers: { Cookie: 'konatech_session=platform-admin-jwt' },
+    redirect: 'manual',
+  });
+  if (platformSitePage.status === 200)
+    assert.match(await platformSitePage.text(), /login|NEXT_REDIRECT/);
   assert.match(adminDashboardHtml, /Première configuration/);
 
   const configuredOwnerDashboard = await fetch(`${base}/dashboard`, {
@@ -1412,15 +1624,23 @@ try {
     headers: { Cookie: 'konatech_session=owner-jwt' },
     redirect: 'manual',
   });
-  if (invitationViewPage.status === 307) assert.equal(invitationViewPage.headers.get('location'), '/organization/invitations');
-  else assert.match(await invitationViewPage.text(), /organization\/invitations/);
+  if (invitationViewPage.status === 307)
+    assert.equal(
+      invitationViewPage.headers.get('location'),
+      '/organization/invitations',
+    );
+  else
+    assert.match(await invitationViewPage.text(), /organization\/invitations/);
   const invitationPage = await fetch(`${base}/organization/invitations`, {
     headers: { Cookie: 'konatech_session=owner-jwt' },
   });
   assert.equal(invitationPage.status, 200);
   const invitationHtml = await invitationPage.text();
   assert.match(invitationHtml, /<h1[^>]*>Invitations<\/h1>/);
-  assert.match(invitationHtml, /aria-current="page"[^>]*href="\/organization\/invitations/);
+  assert.match(
+    invitationHtml,
+    /aria-current="page"[^>]*href="\/organization\/invitations/,
+  );
   assert.match(invitationHtml, /id="invitations"/);
   const memberPage = await fetch(`${base}/organization/members`, {
     headers: { Cookie: 'konatech_session=owner-jwt' },
@@ -1428,7 +1648,10 @@ try {
   assert.equal(memberPage.status, 200);
   const memberHtml = await memberPage.text();
   assert.match(memberHtml, /<h1[^>]*>Membres<\/h1>/);
-  assert.match(memberHtml, /aria-current="page"[^>]*href="\/organization\/members/);
+  assert.match(
+    memberHtml,
+    /aria-current="page"[^>]*href="\/organization\/members/,
+  );
 
   const memberTeamPage = await fetch(`${base}/employees`, {
     headers: { Cookie: 'konatech_session=member-jwt' },
@@ -1517,41 +1740,98 @@ try {
   });
 
   {
-    const adminNavClientSource = await readFile(resolve(frontend, 'components/admin/admin-nav-client.tsx'), 'utf8');
+    const adminNavClientSource = await readFile(
+      resolve(frontend, 'components/admin/admin-nav-client.tsx'),
+      'utf8',
+    );
     assert.match(adminNavClientSource, /\['dashboard', 'Tableau de bord'\]/);
-    assert.match(adminNavClientSource, /\['\/organization\/calendar', 'Calendrier global'\]/);
-    assert.match(adminNavClientSource, /\['\/organization\/sanctions', 'Règles de sanctions'\]/);
-    assert.match(adminNavClientSource, /\['\/organization\/members', 'Membres'\]/);
+    assert.match(
+      adminNavClientSource,
+      /\['\/organization\/calendar', 'Calendrier global'\]/,
+    );
+    assert.match(
+      adminNavClientSource,
+      /\['\/organization\/sanctions', 'Règles de sanctions'\]/,
+    );
+    assert.match(
+      adminNavClientSource,
+      /\['\/organization\/members', 'Membres'\]/,
+    );
     assert.doesNotMatch(adminNavClientSource, /\['\/schedules',/);
-    assert.doesNotMatch(adminNavClientSource, /\['\/organization\/attendance', 'Présences aujourd’hui'\]/);
+    assert.doesNotMatch(
+      adminNavClientSource,
+      /\['\/organization\/attendance', 'Présences aujourd’hui'\]/,
+    );
     assert.match(adminNavClientSource, /title: 'Analyse · Tous les sites'/);
-    const organizationAttendanceSource = await readFile(resolve(frontend, 'app/organization/attendance/page.tsx'), 'utf8');
+    const organizationAttendanceSource = await readFile(
+      resolve(frontend, 'app/organization/attendance/page.tsx'),
+      'utf8',
+    );
     assert.match(organizationAttendanceSource, /getDashboardData\(token\)/);
-    assert.match(organizationAttendanceSource, /membership\?\.role !== 'ADMIN'/);
+    assert.match(
+      organizationAttendanceSource,
+      /membership\?\.role !== 'ADMIN'/,
+    );
     assert.match(organizationAttendanceSource, /dashboard\.recentActivity/);
 
-    const organizationCalendarSource = await readFile(resolve(frontend, 'components/calendar/calendar-workspace.tsx'), 'utf8');
+    const organizationCalendarSource = await readFile(
+      resolve(frontend, 'components/calendar/calendar-workspace.tsx'),
+      'utf8',
+    );
     assert.match(organizationCalendarSource, /Calendrier global/);
     assert.match(organizationCalendarSource, /s’appliquent à tous les sites/);
 
-    const siteHistorySource = await readFile(resolve(frontend, 'app/site/[siteId]/history/page.tsx'), 'utf8');
-    const siteHistoryFormSource = await readFile(resolve(frontend, 'components/attendance-sites/site-history-period-form.tsx'), 'utf8');
-    assert.match(siteHistorySource, /getSiteHistory\(token, siteId, selectedParams\)/);
+    const siteHistorySource = await readFile(
+      resolve(frontend, 'app/site/[siteId]/history/page.tsx'),
+      'utf8',
+    );
+    const siteHistoryFormSource = await readFile(
+      resolve(
+        frontend,
+        'components/attendance-sites/site-history-period-form.tsx',
+      ),
+      'utf8',
+    );
+    assert.match(
+      siteHistorySource,
+      /getSiteHistory\(token, siteId, selectedParams\)/,
+    );
     assert.match(siteHistorySource, /selectedParams\.set\('month', month\)/);
-    assert.match(siteHistorySource, /selectedParams\.set\('startDate', startDate\)/);
-    assert.match(siteHistorySource, /selectedParams\.set\('endDate', endDate\)/);
+    assert.match(
+      siteHistorySource,
+      /selectedParams\.set\('startDate', startDate\)/,
+    );
+    assert.match(
+      siteHistorySource,
+      /selectedParams\.set\('endDate', endDate\)/,
+    );
     assert.match(siteHistoryFormSource, /type="month"/);
     assert.match(siteHistoryFormSource, /type="date"/);
 
-    const onboardingDashboardSource = await readFile(resolve(frontend, 'app/dashboard/page.tsx'), 'utf8');
-    const onboardingComponentSource = await readFile(resolve(frontend, 'components/dashboard/owner-onboarding-checklist.tsx'), 'utf8');
+    const onboardingDashboardSource = await readFile(
+      resolve(frontend, 'app/dashboard/page.tsx'),
+      'utf8',
+    );
+    const onboardingComponentSource = await readFile(
+      resolve(frontend, 'components/dashboard/owner-onboarding-checklist.tsx'),
+      'utf8',
+    );
     assert.match(onboardingDashboardSource, /activeSites\.length === 1/);
     assert.match(onboardingDashboardSource, /siteAction: 'schedules'/);
     assert.match(onboardingDashboardSource, /siteAction: 'qr'/);
-    assert.match(onboardingComponentSource, /sites\.filter\(\(site\) => site\.isActive\)\.length > 1/);
-    assert.match(onboardingComponentSource, /encodeURIComponent\(site\.id\).*step\.siteAction/);
+    assert.match(
+      onboardingComponentSource,
+      /sites\.filter\(\(site\) => site\.isActive\)\.length > 1/,
+    );
+    assert.match(
+      onboardingComponentSource,
+      /encodeURIComponent\(site\.id\).*step\.siteAction/,
+    );
 
-    const siteLayoutSource = await readFile(resolve(frontend, 'app/site/[siteId]/layout.tsx'), 'utf8');
+    const siteLayoutSource = await readFile(
+      resolve(frontend, 'app/site/[siteId]/layout.tsx'),
+      'utf8',
+    );
     assert.doesNotMatch(siteLayoutSource, /href="\/dashboard"/);
   }
 
@@ -1568,18 +1848,27 @@ try {
   assert.match(ownerSubscriptionHtml, /données historiques conservées/);
   assert.match(ownerSubscriptionHtml, /Exports sur période personnalisée/);
   assert.match(ownerSubscriptionHtml, /Inclus/);
-  assert.doesNotMatch(ownerSubscriptionHtml, /Support\s*:\s*(?:standard|priority|premium)/i);
+  assert.doesNotMatch(
+    ownerSubscriptionHtml,
+    /Support\s*:\s*(?:standard|priority|premium)/i,
+  );
   assert.match(ownerSubscriptionHtml, /Détails du plan/);
   assert.match(ownerSubscriptionHtml, /Aucun paiement n’est traité/);
   assert.doesNotMatch(ownerSubscriptionHtml, /Acheter|Payer|Checkout/);
-  const subscriptionPageSource = await readFile(resolve(frontend, 'app/subscription/page.tsx'), 'utf8');
+  const subscriptionPageSource = await readFile(
+    resolve(frontend, 'app/subscription/page.tsx'),
+    'utf8',
+  );
   assert.match(subscriptionPageSource, /catch\s*\{\s*redirect\('\/'\);\s*\}/);
 
   for (const [token, expectedLabels] of [
     ['subscription-trial-jwt', ['Essai']],
     ['subscription-expired-jwt', ['Expiré']],
     ['subscription-suspended-jwt', ['Suspendu']],
-    ['subscription-pending-jwt', ['Changement planifié', 'Plan suivant', 'Starter']],
+    [
+      'subscription-pending-jwt',
+      ['Changement planifié', 'Plan suivant', 'Starter'],
+    ],
   ]) {
     const statePage = await fetch(`${base}/subscription`, {
       headers: { Cookie: `konatech_session=${token}` },
@@ -1590,10 +1879,13 @@ try {
       assert.match(stateHtml, new RegExp(label));
   }
 
-  const memberSubscriptionPage = await fetch(`${base}/organization/subscription`, {
-    headers: { Cookie: 'konatech_session=member-jwt' },
-    redirect: 'manual',
-  });
+  const memberSubscriptionPage = await fetch(
+    `${base}/organization/subscription`,
+    {
+      headers: { Cookie: 'konatech_session=member-jwt' },
+      redirect: 'manual',
+    },
+  );
   if (memberSubscriptionPage.status === 307) {
     assert.equal(
       memberSubscriptionPage.headers.get('location'),
@@ -1605,17 +1897,23 @@ try {
     assert.doesNotMatch(memberSubscriptionHtml, /Utilisation des quotas/);
   }
 
-  const unavailableSubscriptionPage = await fetch(`${base}/organization/subscription`, {
-    headers: { Cookie: 'konatech_session=subscription-error-jwt' },
-    redirect: 'manual',
-  });
+  const unavailableSubscriptionPage = await fetch(
+    `${base}/organization/subscription`,
+    {
+      headers: { Cookie: 'konatech_session=subscription-error-jwt' },
+      redirect: 'manual',
+    },
+  );
   assert.equal(unavailableSubscriptionPage.status, 200);
   await unavailableSubscriptionPage.text();
 
-  const missingSubscriptionPage = await fetch(`${base}/organization/subscription`, {
-    headers: { Cookie: 'konatech_session=subscription-missing-jwt' },
-    redirect: 'manual',
-  });
+  const missingSubscriptionPage = await fetch(
+    `${base}/organization/subscription`,
+    {
+      headers: { Cookie: 'konatech_session=subscription-missing-jwt' },
+      redirect: 'manual',
+    },
+  );
   assert.equal(missingSubscriptionPage.status, 200);
   await missingSubscriptionPage.text();
 
@@ -1642,10 +1940,13 @@ try {
   });
   await assertRedirectsToMyAttendance(managerSitesPage);
 
-  const managerCalendarPage = await fetch(`${base}/organization/calendar?month=2026-09`, {
-    headers: { Cookie: 'konatech_session=manager-jwt' },
-    redirect: 'manual',
-  });
+  const managerCalendarPage = await fetch(
+    `${base}/organization/calendar?month=2026-09`,
+    {
+      headers: { Cookie: 'konatech_session=manager-jwt' },
+      redirect: 'manual',
+    },
+  );
   await assertRedirectsToMyAttendance(managerCalendarPage);
 
   const managerSanctionsPage = await fetch(
@@ -1685,10 +1986,7 @@ try {
   const invitationBody = await invitationResponse.json();
   assert.equal(invitationBody.invitation.email, 'invitee@example.test');
   assert.equal(invitationBody.invitation.invitationToken, undefined);
-  assert.equal(
-    invitationBody.invitationToken,
-    'must-not-reach-the-browser',
-  );
+  assert.equal(invitationBody.invitationToken, 'must-not-reach-the-browser');
 
   forwardedInvitationAcceptance = null;
   const acceptanceResponse = await post(`${base}/api/invitations/accept`, {
@@ -1731,20 +2029,33 @@ try {
   const reconciliationDecisionUrl = `${base}/api/attendance/offline-reconciliation/11111111-1111-4111-8111-111111111111/approve`;
   for (const origin of [undefined, 'https://attacker.example']) {
     const denied = await fetch(reconciliationDecisionUrl, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: 'konatech_session=final-account-jwt', ...(origin ? { Origin: origin } : {}) },
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Cookie: 'konatech_session=final-account-jwt',
+        ...(origin ? { Origin: origin } : {}),
+      },
       body: JSON.stringify({ reason: 'Reviewed evidence' }),
     });
     assert.equal(denied.status, 403);
     assert.match((await denied.json()).error, /Origine/);
   }
   const sameOriginDecision = await fetch(reconciliationDecisionUrl, {
-    method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: 'konatech_session=final-account-jwt', Origin: base },
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Cookie: 'konatech_session=final-account-jwt',
+      Origin: base,
+    },
     body: JSON.stringify({ reason: 'Reviewed evidence' }),
   });
   // The mock backend has no reconciliation resource; 404 proves forwarding,
   // while missing/foreign origins are rejected before backend authorization.
   assert.equal(sameOriginDecision.status, 404);
-  assert.equal(sameOriginDecision.headers.get('cache-control'), 'private, no-store');
+  assert.equal(
+    sameOriginDecision.headers.get('cache-control'),
+    'private, no-store',
+  );
 
   const formSource = await readFile(
     resolve(frontend, 'components/auth/login-form.tsx'),
@@ -1758,7 +2069,10 @@ try {
   );
   assert.doesNotMatch(
     // Clearing the offline bootstrap is permitted; credential/challenge storage is not.
-    formSource.replace(/clearActiveOfflineAttendanceBootstrap\(window\.localStorage\);/g, ''),
+    formSource.replace(
+      /clearActiveOfflineAttendanceBootstrap\(window\.localStorage\);/g,
+      '',
+    ),
     /localStorage|sessionStorage|organizationSelectionChallenge/,
   );
 
@@ -1781,18 +2095,39 @@ try {
     resolve(frontend, 'components/admin/admin-nav.tsx'),
     'utf8',
   );
-  const adminNavClientSource = await readFile(resolve(frontend, 'components/admin/admin-nav-client.tsx'), 'utf8');
+  const adminNavClientSource = await readFile(
+    resolve(frontend, 'components/admin/admin-nav-client.tsx'),
+    'utf8',
+  );
   assert.match(adminNavClientSource, /\['\/sites', 'Sites'\]/);
-  assert.match(adminNavClientSource, /aria-current=\{selected \? 'page' : undefined\}/);
-  assert.match(adminNavClientSource, /router\.push\(`\/site\/\$\{encodeURIComponent\(event\.target\.value\)\}\/dashboard`\)/);
-  assert.match(adminNavClientSource, /activeSites = sites\.filter\(\(site\) => site\.isActive\)/);
+  assert.match(
+    adminNavClientSource,
+    /aria-current=\{selected \? 'page' : undefined\}/,
+  );
+  assert.match(
+    adminNavClientSource,
+    /router\.push\(`\/site\/\$\{encodeURIComponent\(event\.target\.value\)\}\/dashboard`\)/,
+  );
+  assert.match(
+    adminNavClientSource,
+    /activeSites = sites\.filter\(\(site\) => site\.isActive\)/,
+  );
   assert.match(adminNavClientSource, /title: 'Analyse · Tous les sites'/);
-  assert.doesNotMatch(adminNavClientSource, /\['\/organization\/attendance', 'Présences aujourd’hui'\]/);
+  assert.doesNotMatch(
+    adminNavClientSource,
+    /\['\/organization\/attendance', 'Présences aujourd’hui'\]/,
+  );
   assert.match(adminNavClientSource, /Vue d’ensemble organisation/);
   assert.match(adminNavSource, /membershipRole === 'EMPLOYEE'/);
-  const employeeManifestSource = await readFile(resolve(frontend, 'lib/employee-manifest.ts'), 'utf8');
+  const employeeManifestSource = await readFile(
+    resolve(frontend, 'lib/employee-manifest.ts'),
+    'utf8',
+  );
   assert.match(employeeManifestSource, /scope: startUrl/);
-  const rootLayoutSource = await readFile(resolve(frontend, 'app/layout.tsx'), 'utf8');
+  const rootLayoutSource = await readFile(
+    resolve(frontend, 'app/layout.tsx'),
+    'utf8',
+  );
   assert.doesNotMatch(rootLayoutSource, /ServiceWorkerRegistration|manifest:/);
 
   const employeeManagerSource = await readFile(
@@ -1805,7 +2140,10 @@ try {
   assert.match(employeeManagerSource, /Plan quota reached for activeEmployees/);
   assert.match(employeeManagerSource, /employeeCapacity\.activeEmployees/);
   assert.match(employeeManagerSource, /Employés actifs:/);
-  const qrCardSource = await readFile(resolve(frontend, 'components/dashboard/attendance-entry-qr-card.tsx'), 'utf8');
+  const qrCardSource = await readFile(
+    resolve(frontend, 'components/dashboard/attendance-entry-qr-card.tsx'),
+    'utf8',
+  );
   assert.match(qrCardSource, /loadImage\('\/brand\/inout-logo\.png'\)/);
   assert.match(qrCardSource, /inout-attendance-entry-qr-poster\.pdf/);
   assert.doesNotMatch(qrCardSource, /\/konatech-logo\.png/);
@@ -1815,8 +2153,14 @@ try {
     assert.match(source, /\/brand\/inout-logo\.png/);
     assert.doesNotMatch(source, /\/konatech-logo\.png/);
   }
-  const sanctionsSource = await readFile(resolve(frontend, 'components/sanctions/sanction-rules-panel.tsx'), 'utf8');
-  assert.doesNotMatch(sanctionsSource, /<Button disabled size="sm" variant="secondary">\s*Désactiver/);
+  const sanctionsSource = await readFile(
+    resolve(frontend, 'components/sanctions/sanction-rules-panel.tsx'),
+    'utf8',
+  );
+  assert.doesNotMatch(
+    sanctionsSource,
+    /<Button disabled size="sm" variant="secondary">\s*Désactiver/,
+  );
 
   console.log(
     'Frontend authentication, attendance-entry and team checks passed.',

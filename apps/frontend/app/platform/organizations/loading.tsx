@@ -1,3 +1,28 @@
-import PlatformLoading from '../loading';
+import { PlatformShell } from '@/components/platform/platform-shell';
 
-export default PlatformLoading;
+export default function PlatformOrganizationsLoading() {
+  return (
+    <PlatformShell activeSection="organizations">
+      <main
+        aria-busy="true"
+        aria-label="Chargement des organisations"
+        className="min-w-0 space-y-5"
+      >
+        <div role="status">
+          <h1 className="text-2xl font-semibold tracking-tight text-[#25282D]">
+            Organisations
+          </h1>
+          <p className="mt-1 text-sm text-[#666D77]">
+            Chargement des données de la plateforme…
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          {Array.from({ length: 4 }, (_, index) => (
+            <div className="skeleton-shimmer h-20 rounded-xl" key={index} />
+          ))}
+        </div>
+        <div className="skeleton-shimmer h-96 rounded-xl" />
+      </main>
+    </PlatformShell>
+  );
+}

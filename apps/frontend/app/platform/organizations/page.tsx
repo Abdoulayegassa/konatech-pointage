@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import type { Metadata } from 'next';
 import { PlatformShell } from '@/components/platform/platform-shell';
@@ -41,15 +42,28 @@ export default async function PlatformOrganizationsPage() {
     }
     return (
       <PlatformShell activeSection="organizations">
-        <div className="rounded-3xl border border-red-100 bg-white p-6">
-          <h1 className="text-xl font-black text-slate-950">
+        <section
+          aria-labelledby="organizations-error-title"
+          className="rounded-xl border border-rose-200 bg-white p-5 sm:p-6"
+          role="alert"
+        >
+          <h1
+            className="text-lg font-semibold text-[#25282D]"
+            id="organizations-error-title"
+          >
             Organisations indisponibles
           </h1>
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-1 text-sm leading-5 text-[#626973]">
             La session plateforme est active, mais le service ne répond pas.
             Réessayez plus tard ou déconnectez-vous.
           </p>
-        </div>
+          <Link
+            className="mt-4 inline-flex min-h-10 items-center rounded-lg border border-[#D9DCE1] px-3.5 text-sm font-medium text-[#30343A] hover:bg-[#F5F6F8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F35A24] focus-visible:ring-offset-2"
+            href="/platform/organizations"
+          >
+            Réessayer
+          </Link>
+        </section>
       </PlatformShell>
     );
   }
