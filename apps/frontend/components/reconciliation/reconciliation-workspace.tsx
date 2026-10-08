@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { FieldLabel, Select, Textarea } from '@/components/ui/form-controls';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog';
 
 type Status = 'PENDING_REVIEW' | 'APPROVED' | 'RESOLVED' | 'REJECTED' | 'EXPIRED';
 type Row = {
@@ -43,6 +44,7 @@ export function ReconciliationWorkspace({ sites, timeZone }: { sites: { id: stri
   const [selectedId, setSelectedId] = useState('');
   const [detail, setDetail] = useState<Detail | null>(null);
   const [reason, setReason] = useState('');
+  const [decisionToConfirm, setDecisionToConfirm] = useState<'approve' | 'reject' | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
@@ -84,6 +86,7 @@ export function ReconciliationWorkspace({ sites, timeZone }: { sites: { id: stri
         await loadDetail(detail.id, true);
         await loadList(page);
         setMessage('Ce dossier a été traité entre-temps. Son état actuel a été rechargé.');
+        setDecisionToConfirm(null);
       } else if (!response.ok) {
         setError(response.status === 400 ? 'Le motif doit contenir entre 5 et 1 000 caractères.' : errorText(response));
         if (response.status >= 500) await loadDetail(detail.id, true);
@@ -92,6 +95,7 @@ export function ReconciliationWorkspace({ sites, timeZone }: { sites: { id: stri
         setMessage(decision === 'approve' ? 'Pointage pris en compte.' : 'Pointage rejeté.');
         await loadDetail(detail.id, true);
         await loadList(page);
+        setDecisionToConfirm(null);
       }
     } catch { setError('Décision non confirmée. Rechargez le dossier pour vérifier son état avant toute nouvelle action.'); await loadDetail(detail.id, true); }
     finally { setBusy(false); }
@@ -127,9 +131,41 @@ export function ReconciliationWorkspace({ sites, timeZone }: { sites: { id: stri
         <section aria-labelledby="review-gps-title"><h3 id="review-gps-title" className="text-sm font-semibold">Preuve GPS</h3>{(() => { const e = detail.evidenceSnapshot ?? {}; const lat = e.latitude; const lng = e.longitude; return typeof lat === 'number' && typeof lng === 'number' ? <p className="mt-1 text-sm text-slate-700">{lat.toFixed(6)}, {lng.toFixed(6)}{typeof e.accuracyMeters === 'number' ? ` · précision ${Math.round(e.accuracyMeters)} m` : ''}{typeof e.evidenceCapturedAt === 'string' ? ` · ${dateTime(e.evidenceCapturedAt, timeZone)}` : ''}</p> : <p className="mt-1 text-sm text-slate-500">Aucune position GPS enregistrée pour cet événement.</p>; })()}</section>
         <section aria-labelledby="review-selfie-title"><h3 id="review-selfie-title" className="text-sm font-semibold">Preuve selfie</h3>{detail.hasSelfie && !detail.selfieDeletedAt ? <img src={`/api/attendance/offline-reconciliation/${encodeURIComponent(detail.id)}/selfie`} alt="Selfie transmis avec le pointage" className="mt-2 max-h-72 w-full rounded-lg border border-slate-200 object-contain" /> : <p className="mt-1 text-sm text-slate-500">{detail.selfieDeletedAt ? 'La preuve selfie n’est plus disponible.' : 'Aucun selfie disponible.'}</p>}</section>
         {detail.decisions.length ? <section className="space-y-2 border-t border-slate-100 pt-4"><h3 className="text-sm font-semibold">Décision enregistrée</h3>{detail.decisions.map((decision) => <div key={decision.id} className="text-sm"><p className="font-medium">{decision.decision === 'APPROVE' ? 'Pris en compte' : 'Rejeté'} · {dateTime(decision.decidedAt, timeZone)}</p><p className="mt-1 text-slate-600">Motif : {decision.reason}</p></div>)}{detail.resultingAttendanceId ? <p className="text-xs text-slate-500">Résultat durable : pointage enregistré.</p> : detail.status === 'REJECTED' ? <p className="text-xs text-slate-500">Résultat durable : pointage rejeté, aucune présence créée.</p> : null}</section> : null}
-        {detail.status === 'PENDING_REVIEW' ? <section className="space-y-3 border-t border-slate-100 pt-4"><div><FieldLabel htmlFor="decision-reason">Motif de décision <span className="text-danger">(obligatoire)</span></FieldLabel><Textarea id="decision-reason" value={reason} onChange={(e) => setReason(e.target.value)} minLength={5} maxLength={1000} required aria-describedby="decision-reason-hint" placeholder="Expliquez votre décision…" /><p id="decision-reason-hint" className="mt-1 text-xs text-slate-500">5 à 1 000 caractères. Ce motif est conservé dans l’historique du dossier.</p></div><div className="flex flex-col gap-2 sm:flex-row"><Button type="button" disabled={reason.trim().length < 5 || busy} loading={busy} onClick={() => void decide('approve')} className="flex-1">Prendre en compte</Button><Button type="button" variant="destructive" disabled={reason.trim().length < 5 || busy} onClick={() => void decide('reject')} className="flex-1">Rejeter</Button></div></section> : null}
+        {detail.status === 'PENDING_REVIEW' ? <section className="space-y-3 border-t border-slate-100 pt-4"><div><FieldLabel htmlFor="decision-reason">Motif de décision <span className="text-danger">(obligatoire)</span></FieldLabel><Textarea id="decision-reason" value={reason} onChange={(e) => setReason(e.target.value)} minLength={5} maxLength={1000} required aria-describedby="decision-reason-hint" placeholder="Expliquez votre décision…" /><p id="decision-reason-hint" className="mt-1 text-xs text-slate-500">5 à 1 000 caractères. Ce motif est conservé dans l’historique du dossier.</p></div><div className="flex flex-col gap-2 sm:flex-row"><Button type="button" disabled={reason.trim().length < 5 || busy} loading={busy} onClick={() => setDecisionToConfirm('approve')} className="flex-1">Prendre en compte</Button><Button type="button" variant="destructive" disabled={reason.trim().length < 5 || busy} onClick={() => setDecisionToConfirm('reject')} className="flex-1">Rejeter</Button></div></section> : null}
         {detail.status === 'EXPIRED' ? <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">Ce pointage a expiré et ne peut pas être approuvé depuis cette revue.</p> : null}
       </div>}
     </div>
+    <Dialog
+      onOpenChange={(open) => {
+        if (!open && !busy) setDecisionToConfirm(null);
+      }}
+      open={decisionToConfirm !== null}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{decisionToConfirm === 'approve' ? 'Confirmer la prise en compte ?' : 'Confirmer le rejet ?'}</DialogTitle>
+          <DialogDescription>
+            {decisionToConfirm === 'approve'
+              ? 'Le serveur revérifiera les règles et les preuves avant d’enregistrer ce pointage. Un conflit ou une expiration peut empêcher sa prise en compte.'
+              : 'Ce dossier sera rejeté. Cette décision ne pourra pas être annulée.'}
+          </DialogDescription>
+        </DialogHeader>
+        <p className="break-words rounded-lg bg-slate-50 p-3 text-sm text-slate-700"><span className="font-semibold">Motif :</span> {reason.trim()}</p>
+        <DialogFooter>
+          <Button disabled={busy} onClick={() => setDecisionToConfirm(null)} type="button" variant="secondary">Retour</Button>
+          <Button
+            disabled={busy || !decisionToConfirm || reason.trim().length < 5}
+            loading={busy}
+            onClick={() => {
+              if (decisionToConfirm) void decide(decisionToConfirm);
+            }}
+            type="button"
+            variant={decisionToConfirm === 'reject' ? 'destructive' : 'default'}
+          >
+            {decisionToConfirm === 'approve' ? 'Confirmer la prise en compte' : 'Confirmer le rejet'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </section>;
 }

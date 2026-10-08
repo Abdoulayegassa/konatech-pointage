@@ -290,6 +290,15 @@ export function AdminEmployeesManager({
   }
 
   async function toggleStatus(employee: EmployeeRecord) {
+    if (
+      employee.isActive &&
+      !window.confirm(
+        `Désactiver le profil de ${employee.firstName} ${employee.lastName} ? Ce profil ne pourra plus effectuer de pointage tant qu’il reste inactif.`,
+      )
+    ) {
+      return;
+    }
+
     setRowAction({
       employeeId: employee.id,
       type: 'status',
@@ -659,7 +668,7 @@ export function AdminEmployeesManager({
             />
           ) : (
             <>
-              <TableContainer aria-label="Liste des employés, défilement horizontal disponible" className="min-w-0" role="region" tabIndex={0}>
+              <TableContainer aria-label="Liste des employés, défilement horizontal disponible" className="hidden min-w-0 xl:block" role="region" tabIndex={0}>
                 <Table className="min-w-[760px]">
                   <TableHeader>
                     <TableRow>
@@ -715,6 +724,38 @@ export function AdminEmployeesManager({
                   </TableBody>
                 </Table>
               </TableContainer>
+              <div aria-label="Liste des employés" className="space-y-3 px-3 xl:hidden" role="list">
+                {pageEmployees.map((employee) => {
+                  const accountStatus = getAccountStatusMeta(employee.isActive);
+                  const pinStatus = getPinStatusMeta(employee);
+                  const isEditing = rowAction?.employeeId === employee.id && rowAction.type === 'edit';
+                  const isUpdatingStatus = rowAction?.employeeId === employee.id && rowAction.type === 'status';
+                  return (
+                    <article className="rounded-xl border border-border bg-white p-4" key={employee.id} role="listitem">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="break-words font-semibold text-slate-950">{employee.firstName} {employee.lastName}</p>
+                          <p className="mt-0.5 text-xs text-slate-600">{employee.employeeIdentifier}</p>
+                          <p className="mt-0.5 break-all text-xs text-slate-600">{employee.email}</p>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-1.5">
+                          <Badge variant={accountStatus.variant}>{accountStatus.label}</Badge>
+                          <Badge variant={pinStatus.variant}>{pinStatus.label}</Badge>
+                        </div>
+                      </div>
+                      <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-border pt-3 text-sm">
+                        <div><dt className="text-xs text-slate-500">Fonction</dt><dd className="font-medium text-slate-900">{employee.role}</dd></div>
+                        <div><dt className="text-xs text-slate-500">Département</dt><dd className="font-medium text-slate-900">{employee.department ?? '—'}</dd></div>
+                        <div className="col-span-2"><dt className="text-xs text-slate-500">Site et planning</dt><dd className="font-medium text-slate-900">{employee.primarySite?.name ?? 'Site non renseigné'} · {employee.schedule?.name ?? 'Sans planning'}</dd></div>
+                      </dl>
+                      {canManage ? <div className="mt-3 flex flex-col gap-2 border-t border-border pt-3 sm:flex-row">
+                        <Button aria-label={`Modifier ${employee.firstName} ${employee.lastName}`} className="min-h-10 flex-1" disabled={Boolean(rowAction)} onClick={() => startEdit(employee.id)} size="sm" type="button" variant="secondary">{isEditing ? 'Chargement…' : 'Modifier'}</Button>
+                        <Button aria-label={`${employee.isActive ? 'Désactiver' : 'Activer'} ${employee.firstName} ${employee.lastName}`} className="min-h-10 flex-1" disabled={Boolean(rowAction)} onClick={() => toggleStatus(employee)} size="sm" type="button" variant="ghost">{isUpdatingStatus ? 'Mise à jour…' : employee.isActive ? 'Désactiver' : 'Activer'}</Button>
+                      </div> : null}
+                    </article>
+                  );
+                })}
+              </div>
               {pageCount > 1 ? <nav aria-label="Pagination des employés" className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
                 <p className="text-xs text-slate-600">{(activePage - 1) * pageSize + 1}–{Math.min(activePage * pageSize, visibleEmployees)} sur {visibleEmployees}</p>
                 <div className="flex items-center gap-2">

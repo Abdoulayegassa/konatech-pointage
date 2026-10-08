@@ -293,10 +293,20 @@ export function AttendanceHistoryWorkspace({
       {error ? (
         <div
           aria-live="polite"
-          className="rounded-[20px] border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700"
+          className="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 sm:flex-row sm:items-center sm:justify-between"
           role="alert"
         >
-          {error}
+          <span>{error}</span>
+          <Button
+            className="min-h-10 shrink-0"
+            disabled={loading}
+            loading={loading}
+            onClick={() => void loadHistory(filters)}
+            type="button"
+            variant="secondary"
+          >
+            Réessayer
+          </Button>
         </div>
       ) : null}
 

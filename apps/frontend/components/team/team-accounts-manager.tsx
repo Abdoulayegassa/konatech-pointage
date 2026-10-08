@@ -65,6 +65,7 @@ export function TeamAccountsManager({
   const [email, setEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<MembershipRole>('EMPLOYEE');
   const [acceptanceUrl, setAcceptanceUrl] = useState('');
+  const [copyMessage, setCopyMessage] = useState('');
   const [search, setSearch] = useState('');
   const [memberRoleFilter, setMemberRoleFilter] = useState<'all' | MembershipRole>('all');
   const [memberStatusFilter, setMemberStatusFilter] = useState<'all' | MembershipStatus>('all');
@@ -135,6 +136,7 @@ export function TeamAccountsManager({
           ? `${window.location.origin}/invitations/accept?token=${encodeURIComponent(payload.invitationToken)}`
           : '',
       );
+      setCopyMessage('');
       setEmail('');
       setFeedback({
         tone: 'success',
@@ -148,6 +150,16 @@ export function TeamAccountsManager({
       });
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function copyInvitationLink() {
+    if (!acceptanceUrl) return;
+    try {
+      await navigator.clipboard.writeText(acceptanceUrl);
+      setCopyMessage('Lien copié. Transmettez-le uniquement à la personne invitée.');
+    } catch {
+      setCopyMessage('Copie impossible sur cet appareil. Sélectionnez le lien ci-dessus pour le copier.');
     }
   }
 
@@ -272,7 +284,26 @@ export function TeamAccountsManager({
         </CardHeader>
       <CardContent className="p-0">
           {filteredMembers.length ? (
-            <div className="overflow-x-auto" role="region" aria-label="Membres, défilement horizontal disponible" tabIndex={0}><table className="w-full min-w-[760px] text-left text-sm">
+            <>
+            <div className="space-y-3 p-4 xl:hidden" aria-label="Liste des membres">
+              {filteredMembers.map((member) => {
+                const isCurrent = member.id === currentMembershipId;
+                return <article className="space-y-3 rounded-xl border border-slate-200 p-4" key={member.id}>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0"><p className="break-all font-semibold text-slate-900">{member.user.normalizedEmail}</p>{isCurrent ? <p className="text-xs text-slate-500">Vous</p> : null}</div>
+                    <Badge variant={member.status === 'ACTIVE' ? 'success' : member.status === 'SUSPENDED' ? 'warning' : 'danger'}>{statusLabels[member.status]}</Badge>
+                  </div>
+                  <p className="text-xs text-slate-500">Créé le {formatDate(member.createdAt)}</p>
+                  <label className="block space-y-1 text-xs font-medium text-slate-600">Rôle
+                    <select aria-label={`Rôle de ${member.user.normalizedEmail}`} className="min-h-10 w-full rounded-xl border bg-white px-3 text-sm text-slate-900 disabled:bg-slate-100" disabled={busy === member.id || member.status === 'REVOKED'} onChange={(event) => void updateMember(member, 'role', event.target.value as MembershipRole)} value={member.role}>
+                      <option value="ADMIN">Administrateur</option><option value="EMPLOYEE">Employé</option>
+                    </select>
+                  </label>
+                  {member.status === 'ACTIVE' ? <Button className="w-full" disabled={busy === member.id} onClick={() => void updateMember(member, 'status', 'SUSPENDED')} size="sm" variant="secondary">Suspendre</Button> : member.status === 'SUSPENDED' ? <Button className="w-full" disabled={busy === member.id} onClick={() => void updateMember(member, 'status', 'ACTIVE')} size="sm">Réactiver</Button> : null}
+                </article>;
+              })}
+            </div>
+            <div className="hidden overflow-x-auto xl:block" role="region" aria-label="Membres, défilement horizontal disponible" tabIndex={0}><table className="w-full min-w-[760px] text-left text-sm">
               <thead className="border-b bg-slate-50 text-xs text-slate-600"><tr><th className="px-4 py-3 font-semibold">Compte</th><th className="px-4 py-3 font-semibold">Rôle</th><th className="px-4 py-3 font-semibold">Statut</th><th className="px-4 py-3 font-semibold">Créé le</th><th className="px-4 py-3 text-right font-semibold">Actions</th></tr></thead>
               <tbody className="divide-y divide-slate-200">{filteredMembers.map((member) => {
               const isOwnerProtected = false;
@@ -334,6 +365,7 @@ export function TeamAccountsManager({
               );
             })}</tbody>
             </table></div>
+            </>
           ) : (
             <AdminEmptyState
               badge="Membres"
@@ -350,10 +382,10 @@ export function TeamAccountsManager({
         <Card className="rounded-xl border-slate-200 bg-white shadow-none">
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
             <div><CardTitle className="text-base">Invitations de l’organisation</CardTitle><p className="mt-1 text-sm text-slate-600">Les invitations activent un compte à leur acceptation, sans créer de profil employé.</p><p className="mt-2 text-xs font-medium text-slate-600"><span className="font-semibold text-slate-900">{pendingCount}</span> en attente · {invitations.length} au total</p></div>
-            <Button onClick={() => { setAcceptanceUrl(''); setFeedback(null); setInviteOpen(true); }} type="button">Nouvelle invitation</Button>
+            <Button onClick={() => { setAcceptanceUrl(''); setCopyMessage(''); setFeedback(null); setInviteOpen(true); }} type="button">Nouvelle invitation</Button>
           </CardHeader>
         </Card>
-        <Dialog onOpenChange={setInviteOpen} open={inviteOpen}>
+        <Dialog onOpenChange={(open) => { setInviteOpen(open); if (!open) { setAcceptanceUrl(''); setCopyMessage(''); } }} open={inviteOpen}>
           <DialogContent className="sm:max-w-lg">
             <DialogHeader><DialogTitle>Nouvelle invitation</DialogTitle><DialogDescription>Le lien d’acceptation sera affiché après création pour transmission manuelle.</DialogDescription></DialogHeader>
             <p aria-live="polite" className={`rounded-lg p-3 text-sm ${administratorLimit === null ? 'bg-slate-50 text-slate-600' : administratorLimit > 0 && reservedAdministratorCount >= administratorLimit ? 'bg-amber-50 text-amber-900' : 'bg-blue-50 text-blue-900'}`}>
@@ -392,12 +424,12 @@ export function TeamAccountsManager({
                 {busy === 'invite' ? 'Création…' : 'Créer l’invitation'}
               </Button>
               {acceptanceUrl ? (
-                <p className="break-all rounded-xl bg-amber-50 p-3 text-xs text-amber-900">
-                  Lien d’acceptation à transmettre de façon sécurisée :{' '}
-                  <a className="font-bold underline" href={acceptanceUrl}>
-                    {acceptanceUrl}
-                  </a>
-                </p>
+                <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
+                  <p className="font-semibold">Lien secret à transmettre uniquement à la personne invitée</p>
+                  <input aria-label="Lien d’acceptation secret" className="min-h-10 w-full select-all rounded-lg border border-amber-300 bg-white px-2 font-mono text-[11px]" onFocus={(event) => event.currentTarget.select()} readOnly value={acceptanceUrl} />
+                  <Button className="min-h-10 w-full" onClick={() => void copyInvitationLink()} type="button" variant="secondary">Copier le lien secret</Button>
+                  {copyMessage ? <p aria-live="polite">{copyMessage}</p> : null}
+                </div>
               ) : null}
               <p className="text-xs leading-5 text-slate-500">
                 Le lien est affiché après création pour pouvoir être transmis au
@@ -414,7 +446,19 @@ export function TeamAccountsManager({
           <CardHeader className="grid gap-2 border-b sm:grid-cols-[minmax(220px,1fr)_180px]"><input aria-label="Rechercher une invitation" className="min-h-10 rounded-lg border bg-white px-3 text-sm" onChange={(event) => setInvitationSearch(event.target.value)} placeholder="Rechercher par email" type="search" value={invitationSearch} /><select aria-label="Filtrer les invitations par statut" className="min-h-10 rounded-lg border bg-white px-3 text-sm" onChange={(event) => setInvitationStatus(event.target.value)} value={invitationStatus}><option value="all">Tous les statuts</option><option value="En attente">En attente</option><option value="Acceptée">Acceptée</option><option value="Expirée">Expirée</option><option value="Révoquée">Révoquée</option></select></CardHeader>
           <CardContent className="p-0">
             {filteredInvitations.length ? (
-              <div className="overflow-x-auto" role="region" aria-label="Invitations, défilement horizontal disponible" tabIndex={0}><table className="w-full min-w-[700px] text-left text-sm">
+              <>
+              <div className="space-y-3 p-4 xl:hidden" aria-label="Liste des invitations">
+                {filteredInvitations.map((invitation) => {
+                  const state = getInvitationStatus(invitation);
+                  return <article className="space-y-3 rounded-xl border border-slate-200 p-4" key={invitation.id}>
+                    <div className="flex flex-wrap items-start justify-between gap-2"><p className="min-w-0 break-all font-semibold text-slate-900">{invitation.email}</p><Badge variant={state.tone}>{state.label}</Badge></div>
+                    <p className="text-sm text-slate-600">{roleLabels[invitation.role]}</p>
+                    <dl className="grid grid-cols-2 gap-2 text-xs"><div><dt className="text-slate-500">Créée</dt><dd>{formatDate(invitation.createdAt)}</dd></div><div><dt className="text-slate-500">Expire</dt><dd>{formatDate(invitation.expiresAt)}</dd></div></dl>
+                    {state.label === 'En attente' ? <Button className="w-full border-red-200 text-red-700" disabled={busy === invitation.id} onClick={() => void revokeInvitation(invitation)} size="sm" variant="secondary">Révoquer</Button> : null}
+                  </article>;
+                })}
+              </div>
+              <div className="hidden overflow-x-auto xl:block" role="region" aria-label="Invitations, défilement horizontal disponible" tabIndex={0}><table className="w-full min-w-[700px] text-left text-sm">
                 <thead className="border-b bg-slate-50 text-xs text-slate-600"><tr><th className="px-4 py-3 font-semibold">Compte invité</th><th className="px-4 py-3 font-semibold">Rôle</th><th className="px-4 py-3 font-semibold">Créée</th><th className="px-4 py-3 font-semibold">Expire</th><th className="px-4 py-3 font-semibold">Statut</th><th className="px-4 py-3 text-right font-semibold">Actions</th></tr></thead><tbody className="divide-y divide-slate-200">{filteredInvitations.map((invitation) => {
                 const state = getInvitationStatus(invitation);
                 return (
@@ -440,6 +484,7 @@ export function TeamAccountsManager({
                   </tr>
                 );
               })}</tbody></table></div>
+              </>
             ) : (
               <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">
                 Aucune invitation envoyée.

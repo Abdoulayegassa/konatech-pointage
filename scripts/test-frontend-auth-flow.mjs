@@ -56,6 +56,7 @@ const pageRoutePatterns = (
     right.segments.length - left.segments.length,
 );
 const firstAccessedPageRoutes = new Set();
+const firstAccessedApiRoutes = new Set();
 
 function pageRouteForPath(pathname) {
   const actualSegments = pathname
@@ -93,16 +94,25 @@ const fetch = async (input, init = {}) => {
     url.origin === frontendOrigin &&
     method === 'GET' &&
     !url.pathname.startsWith('/api/');
+  const isNextApiRequest =
+    frontendOrigin &&
+    url.origin === frontendOrigin &&
+    url.pathname.startsWith('/api/');
   const route = isNextPageRequest ? pageRouteForPath(url.pathname) : null;
   const firstRouteAccess =
     route !== null && !firstAccessedPageRoutes.has(route);
-  const timeoutMs = firstRouteAccess
+  const apiRoute = isNextApiRequest ? url.pathname : null;
+  const firstApiRouteAccess =
+    apiRoute !== null && !firstAccessedApiRoutes.has(apiRoute);
+  const firstFrontendRouteAccess = firstRouteAccess || firstApiRouteAccess;
+  const timeoutMs = firstFrontendRouteAccess
     ? coldPageRequestTimeoutMs
     : normalRequestTimeoutMs;
 
-  if (firstRouteAccess) {
+  if (firstFrontendRouteAccess) {
+    const routeLabel = route ?? apiRoute;
     console.log(
-      `[frontend-auth] First access to ${route}; one request allowed up to ${timeoutMs / 1000}s for Next.js compilation.`,
+      `[frontend-auth] First access to ${routeLabel}; one request allowed up to ${timeoutMs / 1000}s for Next.js compilation.`,
     );
   }
 
@@ -112,21 +122,25 @@ const fetch = async (input, init = {}) => {
       ...init,
       signal: init.signal ?? AbortSignal.timeout(timeoutMs),
     });
-    if (firstRouteAccess && (response.status < 300 || response.status >= 400)) {
-      firstAccessedPageRoutes.add(route);
+    if (
+      firstFrontendRouteAccess &&
+      (response.status < 300 || response.status >= 400)
+    ) {
+      if (route !== null) firstAccessedPageRoutes.add(route);
+      if (apiRoute !== null) firstAccessedApiRoutes.add(apiRoute);
       console.log(
-        `[frontend-auth] First access to ${route} returned HTTP ${response.status} in ${Date.now() - startedAt}ms.`,
+        `[frontend-auth] First access to ${route ?? apiRoute} returned HTTP ${response.status} in ${Date.now() - startedAt}ms.`,
       );
-    } else if (firstRouteAccess) {
+    } else if (firstFrontendRouteAccess) {
       console.log(
-        `[frontend-auth] First access to ${route} returned redirect HTTP ${response.status}; keeping its cold-compilation allowance for the next page response.`,
+        `[frontend-auth] First access to ${route ?? apiRoute} returned redirect HTTP ${response.status}; keeping its cold-compilation allowance for the next response.`,
       );
     }
     return response;
   } catch (error) {
-    if (firstRouteAccess) {
+    if (firstFrontendRouteAccess) {
       console.error(
-        `[frontend-auth] First access to ${route} failed after ${Date.now() - startedAt}ms.`,
+        `[frontend-auth] First access to ${route ?? apiRoute} failed after ${Date.now() - startedAt}ms.`,
       );
     }
     throw error;
@@ -2140,6 +2154,49 @@ try {
   assert.match(employeeManagerSource, /Plan quota reached for activeEmployees/);
   assert.match(employeeManagerSource, /employeeCapacity\.activeEmployees/);
   assert.match(employeeManagerSource, /Employés actifs:/);
+  assert.match(employeeManagerSource, /window\.confirm\(/);
+
+  const siteManagerSource = await readFile(
+    resolve(frontend, 'components/attendance-sites/attendance-sites-manager.tsx'),
+    'utf8',
+  );
+  assert.match(siteManagerSource, /onClick=\{\(\) => setSiteStatusChange\(site\)\}/);
+  assert.match(siteManagerSource, /Les pointages hors ligne en attente seront réévalués/);
+
+  const reconciliationSource = await readFile(
+    resolve(frontend, 'components/reconciliation/reconciliation-workspace.tsx'),
+    'utf8',
+  );
+  assert.match(reconciliationSource, /setDecisionToConfirm\('approve'\)/);
+  assert.match(reconciliationSource, /setDecisionToConfirm\('reject'\)/);
+  assert.match(reconciliationSource, /Confirmer la prise en compte/);
+
+  const historyTableSource = await readFile(
+    resolve(frontend, 'components/attendance-history/attendance-history-table.tsx'),
+    'utf8',
+  );
+  assert.match(historyTableSource, /record\.attendanceSite\?\.name/);
+  assert.match(historyTableSource, /Afficher le détail du pointage de/);
+  const historyWorkspaceSource = await readFile(
+    resolve(frontend, 'components/attendance-history/attendance-history-workspace.tsx'),
+    'utf8',
+  );
+  assert.match(historyWorkspaceSource, /Réessayer/);
+
+  const teamAccountsSource = await readFile(
+    resolve(frontend, 'components/team/team-accounts-manager.tsx'),
+    'utf8',
+  );
+  const invitationProxySource = await readFile(
+    resolve(frontend, 'app/api/team/invitations/route.ts'),
+    'utf8',
+  );
+  assert.match(invitationProxySource, /headers: \{ 'Cache-Control': 'no-store' \}/);
+  assert.doesNotMatch(invitationProxySource, /console\./);
+  assert.match(teamAccountsSource, /if \(!open\) \{ setAcceptanceUrl\(''\); setCopyMessage\(''\); \}/);
+  assert.match(teamAccountsSource, /Copier le lien secret/);
+  assert.doesNotMatch(teamAccountsSource, /localStorage|sessionStorage/);
+
   const qrCardSource = await readFile(
     resolve(frontend, 'components/dashboard/attendance-entry-qr-card.tsx'),
     'utf8',

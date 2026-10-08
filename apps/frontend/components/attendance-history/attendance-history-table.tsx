@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AttendanceDetailPanel } from '@/components/attendance-history/attendance-detail-panel';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { AttendanceRecord } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -259,12 +260,37 @@ export function AttendanceHistoryTable({
               </div>
             </div>
           ) : (
-            <div className="max-h-[680px] overflow-auto">
-              <table className="min-w-[1320px] border-separate border-spacing-0 text-left">
+            <>
+            <div className="space-y-3 min-[1440px]:hidden">
+              {filteredRecords.map((record) => {
+                const status = getStatusMeta(record);
+                return (
+                  <article className="rounded-xl border border-slate-200 bg-white p-4" key={record.id}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-950">{record.employee.firstName} {record.employee.lastName}</p>
+                        <p className="mt-0.5 text-xs text-slate-600">{record.employee.employeeIdentifier} · {formatDate(record.date)}</p>
+                        <p className="mt-1 truncate text-xs text-slate-500">{record.attendanceSite?.name ?? 'Site non renseigné'}{record.employee.department ? ` · ${record.employee.department}` : ''}</p>
+                      </div>
+                      <Badge className={statusToneClassNames[status.tone]} variant="outline">{status.label}</Badge>
+                    </div>
+                    <dl className="mt-3 grid grid-cols-2 gap-3 border-t border-slate-100 pt-3 text-sm">
+                      <div><dt className="text-xs text-slate-500">Entrée</dt><dd className="font-semibold tabular-nums text-slate-900">{formatTime(record.clockInAt, timeZone)}</dd></div>
+                      <div><dt className="text-xs text-slate-500">Sortie</dt><dd className="font-semibold tabular-nums text-slate-900">{formatTime(record.clockOutAt, timeZone)}</dd></div>
+                    </dl>
+                    <Button className="mt-3 min-h-10 w-full" onClick={() => setSelectedRecord(record)} type="button" variant="secondary">Afficher le détail</Button>
+                  </article>
+                );
+              })}
+            </div>
+
+            <div className="hidden max-h-[680px] overflow-auto min-[1440px]:block">
+              <table className="min-w-[1100px] border-separate border-spacing-0 text-left">
                 <thead>
                   <tr>
                     <th className={headerClassName}>Date</th>
                     <th className={headerClassName}>Employé</th>
+                    <th className={headerClassName}>Site</th>
                     <th className={headerClassName}>Département</th>
                     <th className={headerClassName}>Entrée</th>
                     <th className={headerClassName}>Sortie</th>
@@ -289,11 +315,10 @@ export function AttendanceHistoryTable({
                     return (
                       <tr
                         className={cn(
-                          'cursor-pointer transition duration-200 hover:bg-accent/5 focus-within:bg-accent/5',
+                          'transition duration-200 hover:bg-accent/5',
                           index % 2 === 0 ? 'bg-white' : 'bg-slate-50/55',
                         )}
                         key={record.id}
-                        onClick={() => setSelectedRecord(record)}
                       >
                         <td
                           className={cn(
@@ -301,7 +326,14 @@ export function AttendanceHistoryTable({
                             'font-bold text-slate-700',
                           )}
                         >
-                          {formatDate(record.date)}
+                          <button
+                            aria-label={`Afficher le détail du pointage de ${record.employee.firstName} ${record.employee.lastName} du ${formatDate(record.date)}`}
+                            className="rounded-sm text-left font-bold text-slate-700 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                            onClick={() => setSelectedRecord(record)}
+                            type="button"
+                          >
+                            {formatDate(record.date)}
+                          </button>
                         </td>
                         <td className={cellClassName}>
                           <p className="font-black text-slate-950">
@@ -311,6 +343,9 @@ export function AttendanceHistoryTable({
                           <p className="mt-0.5 text-xs font-semibold text-slate-500">
                             {record.employee.employeeIdentifier}
                           </p>
+                        </td>
+                        <td className={cn(cellClassName, 'font-semibold text-slate-600')}>
+                          {record.attendanceSite?.name ?? '—'}
                         </td>
                         <td
                           className={cn(
@@ -398,6 +433,7 @@ export function AttendanceHistoryTable({
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </CardContent>
       </Card>

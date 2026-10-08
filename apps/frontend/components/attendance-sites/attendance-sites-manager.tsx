@@ -21,6 +21,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/primitives/dropdown-menu';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/primitives/sheet';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/primitives/dialog';
 
 type AttendanceSitesManagerProps = {
   attendanceEntryPath: string;
@@ -83,6 +84,7 @@ export function AttendanceSitesManager({
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pendingSiteId, setPendingSiteId] = useState<string | null>(null);
+  const [siteStatusChange, setSiteStatusChange] = useState<AttendanceSite | null>(null);
   const [isLocating, setIsLocating] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
 
@@ -355,7 +357,7 @@ export function AttendanceSitesManager({
                           <MoreHorizontal aria-hidden="true" className="h-4 w-4" />
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-44">
-                          <DropdownMenuItem onClick={() => void toggleStatus(site)}>
+                          <DropdownMenuItem onClick={() => setSiteStatusChange(site)}>
                             {pendingSiteId === site.id
                               ? 'Traitement…'
                               : site.isActive
@@ -424,6 +426,38 @@ export function AttendanceSitesManager({
       </section>
 
       {canManage ? <>
+        <Dialog
+          onOpenChange={(open) => {
+            if (!open && !pendingSiteId) setSiteStatusChange(null);
+          }}
+          open={siteStatusChange !== null}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{siteStatusChange?.isActive ? 'Désactiver ce site ?' : 'Réactiver ce site ?'}</DialogTitle>
+              <DialogDescription>
+                {siteStatusChange?.isActive
+                  ? `Le site « ${siteStatusChange.name} » ne pourra plus recevoir de nouveaux pointages. Les pointages hors ligne en attente seront réévalués selon son statut au moment de l’événement.`
+                  : `Le site « ${siteStatusChange?.name} » pourra de nouveau recevoir des pointages.`}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button disabled={pendingSiteId !== null} onClick={() => setSiteStatusChange(null)} type="button" variant="secondary">Annuler</Button>
+              <Button
+                disabled={!siteStatusChange || pendingSiteId !== null}
+                onClick={() => {
+                  if (!siteStatusChange) return;
+                  const site = siteStatusChange;
+                  void toggleStatus(site).finally(() => setSiteStatusChange(null));
+                }}
+                type="button"
+                variant={siteStatusChange?.isActive ? 'destructive' : 'default'}
+              >
+                {pendingSiteId ? 'Mise à jour…' : siteStatusChange?.isActive ? 'Désactiver le site' : 'Réactiver le site'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
         <Sheet onOpenChange={setFormOpen} open={formOpen}>
           <SheetContent className="w-full overflow-y-auto sm:max-w-xl" side="right">
             <SheetHeader className="border-b border-border px-5 pb-4 pr-12">
